@@ -443,7 +443,7 @@ display_filter_t rg_display_get_filter(void)
 void rg_display_set_rotation(display_rotation_t rotation)
 {
     config.rotation = RG_MIN(RG_MAX(0, rotation), RG_DISPLAY_ROTATION_COUNT - 1);
-    rg_settings_set_number(NS_APP, SETTING_SCALING, config.rotation);
+    rg_settings_set_number(NS_APP, SETTING_ROTATION, config.rotation);
     display.changed = true;
 }
 
