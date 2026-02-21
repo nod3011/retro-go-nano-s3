@@ -34,6 +34,8 @@
 #include "targets/redroid-go/config.h"
 #elif defined(RG_TARGET_NANO_S3)
 #include "targets/nano-s3/config.h"
+#elif defined(RG_TARGET_NANO_S3_SQ)
+#include "targets/nano-s3-sq/config.h"
 #else
 #warning "No target defined. Defaulting to ODROID-GO."
 #include "targets/odroid-go/config.h"
