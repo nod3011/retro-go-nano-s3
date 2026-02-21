@@ -18,16 +18,11 @@
 #define RG_SCREEN_HOST              SPI2_HOST
 #define RG_SCREEN_SPEED             SPI_MASTER_FREQ_40M
 #define RG_SCREEN_BACKLIGHT         1
-#define RG_SCREEN_WIDTH             296
+#define RG_SCREEN_WIDTH             300
 #define RG_SCREEN_HEIGHT            240
 #define RG_SCREEN_ROTATE            0
-#define RG_SCREEN_VISIBLE_AREA      {0, 0, 0, 0}  // Left, Top, Right, Bottom
-#define RG_SCREEN_SAFE_AREA         {0, 0, 0, 0}  // Left, Top, Right, Bottom
-// #define RG_SCREEN_WIDTH             300
-// #define RG_SCREEN_HEIGHT            240
-// #define RG_SCREEN_ROTATE            0
-// #define RG_SCREEN_VISIBLE_AREA      {20, 0, 0, 0}   // Left, Top, Right, Bottom
-// #define RG_SCREEN_SAFE_AREA         {20, 0, 20, 0}  // Left, Top, Right, Bottom
+#define RG_SCREEN_VISIBLE_AREA      {20, 0, 0, 0}   // Left, Top, Right, Bottom
+#define RG_SCREEN_SAFE_AREA         {20, 0, 20, 0}  // Left, Top, Right, Bottom
 #define RG_SCREEN_INIT()                                                                                         \
     ILI9341_CMD(0xCF, 0x00, 0xc3, 0x30);                                                                         \
     ILI9341_CMD(0xED, 0x64, 0x03, 0x12, 0x81);                                                                   \
