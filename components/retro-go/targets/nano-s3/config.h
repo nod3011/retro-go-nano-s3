@@ -68,7 +68,7 @@
 
 
 // Status LED
-// #define RG_GPIO_LED                 GPIO_NUM_2
+#define RG_GPIO_LED                 GPIO_NUM_43
 
 // I2C BUS
 // #define RG_GPIO_I2C_SDA             GPIO_NUM_15
