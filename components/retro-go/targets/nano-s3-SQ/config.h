@@ -1,5 +1,5 @@
 // Target definition
-#define RG_TARGET_NAME             "NANO-S3"
+#define RG_TARGET_NAME             "NANO-S3-SQ"
 
 // Storage
 #define RG_STORAGE_ROOT             "/sd"
@@ -18,7 +18,7 @@
 #define RG_SCREEN_HOST              SPI2_HOST
 #define RG_SCREEN_SPEED             SPI_MASTER_FREQ_40M
 #define RG_SCREEN_BACKLIGHT         1
-#define RG_SCREEN_WIDTH             296
+#define RG_SCREEN_WIDTH             240
 #define RG_SCREEN_HEIGHT            240
 #define RG_SCREEN_ROTATE            0
 #define RG_SCREEN_VISIBLE_AREA      {0, 0, 0, 0}  // Left, Top, Right, Bottom
@@ -73,7 +73,7 @@
 
 
 // Status LED
-// #define RG_GPIO_LED                 GPIO_NUM_2
+#define RG_GPIO_LED                 GPIO_NUM_43
 
 // I2C BUS
 // #define RG_GPIO_I2C_SDA             GPIO_NUM_15
