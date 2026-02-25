@@ -25,7 +25,7 @@
 #endif
 
 #define RG_STRUCT_MAGIC 0x12345678
-#define RG_LOGBUF_SIZE 2048
+#define RG_LOGBUF_SIZE  2048
 typedef struct
 {
     uint32_t magicWord;
@@ -101,7 +101,9 @@ static const char *SETTING_TIMEZONE = "Timezone";
 static const char *SETTING_INDICATOR_MASK = "Indicators";
 
 #define logbuf_putc(buf, c) (buf)->console[(buf)->cursor++] = c, (buf)->cursor %= RG_LOGBUF_SIZE;
-#define logbuf_puts(buf, str) for (const char *ptr = str; *ptr; ptr++) logbuf_putc(buf, *ptr);
+#define logbuf_puts(buf, str)                \
+    for (const char *ptr = str; *ptr; ptr++) \
+        logbuf_putc(buf, *ptr);
 
 
 static inline void begin_panic_trace(const char *context, const char *message)
@@ -143,8 +145,8 @@ static bool update_boot_config(const char *partition, const char *name, const ch
     const esp_partition_t *current = esp_ota_get_boot_partition();
     if (partition && (!current || strncmp(current->label, partition, 16) != 0))
     {
-        esp_err_t err = esp_ota_set_boot_partition(esp_partition_find_first(
-                ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, partition));
+        esp_err_t err = esp_ota_set_boot_partition(
+            esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, partition));
         if (err != ESP_OK)
         {
             RG_LOGE("esp_ota_set_boot_partition returned 0x%02X!", err);
@@ -269,17 +271,11 @@ static void system_monitor_task(void *arg)
 
         // Try to avoid complex conversions that could allocate, prefer rounding/ceiling if necessary.
         rg_system_log(RG_LOG_DEBUG, NULL, "STACK:%d, HEAP:%d+%d (%d+%d), BUSY:%d%%, FPS:%d (S:%d R:%d+%d), BATT:%d",
-            statistics.freeStackMain,
-            statistics.freeMemoryInt / 1024,
-            statistics.freeMemoryExt / 1024,
-            statistics.freeBlockInt / 1024,
-            statistics.freeBlockExt / 1024,
-            (int)roundf(statistics.busyPercent),
-            (int)roundf(statistics.totalFPS),
-            (int)roundf(statistics.skippedFPS),
-            (int)roundf(statistics.partialFPS),
-            (int)roundf(statistics.fullFPS),
-            (int)roundf((battery.volts * 1000) ?: battery.level));
+                      statistics.freeStackMain, statistics.freeMemoryInt / 1024, statistics.freeMemoryExt / 1024,
+                      statistics.freeBlockInt / 1024, statistics.freeBlockExt / 1024,
+                      (int)roundf(statistics.busyPercent), (int)roundf(statistics.totalFPS),
+                      (int)roundf(statistics.skippedFPS), (int)roundf(statistics.partialFPS),
+                      (int)roundf(statistics.fullFPS), (int)roundf((battery.volts * 1000) ?: battery.level));
 
         // Auto frameskip
         if (statistics.ticks > app.tickRate * 2)
@@ -358,32 +354,32 @@ static void enter_recovery_mode(void)
 static void platform_init(void)
 {
 #if defined(ESP_PLATFORM)
-    // At boot time those pins are muxed to JTAG and can interfere with other things.
-    #if CONFIG_IDF_TARGET_ESP32
-        gpio_reset_pin(GPIO_NUM_12);
-        gpio_reset_pin(GPIO_NUM_13);
-        gpio_reset_pin(GPIO_NUM_14);
-        gpio_reset_pin(GPIO_NUM_15);
-    #endif
-    // Setup all SPI CS lines here in case we have a shared bus. A floating device could cause
-    // problems during the initialization of the first peripherals...
-    #if defined(RG_SCREEN_HOST) && defined(RG_GPIO_LCD_CS)
-        gpio_set_direction(RG_GPIO_LCD_CS, GPIO_MODE_OUTPUT);
-        gpio_set_level(RG_GPIO_LCD_CS, 1);
-    #endif
-    #if defined(RG_STORAGE_SDSPI_HOST) && defined(RG_GPIO_SDSPI_CS)
-        gpio_set_direction(RG_GPIO_SDSPI_CS, GPIO_MODE_OUTPUT);
-        gpio_set_level(RG_GPIO_SDSPI_CS, 1);
-    #endif
-    #ifdef RG_GPIO_LED
-        gpio_set_direction(RG_GPIO_LED, GPIO_MODE_OUTPUT);
-        gpio_set_level(RG_GPIO_LED, 0);
-    #endif
+// At boot time those pins are muxed to JTAG and can interfere with other things.
+#if CONFIG_IDF_TARGET_ESP32
+    gpio_reset_pin(GPIO_NUM_12);
+    gpio_reset_pin(GPIO_NUM_13);
+    gpio_reset_pin(GPIO_NUM_14);
+    gpio_reset_pin(GPIO_NUM_15);
+#endif
+// Setup all SPI CS lines here in case we have a shared bus. A floating device could cause
+// problems during the initialization of the first peripherals...
+#if defined(RG_SCREEN_HOST) && defined(RG_GPIO_LCD_CS)
+    gpio_set_direction(RG_GPIO_LCD_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(RG_GPIO_LCD_CS, 1);
+#endif
+#if defined(RG_STORAGE_SDSPI_HOST) && defined(RG_GPIO_SDSPI_CS)
+    gpio_set_direction(RG_GPIO_SDSPI_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(RG_GPIO_SDSPI_CS, 1);
+#endif
+#ifdef RG_GPIO_LED
+    gpio_set_direction(RG_GPIO_LED, GPIO_MODE_OUTPUT);
+    gpio_set_level(RG_GPIO_LED, 0);
+#endif
 #elif defined(RG_TARGET_SDL2)
     freopen("stdout.txt", "w", stdout);
     freopen("stderr.txt", "w", stderr);
     SDL_SetMainReady();
-    if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) < 0)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0)
         RG_PANIC("SDL Init failed!");
 #endif
 
@@ -432,13 +428,13 @@ rg_app_t *rg_system_init(int sampleRate, const rg_handlers_t *handlers, void *_u
         .enWatchdog = true,
         .isColdBoot = true,
         .isLauncher = false,
-    #if RG_BUILD_RELEASE
+#if RG_BUILD_RELEASE
         .isRelease = true,
         .logLevel = RG_LOG_INFO,
-    #else
+#else
         .isRelease = false,
         .logLevel = RG_LOG_DEBUG,
-    #endif
+#endif
     };
 
     // Do this very early, may be needed to enable serial console
@@ -447,7 +443,7 @@ rg_app_t *rg_system_init(int sampleRate, const rg_handlers_t *handlers, void *_u
 #if defined(ESP_PLATFORM)
     esp_reset_reason_t r_reason = esp_reset_reason();
     showCrashDialog = (r_reason == ESP_RST_PANIC); // || r_reason == ESP_RST_TASK_WDT ||
-                       // r_reason == ESP_RST_INT_WDT || r_reason == ESP_RST_WDT);
+                                                   // r_reason == ESP_RST_INT_WDT || r_reason == ESP_RST_WDT);
     app.isColdBoot = r_reason != ESP_RST_SW;
     tasks[0] = (rg_task_t){.handle = xTaskGetCurrentTaskHandle(), .name = "main"};
 #elif defined(RG_TARGET_SDL2)
@@ -511,6 +507,7 @@ rg_app_t *rg_system_init(int sampleRate, const rg_handlers_t *handlers, void *_u
     app.indicatorsMask = rg_settings_get_number(NS_GLOBAL, SETTING_INDICATOR_MASK, app.indicatorsMask);
     app.saveSlot = (app.bootFlags & RG_BOOT_SLOT_MASK) >> 4;
     app.romPath = app.bootArgs ?: ""; // For whatever reason some of our code isn't NULL-aware, sigh..
+    app.romCRC32 = 0;
 
     rg_gui_draw_hourglass();
     rg_audio_init(sampleRate);
@@ -569,7 +566,8 @@ static int task_wrapper(void *arg)
 }
 #endif
 
-rg_task_t *rg_task_create(const char *name, void (*taskFunc)(void *arg), void *arg, size_t stackSize, int priority, int affinity)
+rg_task_t *rg_task_create(const char *name, void (*taskFunc)(void *arg), void *arg, size_t stackSize, int priority,
+                          int affinity)
 {
     RG_ASSERT_ARG(name && taskFunc);
     rg_task_t *task = NULL;
@@ -686,7 +684,8 @@ bool rg_task_receive(rg_task_msg_t *out)
 
 size_t rg_task_messages_waiting(rg_task_t *task)
 {
-    if (!task) task = rg_task_current();
+    if (!task)
+        task = rg_task_current();
 #if defined(ESP_PLATFORM)
     return uxQueueMessagesWaiting(task->queue);
 #elif defined(RG_TARGET_SDL2)
@@ -729,7 +728,8 @@ rg_mutex_t *rg_mutex_create(void)
 
 void rg_mutex_free(rg_mutex_t *mutex)
 {
-    if (!mutex) return;
+    if (!mutex)
+        return;
 #if defined(ESP_PLATFORM)
     vSemaphoreDelete((QueueHandle_t)mutex);
 #elif defined(RG_TARGET_SDL2)
@@ -985,7 +985,7 @@ void rg_system_vlog(int level, const char *context, const char *format, va_list 
 
     if (level <= app.logLevel)
     {
-    #if RG_LOG_COLORS
+#if RG_LOG_COLORS
         if (level >= 0 && level < RG_LOG_MAX)
         {
             fputs(colors[level], stdout);
@@ -993,13 +993,13 @@ void rg_system_vlog(int level, const char *context, const char *format, va_list 
             fputs("\e[0m", stdout);
         }
         else
-    #endif
+#endif
         {
             fputs(buffer, stdout);
         }
-    #ifdef RG_TARGET_SDL2
+#ifdef RG_TARGET_SDL2
         fflush(stdout);
-    #endif
+#endif
     }
 }
 
@@ -1084,9 +1084,9 @@ bool rg_system_set_led_color(rg_color_t color)
     ledColor = color;
 #if defined(RG_GPIO_LED)
     int value = color > 0; // GPIO LED doesn't support colors, so any color = on
-    #if defined(RG_GPIO_LED_INVERT)
+#if defined(RG_GPIO_LED_INVERT)
     value = !value;
-    #endif
+#endif
     if (RG_GPIO_LED != GPIO_NUM_NC)
         return gpio_set_level(RG_GPIO_LED, value) == ESP_OK;
 #endif
@@ -1134,7 +1134,8 @@ float rg_system_get_app_speed(void)
 void rg_system_set_overclock(int level)
 {
 #if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S3
-    // None of this is documented by espressif but there are comments to be found in the file `rtc_clk.c` and `clk_tree_ll.h`
+    // None of this is documented by espressif but there are comments to be found in the file `rtc_clk.c` and
+    // `clk_tree_ll.h`
     extern void rom_i2c_writeReg(uint8_t block, uint8_t host_id, uint8_t reg_add, uint8_t data);
     extern uint8_t rom_i2c_readReg(uint8_t block, uint8_t host_id, uint8_t reg_add);
     extern int uart_set_baudrate(int uart_num, uint32_t baud_rate);
@@ -1142,20 +1143,20 @@ void rg_system_set_overclock(int level)
     extern unsigned xthal_get_ccount(void);
     // #include "driver/uart.h"
 #if CONFIG_IDF_TARGET_ESP32
-    #define I2C_BBPLL                   0x66
-    #define I2C_BBPLL_HOSTID               4
-    #define I2C_BBPLL_OC_DIV_7_0           3    // This is the PLL divider to get the CPU clock (our main concern)
-    #define OC_MAX_LEVEL                   6
-    #define OC_MIN_LEVEL                  -5
-    #define OC_DIV7_MULTIPLIER             5
+#define I2C_BBPLL            0x66
+#define I2C_BBPLL_HOSTID     4
+#define I2C_BBPLL_OC_DIV_7_0 3 // This is the PLL divider to get the CPU clock (our main concern)
+#define OC_MAX_LEVEL         6
+#define OC_MIN_LEVEL         -5
+#define OC_DIV7_MULTIPLIER   5
 #else // CONFIG_IDF_TARGET_ESP32S3
-    #define I2C_BBPLL                   0x66
-    #define I2C_BBPLL_HOSTID               1
-    #define I2C_BBPLL_OC_DIV_7_0           3
-    #define OC
-    #define OC_MAX_LEVEL                   8
-    #define OC_MIN_LEVEL                  -8
-    #define OC_DIV7_MULTIPLIER             1
+#define I2C_BBPLL            0x66
+#define I2C_BBPLL_HOSTID     1
+#define I2C_BBPLL_OC_DIV_7_0 3
+#define OC
+#define OC_MAX_LEVEL       8
+#define OC_MIN_LEVEL       -8
+#define OC_DIV7_MULTIPLIER 1
 #endif
     if (level < OC_MIN_LEVEL || level > OC_MAX_LEVEL)
     {
@@ -1171,7 +1172,7 @@ void rg_system_set_overclock(int level)
 
     // RTC clock isn't affected by the CPU or APB clocks, so it remains our only reliable time measurement
     uint64_t t = esp_rtc_get_time_us(); // The - 10000 is to account for time wasted on mutexes
-    uint32_t cc = xthal_get_ccount(); // Obtain it *after* calling esp_rtc_get_time_us because it is slow
+    uint32_t cc = xthal_get_ccount();   // Obtain it *after* calling esp_rtc_get_time_us because it is slow
     rg_usleep(100000);
     int real_mhz = (double)(xthal_get_ccount() - cc) / (esp_rtc_get_time_us() - t);
     // float factor = 240.f / real_mhz;
@@ -1206,11 +1207,11 @@ int rg_system_get_cpu_speed(void)
 {
     if (overclockMhz)
         return overclockMhz;
-    #if CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ
-        return CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ;
-    #elif CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ
-        return CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
-    #endif
+#if CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ
+    return CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ;
+#elif CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ
+    return CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
+#endif
     return 0;
 }
 
@@ -1335,7 +1336,7 @@ bool rg_emu_save_state(uint8_t slot)
         RG_LOGE("Unable to create dir, save might fail...\n");
     }
 
-    #define tempname(ext) strcat(strcpy(tempname, filename), ext)
+#define tempname(ext) strcat(strcpy(tempname, filename), ext)
 
     if ((*app.handlers.saveState)(tempname(".new")))
     {
@@ -1364,7 +1365,7 @@ bool rg_emu_save_state(uint8_t slot)
         emu_update_save_slot(slot);
     }
 
-    #undef tempname
+#undef tempname
     free(filename);
 
     rg_storage_commit();
@@ -1493,13 +1494,7 @@ NO_PROFILE void rg_system_dump_profile(void)
     {
         profile_frame_t *frame = &profile->frames[i];
 
-        printf(
-            "RGD:PROF:DATA %p\t%p\t%u\t%u\n",
-            frame->caller_ptr,
-            frame->func_ptr,
-            frame->num_calls,
-            frame->run_time
-        );
+        printf("RGD:PROF:DATA %p\t%p\t%u\t%u\n", frame->caller_ptr, frame->func_ptr, frame->num_calls, frame->run_time);
     }
 
     printf("RGD:PROF:END\n");
