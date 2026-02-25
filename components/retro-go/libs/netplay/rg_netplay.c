@@ -30,7 +30,7 @@
 #define WIFI_CHANNEL            6
 #define WIFI_BROADCAST_ADDR     "192.168.4.255"
 #define WIFI_NETPLAY_PORT       1234
-#define NETPLAY_SYNC_TIMEOUT_MS 5000
+#define NETPLAY_SYNC_TIMEOUT_MS 500
 
 // Test to skip the network task and semaphores
 #define NETPLAY_SYNCHRONOUS_TEST
@@ -585,8 +585,8 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
             if (!receive_packet(&packet, NETPLAY_SYNC_TIMEOUT_MS))
             {
                 RG_LOGE("netplay: Timed out waiting for SYNC_ACK.\n");
-                memset(data_out, 0xFF, data_len);
-                rg_netplay_stop();
+                memset(data_out, 0x00, data_len);
+                // rg_netplay_stop();
                 return;
             }
         } while (packet.cmd != NETPLAY_PACKET_SYNC_ACK);
@@ -599,8 +599,8 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
             if (!receive_packet(&packet, NETPLAY_SYNC_TIMEOUT_MS))
             {
                 RG_LOGE("netplay: Timed out waiting for SYNC_REQ.\n");
-                memset(data_out, 0xFF, data_len);
-                rg_netplay_stop();
+                memset(data_out, 0x00, data_len);
+                // rg_netplay_stop();
                 return;
             }
         } while (packet.cmd != NETPLAY_PACKET_SYNC_REQ);

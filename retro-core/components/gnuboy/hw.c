@@ -488,12 +488,11 @@ void gb_hw_write(unsigned a, byte b) {
         break;
       case RI_SC:
         if (b & 0x80) {
-          // Gameboy serial clock is 8kHz (1024Hz * 8 bits) by default.
-          // CGB supports a "Fast" mode (32kHz) if Bit 1 is set.
+          // Gameboy serial clock is 8kHz by default, 32kHz for CGB Fast mode.
           if (IS_CGB && (b & 0x02))
-            hw.serial = 1048; // 32kHz (approx 2048 cycles at 4MHz)
+            hw.serial = 512; // 32kHz (~512 cycles)
           else
-            hw.serial = 4192; // 8kHz (approx 8192 cycles at 4MHz)
+            hw.serial = 2048; // 8kHz (~2048 cycles)
         } else {
           hw.serial = 0;
         }
