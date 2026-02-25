@@ -206,6 +206,11 @@ static void update_statistics(void)
         float partFrames = counters.partFrames - previous.partFrames;
         float frames = counters.totalFrames - previous.totalFrames;
 
+        // Guard against transient timing glitches (e.g., equal timestamps) that can
+        // cause divisions by zero and crash in monitor task.
+        if (totalTime <= 0.f || !isfinite(totalTime) || !isfinite(totalTimeSecs))
+            goto skip_stats_update;
+
         // Hard to fix this sync issue without a lock, which I don't want to use...
         ticks = RG_MAX(ticks, frames);
 
@@ -216,6 +221,7 @@ static void update_statistics(void)
         statistics.busyPercent = busyTime / totalTime * 100.f;
         statistics.speedPercent = app.tickRate > 0 ? (statistics.totalFPS / app.tickRate * 100.f) : 100.f;
     }
+skip_stats_update:
     statistics.uptime = rg_system_timer() / 1000000;
 
     update_memory_statistics();

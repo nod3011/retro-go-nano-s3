@@ -23,7 +23,42 @@ static const char *SETTING_SAVESRAM = "SaveSRAM";
 static const char *SETTING_PALETTE  = "Palette";
 static const char *SETTING_SYSTIME = "SysTime";
 static const char *SETTING_LOADBIOS = "LoadBIOS";
+static const char *SETTING_NETLINK_DEBUG = "NetLinkDbg";
 // --- MAIN
+
+#ifdef RG_ENABLE_NETPLAY
+static bool gbLinkDebug = false;
+
+typedef struct
+{
+    uint8_t tx;
+    uint8_t _pad[3];
+} gb_link_packet_t;
+
+static byte gb_link_serial_exchange(byte outgoing)
+{
+    if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED)
+        return 0xFF;
+
+    int64_t sync_start = rg_system_timer();
+    gb_link_packet_t local = {.tx = outgoing};
+    gb_link_packet_t remote = {0};
+
+    rg_netplay_sync(&local, &remote, sizeof(local));
+
+    if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED)
+    {
+        if (gbLinkDebug)
+            RG_LOGW("gb-link: sync timeout/fallback tx=%02X rx=FF\n", outgoing);
+        return 0xFF;
+    }
+
+    if (gbLinkDebug)
+        RG_LOGI("gb-link: tx=%02X rx=%02X dt=%dus\n", outgoing, remote.tx, (int)(rg_system_timer() - sync_start));
+
+    return remote.tx;
+}
+#endif
 
 
 static void update_rtc_time(void)
@@ -156,6 +191,19 @@ static rg_gui_event_t enable_bios_cb(rg_gui_option_t *option, rg_gui_event_t eve
     return RG_DIALOG_VOID;
 }
 
+#ifdef RG_ENABLE_NETPLAY
+static rg_gui_event_t netlink_debug_cb(rg_gui_option_t *option, rg_gui_event_t event)
+{
+    if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
+    {
+        gbLinkDebug = !gbLinkDebug;
+        rg_settings_set_number(NS_APP, SETTING_NETLINK_DEBUG, gbLinkDebug);
+    }
+    strcpy(option->value, gbLinkDebug ? _("Yes") : _("No"));
+    return RG_DIALOG_VOID;
+}
+#endif
+
 static rg_gui_event_t rtc_t_update_cb(rg_gui_option_t *option, rg_gui_event_t event)
 {
     int d, h, m, s;
@@ -238,6 +286,9 @@ static void options_handler(rg_gui_option_t *dest)
     *dest++ = (rg_gui_option_t){0, _("RTC config"),    "-", RG_DIALOG_FLAG_NORMAL, &rtc_update_cb};
     *dest++ = (rg_gui_option_t){0, _("SRAM autosave"), "-", RG_DIALOG_FLAG_NORMAL, &sram_autosave_cb};
     *dest++ = (rg_gui_option_t){0, _("Enable BIOS"),   "-", RG_DIALOG_FLAG_NORMAL, &enable_bios_cb};
+#ifdef RG_ENABLE_NETPLAY
+    *dest++ = (rg_gui_option_t){0, _("GB Link debug"), "-", RG_DIALOG_FLAG_NORMAL, &netlink_debug_cb};
+#endif
     *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -261,6 +312,9 @@ void gbc_main(void)
     useSystemTime = (bool)rg_settings_get_number(NS_APP, SETTING_SYSTIME, 1);
     loadBIOSFile = (bool)rg_settings_get_number(NS_APP, SETTING_LOADBIOS, 0);
     autoSaveSRAM = (int)rg_settings_get_number(NS_APP, SETTING_SAVESRAM, 0);
+#ifdef RG_ENABLE_NETPLAY
+    gbLinkDebug = (bool)rg_settings_get_number(NS_APP, SETTING_NETLINK_DEBUG, 0);
+#endif
     sramFile = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
 
     if (!rg_storage_mkdir(rg_dirname(sramFile)))
@@ -269,6 +323,10 @@ void gbc_main(void)
     // Initialize the emulator
     if (gnuboy_init(app->sampleRate, GB_AUDIO_STEREO_S16, GB_PIXEL_565_BE, &video_callback, &audio_callback) < 0)
         RG_PANIC("Emulator init failed!");
+
+#ifdef RG_ENABLE_NETPLAY
+    gnuboy_set_serial_callback(&gb_link_serial_exchange);
+#endif
 
     gnuboy_set_framebuffer(currentUpdate->data);
     gnuboy_set_soundbuffer(malloc(AUDIO_BUFFER_LENGTH * 4), AUDIO_BUFFER_LENGTH);

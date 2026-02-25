@@ -4,28 +4,33 @@
 #include <lwip/ip_addr.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/time.h>
 #include <esp_system.h>
 #include <esp_event.h>
+#include <esp_netif.h>
 #include <esp_wifi.h>
+#include <esp_wifi_default.h>
 #include <esp_log.h>
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
 #include <netdb.h>
+#include <nvs_flash.h>
 
 #include "rg_system.h"
 #include "rg_netplay.h"
 
 #define NETPLAY_VERSION 0x01
-#define MAX_PLAYERS 8
+#define MAX_PLAYERS     8
 
 #define BROADCAST (inet_addr(WIFI_BROADCAST_ADDR))
 
 // The SSID should be randomized to avoid conflicts
-#define WIFI_SSID "RETRO-GO"
-#define WIFI_CHANNEL 12
-#define WIFI_BROADCAST_ADDR "192.168.4.255"
-#define WIFI_NETPLAY_PORT 1234
+#define WIFI_SSID               "RETRO-GO"
+#define WIFI_CHANNEL            6
+#define WIFI_BROADCAST_ADDR     "192.168.4.255"
+#define WIFI_NETPLAY_PORT       1234
+#define NETPLAY_SYNC_TIMEOUT_MS 5000
 
 // Test to skip the network task and semaphores
 #define NETPLAY_SYNCHRONOUS_TEST
@@ -40,8 +45,10 @@ static netplay_player_t players[MAX_PLAYERS];
 static netplay_player_t *local_player;
 static netplay_player_t *remote_player; // This only works in 2 player mode
 
-static tcpip_adapter_ip_info_t local_if;
+static esp_netif_ip_info_t local_if;
 static wifi_config_t wifi_config;
+static esp_netif_t *netif_sta;
+static esp_netif_t *netif_ap;
 
 static int rx_sock, tx_sock;
 
@@ -54,26 +61,35 @@ static void dummy_netplay_callback(netplay_event_t event, void *arg)
 
 static void network_cleanup()
 {
-    if (rx_sock) close(rx_sock);
-    if (tx_sock) close(tx_sock);
+    if (rx_sock)
+        close(rx_sock);
+    if (tx_sock)
+        close(tx_sock);
 
     rx_sock = tx_sock = 0;
     memset(&local_if, 0, sizeof(local_if));
 }
 
 
-static void network_setup(tcpip_adapter_if_t tcpip_if)
+static void network_setup(esp_netif_t *netif)
 {
-    tcpip_adapter_get_ip_info(tcpip_if, &local_if);
+    if (esp_netif_get_ip_info(netif, &local_if) != ESP_OK)
+    {
+        RG_LOGE("netplay: failed to get IP info.\n");
+        memset(&local_if, 0, sizeof(local_if));
+        return;
+    }
 
-    int player_id = ((local_if.ip.addr >> 24) & 0xF) - 1;
+    // Current netplay implementation only handles two players reliably.
+    int player_id = (netplay_mode == NETPLAY_MODE_HOST) ? 0 : 1;
     struct sockaddr_in rx_addr;
     int bc_val = 1;
 
     local_player = &players[player_id];
     local_player->id = player_id;
     local_player->version = NETPLAY_VERSION;
-    local_player->game_id = rg_system_get_app()->romCRC32;
+    const char *rom_path = rg_system_get_app()->romPath ?: "";
+    local_player->game_id = rg_crc32(0, (const uint8_t *)rom_path, strlen(rom_path));
     local_player->ip_addr = local_if.ip.addr;
 
     RG_LOGI("netplay: Local player ID: %d\n", local_player->id);
@@ -104,7 +120,7 @@ static void set_status(netplay_status_t status)
 
     if (changed)
     {
-        (*netplay_callback)(RG_EVENT_TYPE_NETPLAY|NETPLAY_EVENT_STATUS_CHANGED, &netplay_status);
+        (*netplay_callback)(RG_EVENT_TYPE_NETPLAY | NETPLAY_EVENT_STATUS_CHANGED, &netplay_status);
     }
 }
 
@@ -112,15 +128,24 @@ static void set_status(netplay_status_t status)
 static inline bool receive_packet(netplay_packet_t *packet, int timeout)
 {
     fd_set read_fd_set;
+    struct timeval tv;
+    struct timeval *tv_ptr = NULL;
 
     FD_ZERO(&read_fd_set);
     FD_SET(rx_sock, &read_fd_set);
 
-    int sel = select(FD_SETSIZE, &read_fd_set, NULL, NULL, NULL);
+    if (timeout >= 0)
+    {
+        tv.tv_sec = timeout / 1000;
+        tv.tv_usec = (timeout % 1000) * 1000;
+        tv_ptr = &tv;
+    }
+
+    int sel = select(rx_sock + 1, &read_fd_set, NULL, NULL, tv_ptr);
 
     if (sel > 0)
     {
-        return recv(rx_sock, &packet, sizeof packet, 0) >= 0;
+        return recv(rx_sock, packet, sizeof(*packet), 0) >= 0;
     }
     else if (sel < 0)
     {
@@ -155,20 +180,20 @@ static inline void send_packet(uint32_t dest, uint8_t cmd, uint8_t arg, void *da
         tx_addr.sin_addr.s_addr = dest;
     }
 
-    if (sendto(tx_sock, &packet, len, 0, (struct sockaddr*)&tx_addr, sizeof tx_addr) <= 0)
+    if (sendto(tx_sock, &packet, len, 0, (struct sockaddr *)&tx_addr, sizeof tx_addr) <= 0)
     {
         RG_LOGE("netplay: sendto() failed\n");
         // stop network
     }
 }
 
-static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT)
     {
         if (event_id == WIFI_EVENT_AP_START)
         {
-            network_setup(TCPIP_ADAPTER_IF_AP);
+            network_setup(netif_ap);
             set_status(NETPLAY_STATUS_LISTENING);
         }
         else if (event_id == WIFI_EVENT_AP_STOP || event_id == WIFI_EVENT_STA_STOP)
@@ -188,15 +213,14 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     {
         if (event_id == IP_EVENT_STA_GOT_IP)
         {
-            network_setup(TCPIP_ADAPTER_IF_STA);
+            network_setup(netif_sta);
             set_status(NETPLAY_STATUS_HANDSHAKE);
         }
         else if (event_id == IP_EVENT_AP_STAIPASSIGNED)
         {
-            ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+            ip_event_ap_staipassigned_t *event = (ip_event_ap_staipassigned_t *)event_data;
 
-            send_packet(event->ip_info.ip.addr, NETPLAY_PACKET_INFO,
-                                       0, (void*)local_player, sizeof(netplay_player_t));
+            send_packet(event->ip.addr, NETPLAY_PACKET_INFO, 0, (void *)local_player, sizeof(netplay_player_t));
             set_status(NETPLAY_STATUS_HANDSHAKE);
         }
     }
@@ -214,11 +238,11 @@ static void netplay_task()
     {
         memset(&packet, 0, sizeof(netplay_packet_t));
 
-    #ifdef NETPLAY_SYNCHRONOUS_TEST
+#ifdef NETPLAY_SYNCHRONOUS_TEST
         if (!rx_sock || netplay_status != NETPLAY_STATUS_HANDSHAKE)
-    #else
+#else
         if (!rx_sock || netplay_status < NETPLAY_STATUS_HANDSHAKE)
-    #endif
+#endif
         {
             rg_task_delay(100);
             continue;
@@ -255,69 +279,70 @@ static void netplay_task()
 
         switch (packet.cmd)
         {
-            case NETPLAY_PACKET_INFO: // HOST <-> GUEST
-                if (packet.data_len != sizeof(netplay_player_t))
-                {
-                    RG_LOGE("netplay: Player struct size mismatch. expected=%d received=%d\n",
-                            sizeof(netplay_player_t), packet.data_len);
-                    break;
-                }
-
-                memcpy(packet_from, packet.data, packet.data_len);
-                remote_player = packet_from;
-
-                RG_LOGI("netplay: Remote client info player_id=%d game_id=%08X version=%02X\n",
-                        packet_from->id, packet_from->game_id, packet_from->version);
-
-                if (packet_from->version != NETPLAY_VERSION)
-                {
-                    RG_LOGE("netplay: Remote client protocol version mismatch.\n");
-                    break;
-                }
-
-                if (netplay_mode == NETPLAY_MODE_HOST)
-                {
-                    // Check if all players are ready (at the moment only 1, no need to check) then send NETPLAY_PACKET_READY
-                    send_packet(packet_from->id, NETPLAY_PACKET_READY, 0, 0, 0);
-                    set_status(NETPLAY_STATUS_CONNECTED);
-                }
-                else
-                {
-                    send_packet(packet_from->id, NETPLAY_PACKET_INFO, 1, (void*)local_player, sizeof(netplay_player_t));
-                }
+        case NETPLAY_PACKET_INFO: // HOST <-> GUEST
+            if (packet.data_len != sizeof(netplay_player_t))
+            {
+                RG_LOGE("netplay: Player struct size mismatch. expected=%d received=%d\n", sizeof(netplay_player_t),
+                        packet.data_len);
                 break;
+            }
 
-            case NETPLAY_PACKET_READY: // HOST -> GUEST
-                // if (packet.data_len != sizeof(players))
-                // {
-                //     RG_LOGE("netplay: Players array size mismatch. expected=%d received=%d\n",
-                //             sizeof(players), packet.data_len);
-                //     break;
-                // }
+            memcpy(packet_from, packet.data, packet.data_len);
+            remote_player = packet_from;
 
-                // memcpy(&players, packet.data, packet.data_len);
+            RG_LOGI("netplay: Remote client info player_id=%d game_id=%08lX version=%02X\n", packet_from->id,
+                    (unsigned long)packet_from->game_id, packet_from->version);
+
+            if (packet_from->version != NETPLAY_VERSION)
+            {
+                RG_LOGE("netplay: Remote client protocol version mismatch.\n");
+                break;
+            }
+
+            if (netplay_mode == NETPLAY_MODE_HOST)
+            {
+                // Check if all players are ready (at the moment only 1, no need to check) then send
+                // NETPLAY_PACKET_READY
+                send_packet(packet_from->id, NETPLAY_PACKET_READY, 0, 0, 0);
                 set_status(NETPLAY_STATUS_CONNECTED);
-                break;
+            }
+            else
+            {
+                send_packet(packet_from->id, NETPLAY_PACKET_INFO, 1, (void *)local_player, sizeof(netplay_player_t));
+            }
+            break;
 
-            case NETPLAY_PACKET_SYNC_REQ: // HOST -> GUEST
-                memcpy(&packet_from->sync_data, packet.data, packet.data_len);
-                xSemaphoreGive(netplay_sync);
-                break;
+        case NETPLAY_PACKET_READY: // HOST -> GUEST
+            // if (packet.data_len != sizeof(players))
+            // {
+            //     RG_LOGE("netplay: Players array size mismatch. expected=%d received=%d\n",
+            //             sizeof(players), packet.data_len);
+            //     break;
+            // }
 
-            case NETPLAY_PACKET_SYNC_ACK: // GUEST -> HOST
-                memcpy(&packet_from->sync_data, packet.data, packet.data_len);
+            // memcpy(&players, packet.data, packet.data_len);
+            set_status(NETPLAY_STATUS_CONNECTED);
+            break;
 
-                // if received all players ACK then:
-                send_packet(remote_player->id, NETPLAY_PACKET_SYNC_DONE, packet.arg, 0, 0);
-                xSemaphoreGive(netplay_sync);
-                break;
+        case NETPLAY_PACKET_SYNC_REQ: // HOST -> GUEST
+            memcpy(&packet_from->sync_data, packet.data, packet.data_len);
+            xSemaphoreGive(netplay_sync);
+            break;
 
-            case NETPLAY_PACKET_SYNC_DONE: // HOST -> GUEST
-                xSemaphoreGive(netplay_sync);
-                break;
+        case NETPLAY_PACKET_SYNC_ACK: // GUEST -> HOST
+            memcpy(&packet_from->sync_data, packet.data, packet.data_len);
 
-            default:
-                RG_LOGE("netplay: Received unknown packet type 0x%02x\n", packet.cmd);
+            // if received all players ACK then:
+            send_packet(remote_player->id, NETPLAY_PACKET_SYNC_DONE, packet.arg, 0, 0);
+            xSemaphoreGive(netplay_sync);
+            break;
+
+        case NETPLAY_PACKET_SYNC_DONE: // HOST -> GUEST
+            xSemaphoreGive(netplay_sync);
+            break;
+
+        default:
+            RG_LOGE("netplay: Received unknown packet type 0x%02x\n", packet.cmd);
         }
     }
 }
@@ -334,18 +359,46 @@ static void netplay_init()
         netplay_mode = NETPLAY_MODE_NONE;
         netplay_sync = xSemaphoreCreateMutex();
 
-        tcpip_adapter_init();
+        esp_err_t err = esp_netif_init();
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+            ESP_ERROR_CHECK(err);
 
-        esp_event_loop_create_default();
+        err = nvs_flash_init();
+        if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+        {
+            ESP_ERROR_CHECK(nvs_flash_erase());
+            err = nvs_flash_init();
+        }
+        ESP_ERROR_CHECK(err);
+
+        err = esp_event_loop_create_default();
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+            ESP_ERROR_CHECK(err);
+
+        netif_sta = esp_netif_create_default_wifi_sta();
+        netif_ap = esp_netif_create_default_wifi_ap();
+        if (!netif_sta)
+            netif_sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (!netif_ap)
+            netif_ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
 
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
-        ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
+        err = esp_wifi_init(&cfg);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+            ESP_ERROR_CHECK(err);
+
+        err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+            ESP_ERROR_CHECK(err);
+
+        err = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL);
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
+            ESP_ERROR_CHECK(err);
+
         ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE)); // Improves latency a lot
         ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-        rg_task_create("rg_netplay", &netplay_task, NULL, 4096, RG_TASK_PRIORITY - 2, 1);
+        rg_task_create("rg_netplay", &netplay_task, NULL, 4096, RG_TASK_PRIORITY_4, 1);
     }
 }
 
@@ -385,39 +438,39 @@ bool rg_netplay_quick_start(void)
     {
         switch (netplay_status)
         {
-            case NETPLAY_STATUS_CONNECTED:
-                return remote_player->game_id == local_player->game_id
-                    || rg_gui_confirm(_("Netplay"), _("ROMs not identical. Continue?"), 1);
-                break;
+        case NETPLAY_STATUS_CONNECTED:
+            return remote_player->game_id == local_player->game_id ||
+                   rg_gui_confirm(_("Netplay"), _("ROMs not identical. Continue?"), 1);
+            break;
 
-            case NETPLAY_STATUS_HANDSHAKE:
-                status_msg = _("Exchanging info...");
-                break;
+        case NETPLAY_STATUS_HANDSHAKE:
+            status_msg = _("Exchanging info...");
+            break;
 
-            case NETPLAY_STATUS_CONNECTING:
-                status_msg = _("Connecting...");
-                break;
+        case NETPLAY_STATUS_CONNECTING:
+            status_msg = _("Connecting...");
+            break;
 
-            case NETPLAY_STATUS_DISCONNECTED:
-                status_msg = _("Unable to find host!");
-                break;
+        case NETPLAY_STATUS_DISCONNECTED:
+            status_msg = _("Unable to find host!");
+            break;
 
-            case NETPLAY_STATUS_STOPPED:
-                status_msg = _("Connection failed!");
-                break;
+        case NETPLAY_STATUS_STOPPED:
+            status_msg = _("Connection failed!");
+            break;
 
-            case NETPLAY_STATUS_LISTENING:
-                status_msg = _("Waiting for peer...");
-                break;
+        case NETPLAY_STATUS_LISTENING:
+            status_msg = _("Waiting for peer...");
+            break;
 
-            default:
-                status_msg = _("Unknown status...");
+        default:
+            status_msg = _("Unknown status...");
         }
 
         if (screen_msg != status_msg)
         {
             rg_display_clear(0);
-            rg_gui_draw_dialog(status_msg, NULL, 0);
+            rg_gui_draw_dialog(status_msg, NULL, 0, 0);
             screen_msg = status_msg;
         }
 
@@ -455,27 +508,27 @@ bool rg_netplay_start(netplay_mode_t mode)
     if (mode == NETPLAY_MODE_GUEST)
     {
         RG_LOGI("netplay: Starting in guest mode.\n");
+        netplay_mode = NETPLAY_MODE_GUEST;
 
-        strncpy((char*)wifi_config.sta.ssid, WIFI_SSID, 32);
+        strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, 32);
         wifi_config.sta.channel = WIFI_CHANNEL;
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
         ESP_ERROR_CHECK(esp_wifi_start());
         ret = esp_wifi_connect();
-        netplay_mode = NETPLAY_MODE_GUEST;
     }
     else if (mode == NETPLAY_MODE_HOST)
     {
         RG_LOGI("netplay: Starting in host mode.\n");
+        netplay_mode = NETPLAY_MODE_HOST;
 
-        strncpy((char*)wifi_config.ap.ssid, WIFI_SSID, 32);
+        strncpy((char *)wifi_config.ap.ssid, WIFI_SSID, 32);
         wifi_config.ap.authmode = WIFI_AUTH_OPEN;
         wifi_config.ap.channel = WIFI_CHANNEL;
         wifi_config.ap.max_connection = MAX_PLAYERS - 1;
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
         ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
         ret = esp_wifi_start();
-        netplay_mode = NETPLAY_MODE_HOST;
     }
     else
     {
@@ -521,23 +574,37 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
 
     if (netplay_mode == NETPLAY_MODE_HOST)
     {
-        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_REQ, 0, (void*)data_in, data_len);
+        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_REQ, 0, (void *)data_in, data_len);
     }
 
 #ifdef NETPLAY_SYNCHRONOUS_TEST
     if (netplay_mode == NETPLAY_MODE_HOST)
     {
-        do {
-            recv(rx_sock, &packet, sizeof packet, 0); // ACK
+        do
+        {
+            if (!receive_packet(&packet, NETPLAY_SYNC_TIMEOUT_MS))
+            {
+                RG_LOGE("netplay: Timed out waiting for SYNC_ACK.\n");
+                memset(data_out, 0xFF, data_len);
+                rg_netplay_stop();
+                return;
+            }
         } while (packet.cmd != NETPLAY_PACKET_SYNC_ACK);
         // send_packet(remote_player->id, NETPLAY_PACKET_SYNC_DONE, packet.arg, 0, 0);
     }
     else
     {
-        do {
-            recv(rx_sock, &packet, sizeof packet, 0); // REQ
+        do
+        {
+            if (!receive_packet(&packet, NETPLAY_SYNC_TIMEOUT_MS))
+            {
+                RG_LOGE("netplay: Timed out waiting for SYNC_REQ.\n");
+                memset(data_out, 0xFF, data_len);
+                rg_netplay_stop();
+                return;
+            }
         } while (packet.cmd != NETPLAY_PACKET_SYNC_REQ);
-        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, 0, (void*)data_in, data_len);
+        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, 0, (void *)data_in, data_len);
         // recv(rx_sock, &packet, sizeof packet, 0); // DONE
     }
 
@@ -545,9 +612,10 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
     memcpy(data_out, remote_player->sync_data, data_len);
 #else
     // wait to receive/send NETPLAY_PACKET_SYNC_DONE
-    if (xSemaphoreTake(netplay_sync, 10000 / portTICK_PERIOD_MS) != pdPASS)
+    if (xSemaphoreTake(netplay_sync, NETPLAY_SYNC_TIMEOUT_MS / portTICK_PERIOD_MS) != pdPASS)
     {
         RG_LOGE("netplay: Lost sync...\n");
+        memset(data_out, 0xFF, data_len);
         rg_netplay_stop();
         return;
     }
@@ -556,9 +624,15 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
 
     if (netplay_mode == NETPLAY_MODE_GUEST)
     {
-        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, 0,
-                    local_player->sync_data, sizeof(local_player->sync_data));
-        xSemaphoreTake(netplay_sync, 1000 / portTICK_PERIOD_MS);
+        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, 0, local_player->sync_data,
+                    sizeof(local_player->sync_data));
+        if (xSemaphoreTake(netplay_sync, NETPLAY_SYNC_TIMEOUT_MS / portTICK_PERIOD_MS) != pdPASS)
+        {
+            RG_LOGE("netplay: Timed out waiting for SYNC_DONE.\n");
+            memset(data_out, 0xFF, data_len);
+            rg_netplay_stop();
+            return;
+        }
     }
 #endif
 

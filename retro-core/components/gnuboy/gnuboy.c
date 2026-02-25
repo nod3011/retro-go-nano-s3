@@ -13,6 +13,8 @@
 
 #define BANK_SIZE 0x4000
 
+static gb_serial_cb_t *serial_callback = NULL;
+
 
 // Note: Eventually we'll just pass a gb_host_t to init...
 // But for now assume it's been configured before we were alled!
@@ -123,6 +125,16 @@ void gnuboy_set_pad(int pad)
 	{
 		gb_hw_setpad(pad);
 	}
+}
+
+void gnuboy_set_serial_callback(gb_serial_cb_t *callback)
+{
+	serial_callback = callback;
+}
+
+byte gnuboy_serial_exchange(byte outgoing)
+{
+	return serial_callback ? serial_callback(outgoing) : 0xFF;
 }
 
 

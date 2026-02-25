@@ -111,7 +111,7 @@ def clean_app(app):
     print("Done.\n")
 
 
-def build_app(app, device_type, with_profiling=False, no_networking=False, is_release=False):
+def build_app(app, device_type, with_profiling=False, no_networking=False, is_release=False, enable_netplay=False):
     # To do: clean up if any of the flags changed since last build
     print("Building app '%s'" % app)
     args = [IDF_PY, "app"]
@@ -121,6 +121,7 @@ def build_app(app, device_type, with_profiling=False, no_networking=False, is_re
     args.append(f"-DRG_BUILD_RELEASE={1 if is_release else 0}")
     args.append(f"-DRG_ENABLE_PROFILING={1 if with_profiling else 0}")
     args.append(f"-DRG_ENABLE_NETWORKING={0 if no_networking else 1}")
+    args.append(f"-DRG_ENABLE_NETPLAY={1 if (enable_netplay and not no_networking) else 0}")
     with open("partitions.csv", "w") as f:
         f.write("# This table isn't used, it's just needed to avoid esp-idf build failures.\n")
         f.write("dummy, app, ota_0, 65536, 3145728\n")
@@ -175,6 +176,9 @@ parser.add_argument(
     "--no-networking", action="store_const", const=True, help="Build without networking support"
 )
 parser.add_argument(
+    "--netplay", action="store_const", const=True, help="Build with netplay support (requires networking)"
+)
+parser.add_argument(
     "--port", default=DEFAULT_PORT, help="Serial port to use for flash and monitor"
 )
 parser.add_argument(
@@ -210,7 +214,7 @@ try:
     if command in ["build", "build-fw", "build-img", "release", "run", "profile", "install"]:
         print("=== Step: Building ===\n")
         for app in apps:
-            build_app(app, args.target, command == "profile", args.no_networking, command == "release")
+            build_app(app, args.target, command == "profile", args.no_networking, command == "release", args.netplay)
 
     if command in ["build-fw", "release"]:
         print("=== Step: Packing ===\n")

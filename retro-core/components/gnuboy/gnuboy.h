@@ -99,6 +99,7 @@ typedef enum
 
 typedef void (gb_video_cb_t)(void *buffer);
 typedef void (gb_audio_cb_t)(void *buffer, size_t length);
+typedef byte (gb_serial_cb_t)(byte outgoing);
 
 int  gnuboy_init(int samplerate, gb_audio_fmt_t audio_fmt, gb_video_fmt_t video_fmt, gb_video_cb_t *video_callback, gb_audio_cb_t *audio_callback);
 int  gnuboy_load_bios(const byte *data, size_t size);
@@ -112,6 +113,8 @@ void gnuboy_run(bool draw);
 bool gnuboy_sram_dirty(void);
 void gnuboy_load_bank(int);
 void gnuboy_set_pad(int);
+void gnuboy_set_serial_callback(gb_serial_cb_t *serial_callback);
+byte gnuboy_serial_exchange(byte outgoing);
 
 void gnuboy_set_framebuffer(void *buffer);
 void gnuboy_set_soundbuffer(void *buffer, size_t length);

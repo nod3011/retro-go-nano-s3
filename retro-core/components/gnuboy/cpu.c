@@ -207,7 +207,7 @@ static inline void serial_advance(int cycles)
 		GB.serial -= cycles << 1;
 		if (GB.serial <= 0)
 		{
-			R_SB = 0xFF;
+			R_SB = gnuboy_serial_exchange(R_SB);
 			R_SC &= 0x7f;
 			GB.serial = 0;
 			gb_hw_interrupt(IF_SERIAL, 1);
