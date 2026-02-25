@@ -184,6 +184,7 @@ static void lcd_set_window(int left, int top, int width, int height)
     ILI9341_CMD(0x2C);
 }
 
+
 static inline uint16_t *lcd_get_buffer(size_t length)
 {
     // RG_ASSERT_ARG(length < LCD_BUFFER_LENGTH);
