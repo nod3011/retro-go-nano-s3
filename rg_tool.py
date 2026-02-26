@@ -24,6 +24,8 @@ PROJECT_APPS = {
   'prboom-go':    [0, 16, 1048576],  # 1 MB
   'gwenesis':     [0, 16, 1572864],  # 1.5 MB
   'fmsx':         [0, 16, 1048576],  # 1 MB
+  'ws':           [0, 16, 1048576],  # 1 MB
+  'ngp':          [0, 16, 1048576],  # 1 MB
 }
 
 # PROJECT_APPS = {}

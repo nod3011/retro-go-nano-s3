@@ -1,0 +1,273 @@
+#include <rg_system.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+#define CZ80 1
+
+#include "graphics.h"
+#include "input.h"
+#include "race-memory.h"
+#include "tlcs900h.h"
+#include "types.h"
+
+extern void Z80_Reset(void);
+extern void Z80_Init(void);
+
+// Audio
+extern void sound_init(int SampleRate);
+extern void sound_update(uint16_t *chip_buffer, int length_bytes);
+extern void dac_update(uint16_t *dac_buffer, int length_bytes);
+extern int Cz80_allocate_flag_tables(void);
+
+// Graphics / VDP pointers
+unsigned short *drawBuffer = NULL;
+volatile unsigned g_frame_ready = 0;
+extern int finscan;
+extern EMUINFO m_emuInfo;
+extern int tipo_consola;
+
+unsigned char *rasterY = 0;
+unsigned char *frame0Pri = 0;
+unsigned char *frame1Pri = 0;
+unsigned char *color_switch = 0;
+unsigned char *scanlineY = 0;
+unsigned char *scrollSpriteX = 0;
+unsigned char *scrollSpriteY = 0;
+unsigned char *sprite_palette_numbers = 0;
+unsigned char *sprite_table = 0;
+unsigned short *patterns = 0;
+unsigned char *oowSelect = 0;
+unsigned short *oowTable = 0;
+unsigned char *wndTopLeftY = 0;
+unsigned char *wndSizeY = 0;
+unsigned char *wndSizeX = 0;
+unsigned char *bgSelect = 0;
+unsigned char *bw_palette_table = 0;
+unsigned short *palette_table = 0;
+unsigned short *bgTable = 0;
+unsigned char *wndTopLeftX = 0;
+unsigned char *scrollFrontY = 0;
+unsigned char *scrollFrontX = 0;
+unsigned short *tile_table_front = 0;
+unsigned char *scrollBackY = 0;
+unsigned short *tile_table_back = 0;
+unsigned char *scrollBackX = 0;
+unsigned char *pattern_table = NULL;
+
+__attribute__((weak)) void tlcs_reset(void) {}
+
+static rg_app_t *app;
+static rg_surface_t *update;
+int m_bIsActive = 1;
+
+static void set_defaults_after_boot(void) {
+  // Color/mono based on ROM
+  tlcsMemWriteB(0x00006F91, tlcsMemReadB(0x00200023));
+  if (tipo_consola == 1)
+    tlcsMemWriteB(0x00006F91, 0x00); // force mono
+
+  // ROM Language
+  tlcsMemWriteB(0x00006F87, 0x01); // English
+
+  // Video IRQ
+  tlcsMemWriteB(0x00004000, tlcsMemReadB(0x00004000) | 0xC0);
+
+  // Power Bits
+  tlcsMemWriteB(0x00006F84, 0x40);
+  tlcsMemWriteB(0x00006F85, 0x00);
+  tlcsMemWriteB(0x00006F86, 0x00);
+}
+
+static void map_vdp_tables_full() {
+  sprite_table = (unsigned char *)get_address(0x00008800);
+  pattern_table = (unsigned char *)get_address(0x0000A000);
+  patterns = (unsigned short *)pattern_table;
+  tile_table_front = (unsigned short *)get_address(0x00009000);
+  tile_table_back = (unsigned short *)get_address(0x00009800);
+  palette_table = (unsigned short *)get_address(0x00008200);
+  bw_palette_table = (unsigned char *)get_address(0x00008100);
+  sprite_palette_numbers = (unsigned char *)get_address(0x00008C00);
+
+  scanlineY = (unsigned char *)get_address(0x00008009);
+  frame0Pri = (unsigned char *)get_address(0x00008000);
+  frame1Pri = (unsigned char *)get_address(0x00008030);
+
+  wndTopLeftX = (unsigned char *)get_address(0x00008002);
+  wndTopLeftY = (unsigned char *)get_address(0x00008003);
+  wndSizeX = (unsigned char *)get_address(0x00008004);
+  wndSizeY = (unsigned char *)get_address(0x00008005);
+
+  scrollSpriteX = (unsigned char *)get_address(0x00008020);
+  scrollSpriteY = (unsigned char *)get_address(0x00008021);
+  scrollFrontX = (unsigned char *)get_address(0x00008032);
+  scrollFrontY = (unsigned char *)get_address(0x00008033);
+  scrollBackX = (unsigned char *)get_address(0x00008034);
+  scrollBackY = (unsigned char *)get_address(0x00008035);
+
+  bgSelect = (unsigned char *)get_address(0x00008118);
+  bgTable = (unsigned short *)get_address(0x000083E0);
+  oowSelect = (unsigned char *)get_address(0x00008012);
+  oowTable = (unsigned short *)get_address(0x000083F0);
+
+  color_switch = (unsigned char *)get_address(0x00006F91);
+
+  static unsigned char s_dummy_scan = 0;
+  if (!scanlineY)
+    scanlineY = &s_dummy_scan;
+  rasterY = scanlineY;
+}
+
+// Input states
+// We need to map inputs somewhere but let's implement the loop first
+
+static void poll_input(void) {
+  uint32_t state = rg_input_read_gamepad();
+  int joy = 0;
+
+  if (state & RG_KEY_UP)
+    joy |= (1 << 0);
+  if (state & RG_KEY_DOWN)
+    joy |= (1 << 1);
+  if (state & RG_KEY_LEFT)
+    joy |= (1 << 2);
+  if (state & RG_KEY_RIGHT)
+    joy |= (1 << 3);
+  if (state & RG_KEY_A)
+    joy |= (1 << 4);
+  if (state & RG_KEY_B)
+    joy |= (1 << 5);
+  if (state & RG_KEY_OPTION)
+    joy |= (1 << 6);
+
+  ngpInputState = (unsigned char)joy;
+}
+
+static bool reset_handler(bool hard) {
+  tlcs_reset();
+  Z80_Reset();
+  return true;
+}
+
+// Audio Buffers
+#define kSampleRate 22050
+#define kFps 60
+#define kChunk ((kSampleRate + kFps / 2) / kFps) // 368
+static uint16_t s_psg[368];
+static uint16_t s_dac[368];
+
+static void submit_frame() {
+  rg_display_submit(update, 0);
+
+  int lenB = kChunk * sizeof(uint16_t);
+  sound_update(s_psg, lenB);
+  dac_update(s_dac, lenB);
+
+  int16_t samples[368 * 2];
+  for (int i = 0; i < kChunk; ++i) {
+    int32_t a = (int16_t)s_psg[i];
+    int32_t b = (int16_t)s_dac[i];
+    int32_t mixed = a + b;
+    if (mixed > 32767)
+      mixed = 32767;
+    if (mixed < -32768)
+      mixed = -32768;
+    samples[i * 2] = (int16_t)mixed;
+    samples[i * 2 + 1] = (int16_t)mixed;
+  }
+  rg_audio_submit((const rg_audio_frame_t *)samples, kChunk);
+}
+
+void app_main() {
+  rg_handlers_t handlers = {
+      .reset = reset_handler,
+  };
+  rg_system_init(22050, &handlers, NULL);
+  app = rg_system_get_app();
+
+  // Load ROM
+  size_t rom_size = 0;
+  void *rom_ptr = NULL;
+
+  if (rg_extension_match(app->romPath, "zip")) {
+    if (!rg_storage_unzip_file(app->romPath, NULL, &rom_ptr, &rom_size,
+                               RG_FILE_ALIGN_64KB))
+      RG_PANIC("ROM file unzipping failed!");
+  } else if (!rg_storage_read_file(app->romPath, &rom_ptr, &rom_size,
+                                   RG_FILE_ALIGN_64KB)) {
+    RG_PANIC("ROM load failed!");
+  }
+
+  // Init Race core
+  ngp_mem_set_rom(rom_ptr, rom_size);
+  m_emuInfo.machine = 1; // 0=NGP, 1=NGPC
+  m_emuInfo.romSize = (int)rom_size;
+  tipo_consola = 0;
+
+  Cz80_allocate_flag_tables();
+  ngp_mem_init();
+  map_vdp_tables_full();
+
+  if (bgTable)
+    bgTable[0] = 0xFFFF;
+  if (bgSelect)
+    *bgSelect |= 0x80;
+
+  tlcs_init();
+  tlcs_reset();
+  Z80_Init();
+  Z80_Reset();
+  sound_init(kSampleRate);
+
+  set_defaults_after_boot();
+
+  // Display
+  update = rg_surface_create(160, 152, RG_PIXEL_565_LE, MEM_FAST);
+  drawBuffer = (uint16_t *)update->data;
+  graphics_init();
+
+  if (wndTopLeftX && wndTopLeftY && wndSizeX && wndSizeY) {
+    if (*wndSizeX == 0 || *wndSizeY == 0) {
+      *wndTopLeftX = 0;
+      *wndTopLeftY = 0;
+      *wndSizeX = 160;
+      *wndSizeY = 152;
+    }
+  }
+  if (bgSelect)
+    *bgSelect |= 0x80;
+  if (frame0Pri)
+    *frame0Pri |= 0x80 | 0x40;
+
+  tlcsMemWriteB(0x00004000, tlcsMemReadB(0x00004000) | 0xC0);
+
+  finscan = 198;
+  if (mainrom && (mainrom[0x000020] == 0x65 || mainrom[0x000020] == 0x93))
+    finscan = 199;
+
+  tlcsMemWriteB(0x00004000, 0xC0);
+
+  // Kludges
+  switch (tlcsMemReadW(0x00200020)) {
+  case 0x0059:
+  case 0x0061:
+    tlcsMemWriteB(0x0020001F, 0xFF);
+    break;
+  }
+
+  rg_system_set_tick_rate(1);
+  const uint32_t CPU_CLOCK_HZ = 5700000;
+
+  while (m_bIsActive) {
+    poll_input();
+
+    tlcs_execute(5700000 / 60);
+
+    if (g_frame_ready) {
+      g_frame_ready = 0;
+      submit_frame();
+    }
+  }
+
+  rg_system_exit();
+}
