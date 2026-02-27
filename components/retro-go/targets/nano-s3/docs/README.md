@@ -126,7 +126,7 @@ components/retro-go/targets/nano-s3/
 ## Notes
 
 -   Requires PSRAM enabled
--   Designed for 320x240 ST7789 display
+-   Designed for 300x240 ST7789 display
 -   Optimized for Nano-S3 form factor
 
 ------------------------------------------------------------------------
