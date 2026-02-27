@@ -39,7 +39,7 @@ try:
     ).decode().rstrip()
 except:
     PROJECT_VER = "unknown"
-PROJECT_VER += " + WonderSwan & NGP Support"
+PROJECT_VER = "v1.4.6-ws-ngp-beta"
 FW_FORMAT = "none"
 
 TARGETS = []
@@ -229,13 +229,13 @@ try:
 
     if command in ["build-img", "release", "install"]:
         print("=== Step: Packing ===\n")
-        img_file = ("%s_%s_%s.img" % (PROJECT_NAME, PROJECT_VER, args.target)).lower()
+        img_file = ("%s_%s-%s.img" % (PROJECT_NAME, PROJECT_VER, args.target)).lower()
         build_image(apps, img_file, IDF_TARGET, args.fatsize, args.target, PROJECT_VER)
 
     if command in ["install"]:
         print("=== Step: Flashing entire image to device ===\n")
         # Should probably show a warning here and ask for confirmation...
-        img_file = ("%s_%s_%s.img" % (PROJECT_NAME, PROJECT_VER, args.target)).lower()
+        img_file = ("%s_%s-%s.img" % (PROJECT_NAME, PROJECT_VER, args.target)).lower()
         flash_image(img_file, args.port, args.baud)
 
     if command in ["flash", "run", "profile"]:
