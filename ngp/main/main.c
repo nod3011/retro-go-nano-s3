@@ -1,15 +1,28 @@
-#include <rg_system.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
-#define CZ80 1
+#include "rg_system.h"
 
+#define CZ80 1
+#define RETRO_COMPAT_IMPLEMENTATION
 #include "graphics.h"
 #include "input.h"
 #include "race-memory.h"
+#include "retro_compat.h"
 #include "tlcs900h.h"
 #include "types.h"
+
+int is_mono_game = 0;
+
+// Defined in retro_compat.h (inside RETRO_COMPAT_IMPLEMENTATION)
+// EMUINFO m_emuInfo;
+// struct ngp_screen *screen;
+
+int tipo_consola = 0;
+char retro_save_directory[3] = {0};
+int gfx_hacks = 0;
 
 extern void Z80_Reset(void);
 extern void Z80_Init(void);
@@ -24,8 +37,11 @@ extern int Cz80_allocate_flag_tables(void);
 unsigned short *drawBuffer = NULL;
 volatile unsigned g_frame_ready = 0;
 extern int finscan;
-extern EMUINFO m_emuInfo;
-extern int tipo_consola;
+
+// Race State
+extern int state_get_size(void);
+extern int state_store_mem(void *state);
+extern int state_restore_mem(void *state);
 
 unsigned char *rasterY = 0;
 unsigned char *frame0Pri = 0;
@@ -58,14 +74,18 @@ unsigned char *pattern_table = NULL;
 __attribute__((weak)) void tlcs_reset(void) {}
 
 static rg_app_t *app;
+static rg_surface_t *updates[2];
 static rg_surface_t *update;
 int m_bIsActive = 1;
 
 static void set_defaults_after_boot(void) {
   // Color/mono based on ROM
-  tlcsMemWriteB(0x00006F91, tlcsMemReadB(0x00200023));
+  uint8_t console_type = tlcsMemReadB(0x00200023);
+  tlcsMemWriteB(0x00006F91,
+                console_type); // Set BIOS mode (0x11=Color, 0x10=Mono)
+
   if (tipo_consola == 1)
-    tlcsMemWriteB(0x00006F91, 0x00); // force mono
+    tlcsMemWriteB(0x00006F91, 0x00); // force mono override manually if set
 
   // ROM Language
   tlcsMemWriteB(0x00006F87, 0x01); // English
@@ -137,7 +157,9 @@ static void poll_input(void) {
     joy |= (1 << 4);
   if (state & RG_KEY_B)
     joy |= (1 << 5);
-  if (state & RG_KEY_OPTION)
+  if (state & (RG_KEY_START | RG_KEY_SELECT | RG_KEY_OPTION))
+    joy |= (1 << 6);
+  if (state & RG_KEY_MENU)
     joy |= (1 << 6);
 
   ngpInputState = (unsigned char)joy;
@@ -149,6 +171,36 @@ static bool reset_handler(bool hard) {
   return true;
 }
 
+static bool save_state_handler(const char *filename) {
+  int size = state_get_size();
+  void *data = malloc(size);
+  if (!data)
+    return false;
+
+  state_store_mem(data);
+  bool success = rg_storage_write_file(filename, data, size, 0);
+  free(data);
+  return success;
+}
+
+static bool load_state_handler(const char *filename) {
+  size_t size = 0;
+  void *data = NULL;
+
+  if (!rg_storage_read_file(filename, &data, &size, 0))
+    return false;
+
+  if (size == state_get_size()) {
+    state_restore_mem(data);
+  }
+  free(data);
+  return true;
+}
+
+static bool screenshot_handler(const char *filename, int width, int height) {
+  return rg_surface_save_image_file(update, filename, width, height);
+}
+
 // Audio Buffers
 #define kSampleRate 22050
 #define kFps 60
@@ -158,6 +210,10 @@ static uint16_t s_dac[368];
 
 static void submit_frame() {
   rg_display_submit(update, 0);
+
+  // Swap buffers to avoid writing into the active display DMA buffer
+  update = updates[update == updates[0] ? 1 : 0];
+  drawBuffer = (uint16_t *)update->data;
 
   int lenB = kChunk * sizeof(uint16_t);
   sound_update(s_psg, lenB);
@@ -181,6 +237,9 @@ static void submit_frame() {
 void app_main() {
   rg_handlers_t handlers = {
       .reset = reset_handler,
+      .saveState = save_state_handler,
+      .loadState = load_state_handler,
+      .screenshot = screenshot_handler,
   };
   rg_system_init(22050, &handlers, NULL);
   app = rg_system_get_app();
@@ -200,13 +259,23 @@ void app_main() {
 
   // Init Race core
   ngp_mem_set_rom(rom_ptr, rom_size);
-  m_emuInfo.machine = 1; // 0=NGP, 1=NGPC
   m_emuInfo.romSize = (int)rom_size;
+
+  // Simulation Mode: Always use NGPC (1) engine
+  m_emuInfo.machine = 1;
+
+  // Detect Monochrome games (Header 0x00 at 0x23). 0x10 is Color.
+  uint8_t console_type = ((uint8_t *)rom_ptr)[0x23];
+  is_mono_game = (console_type == 0x00);
+
   tipo_consola = 0;
 
   Cz80_allocate_flag_tables();
   ngp_mem_init();
   map_vdp_tables_full();
+
+  // Force Color BIOS mode via RAM register 0x6F91
+  tlcsMemWriteB(0x00006F91, 0x10);
 
   if (bgTable)
     bgTable[0] = 0xFFFF;
@@ -217,12 +286,16 @@ void app_main() {
   tlcs_reset();
   Z80_Init();
   Z80_Reset();
+  extern void audio_dac_init(void);
+  audio_dac_init();
   sound_init(kSampleRate);
 
   set_defaults_after_boot();
 
   // Display
-  update = rg_surface_create(160, 152, RG_PIXEL_565_LE, MEM_FAST);
+  updates[0] = rg_surface_create(160, 152, RG_PIXEL_565_LE, MEM_FAST);
+  updates[1] = rg_surface_create(160, 152, RG_PIXEL_565_LE, MEM_FAST);
+  update = updates[0];
   drawBuffer = (uint16_t *)update->data;
   graphics_init();
 
@@ -256,9 +329,16 @@ void app_main() {
   }
 
   rg_system_set_tick_rate(1);
-  const uint32_t CPU_CLOCK_HZ = 5700000;
 
   while (m_bIsActive) {
+    uint32_t joystick = rg_input_read_gamepad();
+    if (joystick & RG_KEY_MENU) {
+      rg_gui_game_menu();
+    }
+    if (joystick & RG_KEY_OPTION) {
+      rg_gui_options_menu();
+    }
+
     poll_input();
 
     tlcs_execute(5700000 / 60);
