@@ -8,6 +8,14 @@ $Rev: 71 $
 #include "WSRender.h"
 #include "WSSegment.h"
 
+#if defined(ESP32) || defined(ESP_PLATFORM)
+#include <esp_attr.h>
+#else
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+#endif
+
 #define MAP_TILE 0x01FF
 #define MAP_PAL 0x1E00
 #define MAP_BANK 0x2000
@@ -76,7 +84,7 @@ void FreeBuffers(void) {
 #endif
 }
 
-void SetPalette(int addr) {
+IRAM_ATTR void SetPalette(int addr) {
   WORD color, r, g, b;
 
   // RGB444 format
@@ -88,13 +96,13 @@ void SetPalette(int addr) {
   Palette[(addr & 0x1E0) >> 5][(addr & 0x1E) >> 1] = r | g | b;
 }
 
-void RefreshLine(int Line) {
-  WORD *pSBuf;     // �f�[�^�������݃o�b�t�@
-  WORD *pSWrBuf;   // ���̏������݈ʒu�p�|�C���^
-  int *pZ;         // ���̃C���N�������g�p�|�C���^
-  int ZBuf[0x100]; // FG���C���[�̔񓧖�����ۑ�
-  int *pW;         // ���̃C���N�������g�p�|�C���^
-  int WBuf[0x100]; // FG���C���[�̃E�B���h�[��ۑ�
+IRAM_ATTR void RefreshLine(int Line) {
+  WORD *pSBuf;     // f[^݃obt@
+  WORD *pSWrBuf;   // ݈̏ʒup|C^
+  int *pZ;         // ̃CNgp|C^
+  int ZBuf[0x100]; // FGC[̔񓧖ۑ
+  int *pW;         // ̃CNgp|C^
+  int WBuf[0x100]; // FGC[̃EBh[ۑ
   int OffsetX;     //
   int OffsetY;     //
   BYTE *pbTMap;    //

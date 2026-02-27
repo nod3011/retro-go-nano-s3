@@ -1,6 +1,8 @@
 #include <rg_system.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
 
 extern void WsInit(void);
 extern void WsReset(void);
@@ -41,6 +43,7 @@ extern int apuBufLen(void);
 
 uint32_t lastPadState = 0;
 static rg_app_t *app;
+static rg_surface_t *updates[2];
 static rg_surface_t *update;
 static bool use_y_pad = false;
 
@@ -109,7 +112,10 @@ int ws_input_poll(int mode) {
 }
 
 // Submit sound and video after a frame
-static void SubmitFrame(void) {
+static void IRAM_ATTR SubmitFrame(void) {
+  // Swap buffers to avoid writing into the active display DMA buffer
+  update = updates[update == updates[0] ? 1 : 0];
+
   uint8_t *dst = (uint8_t *)update->data;
   const uint16_t *src = FrameBuffer;
   for (int y = 0; y < HEIGHT; ++y) {
@@ -170,7 +176,9 @@ void app_main(void) {
   app = rg_system_init(48000, &handlers, NULL);
   rg_system_set_tick_rate(75);
 
-  update = rg_surface_create(WIDTH, HEIGHT, RG_PIXEL_565_LE, MEM_FAST);
+  updates[0] = rg_surface_create(WIDTH, HEIGHT, RG_PIXEL_565_LE, MEM_FAST);
+  updates[1] = rg_surface_create(WIDTH, HEIGHT, RG_PIXEL_565_LE, MEM_FAST);
+  update = updates[0];
 
   // Map internal oswan buffer directly? Emulators buffer might be incompatible.
   // Instead we will copy during SubmitFrame or map directly.
