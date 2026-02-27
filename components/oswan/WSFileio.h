@@ -6,16 +6,17 @@ $Rev: 71 $
 #ifndef WSFILEIO_H_
 #define WSFILEIO_H_
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-void WsSetDir(char* path);
+
+void WsSetDir(char *path);
 int WsCreate(char *CartName);
 int WsCreateFromMemory(const uint8_t *romData, size_t romSize); // XIP no-copy
 void WsRelease(void);
 void WsLoadIEep(void);
 void WsSaveIEep(void);
-void WsLoadState(int num);
-void WsSaveState(int num);
+int WsLoadState(const char *filename);
+int WsSaveState(const char *filename);
 
 #endif
