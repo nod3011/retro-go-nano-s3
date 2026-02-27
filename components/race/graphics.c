@@ -19,6 +19,14 @@
 #include "retro_compat.h"
 #include "types.h"
 
+#if defined(ESP32) || defined(ESP_PLATFORM)
+#include <esp_attr.h>
+#else
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+#endif
+
 #if defined(ABGR1555)
 #define RMASK 0x001f
 #define GMASK 0x03e0
@@ -344,7 +352,7 @@ static MYSPRITELINE mySprPri40, mySprPri80, mySprPriC0;
 static MYSPRITE *mySprites;
 static unsigned short *myPalettes = NULL;
 
-void sortSprites(unsigned int bw) {
+IRAM_ATTR void sortSprites(unsigned int bw) {
   const unsigned char lineY = (unsigned char)(*scanlineY);
 
   mySprPri40.count = 0;
@@ -412,8 +420,8 @@ void sortSprites(unsigned int bw) {
   }
 }
 
-void drawSprites(unsigned short *draw, MYSPRITEREF *sprites, int count, int x0,
-                 int x1) {
+IRAM_ATTR void drawSprites(unsigned short *draw, MYSPRITEREF *sprites,
+                           int count, int x0, int x1) {
   unsigned int pattern, pix, cnt;
   for (int i = count - 1; i >= 0; --i) {
     pattern = patterns[sprites[i].tile];
@@ -493,9 +501,9 @@ void drawSprites(unsigned short *draw, MYSPRITEREF *sprites, int count, int x0,
   }
 }
 
-void drawScrollPlane(unsigned short *draw, unsigned short *tile_table,
-                     int scrpal, unsigned char dx, unsigned char dy, int x0,
-                     int x1, unsigned int bw) {
+IRAM_ATTR void drawScrollPlane(unsigned short *draw, unsigned short *tile_table,
+                               int scrpal, unsigned char dx, unsigned char dy,
+                               int x0, int x1, unsigned int bw) {
   unsigned short *tiles;
   unsigned short *pal;
   unsigned int pattern;
@@ -645,13 +653,13 @@ static inline uint16_t bg_color() {
 
 static inline uint8_t ngpc_ifr(void) { return tlcsMemReadB(0x00008010); }
 
-static inline void fill16_fast(uint16_t *__restrict dst, uint16_t v,
-                               int count) {
+static inline IRAM_ATTR void fill16_fast(uint16_t *__restrict dst, uint16_t v,
+                                         int count) {
   while (count--)
     *dst++ = v;
 }
 
-void myGraphicsBlitLine(unsigned char render) {
+IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
   if (!scanlineY) {
     static unsigned char dummy = 0;
     scanlineY = &dummy;
