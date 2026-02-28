@@ -543,16 +543,6 @@ int WsLoadState(const char *filename) {
     }
   }
   fread(Palette, sizeof(WORD), 16 * 16, fp);
-  fclose(fp);
-  WriteIO(0x07, IO[0x07]); // tilemap pointers
-  WriteIO(0x15, IO[0x15]); // segments
-  WriteIO(0xC0, IO[0xC0]); // bank 0x4-0xF
-  WriteIO(0xC1, IO[0xC1]); // bank 0x1
-  WriteIO(0xC2, IO[0xC2]); // bank 0x2
-  WriteIO(0xC3, IO[0xC3]); // bank 0x3
-  for (i = 0x80; i <= 0x90; i++) {
-    WriteIO(i, IO[i]);
-  }
   // Missing HW state
   fread(&HTimer, sizeof(WORD), 1, fp);
   fread(&VTimer, sizeof(WORD), 1, fp);
@@ -566,6 +556,17 @@ int WsLoadState(const char *filename) {
   fread(Ch, sizeof(SOUND), 4, fp);
   fread(&Swp, sizeof(SWEEP), 1, fp);
   fread(&Noise, sizeof(NOISE), 1, fp);
+  fclose(fp);
+
+  WriteIO(0x07, IO[0x07]); // tilemap pointers
+  WriteIO(0x15, IO[0x15]); // segments
+  WriteIO(0xC0, IO[0xC0]); // bank 0x4-0xF
+  WriteIO(0xC1, IO[0xC1]); // bank 0x1
+  WriteIO(0xC2, IO[0xC2]); // bank 0x2
+  WriteIO(0xC3, IO[0xC3]); // bank 0x3
+  for (i = 0x80; i <= 0x90; i++) {
+    WriteIO(i, IO[i]);
+  }
   return 1;
 }
 
