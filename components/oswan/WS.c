@@ -642,6 +642,13 @@ WriteMemFn WriteMemFnTable[16] = {
 void WsReset(void) {
   int i, j;
 
+  memset(IO, 0, 0x100);
+
+  HTimer = 0;
+  VTimer = 0;
+  RtcCount = 0;
+  RAMEnable = 0;
+
   Page[0x0] = IRAM;
   sIEep.data = IEep;
   sIEep.we = 0;

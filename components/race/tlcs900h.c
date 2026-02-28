@@ -7125,7 +7125,33 @@ void tlcs_init(void) {
 }
 
 void tlcs_reinit(void) {
-  int j;
+  int i, j;
+
+  // initialize values of all registers
+  gen_regsXWA0 = gen_regsXBC0 = gen_regsXDE0 = gen_regsXHL0 = 0;
+  gen_regsXWA1 = gen_regsXBC1 = gen_regsXDE1 = gen_regsXHL1 = 0;
+  gen_regsXWA2 = gen_regsXBC2 = gen_regsXDE2 = gen_regsXHL2 = 0;
+  gen_regsXWA3 = gen_regsXBC3 = gen_regsXDE3 = gen_regsXHL3 = 0;
+  gen_regsXIX = gen_regsXIY = gen_regsXIZ = 0x00001000;
+
+  gen_regsXNSP = gen_regsXSP = 0x00006C00;
+  gen_regsPC = mem_readL(0x0020001c) & 0x00ffffff;
+  gen_regsSR = 0xf800; // IFF 7, MAXM and SYSM
+  F2 = 0;
+  for (j = 0; j < 64; j++)
+    ldcRegs[j] = 0;
+  state = 0;
+  checkstate = 0;
+
+  tlcsClockMulti = 1;
+  DMAstate = 0;
+
+  interruptPendingLevel = 0;
+  for (i = 0; i < 7; i++) {
+    for (j = 0; j < INT_QUEUE_MAX; j++) {
+      pendingInterrupts[i][j] = 0;
+    }
+  }
 
   // initialize pointer structure for access to all registers in byte mode
   allregsB[0x00] = (unsigned char *)&gen_regsXWA0;
