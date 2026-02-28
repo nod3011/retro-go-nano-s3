@@ -25,6 +25,7 @@ char retro_save_directory[3] = {0};
 int gfx_hacks = 0;
 
 extern void Z80_Reset(void);
+extern void tlcs_reinit(void);
 extern void Z80_Init(void);
 
 // Audio
@@ -70,8 +71,6 @@ unsigned char *scrollBackY = 0;
 unsigned short *tile_table_back = 0;
 unsigned char *scrollBackX = 0;
 unsigned char *pattern_table = NULL;
-
-__attribute__((weak)) void tlcs_reset(void) {}
 
 static rg_app_t *app;
 static rg_surface_t *updates[2];
@@ -166,12 +165,19 @@ static void poll_input(void) {
 }
 
 static bool reset_handler(bool hard) {
-  tlcs_reset();
+  if (hard)
+    return false;
+  tlcs_reinit();
   Z80_Reset();
   return true;
 }
 
 static bool save_state_handler(const char *filename) {
+  extern unsigned char needToWriteFile;
+  extern void writeSaveGameFile(void);
+  if (needToWriteFile)
+    writeSaveGameFile();
+
   int size = state_get_size();
   void *data = malloc(size);
   if (!data)
@@ -181,6 +187,15 @@ static bool save_state_handler(const char *filename) {
   bool success = rg_storage_write_file(filename, data, size, 0);
   free(data);
   return success;
+}
+
+static void event_handler(int event, void *arg) {
+  if (event == RG_EVENT_SHUTDOWN || event == RG_EVENT_SLEEP) {
+    extern unsigned char needToWriteFile;
+    extern void writeSaveGameFile(void);
+    if (needToWriteFile)
+      writeSaveGameFile();
+  }
 }
 
 static bool load_state_handler(const char *filename) {
@@ -240,6 +255,7 @@ void app_main() {
       .saveState = save_state_handler,
       .loadState = load_state_handler,
       .screenshot = screenshot_handler,
+      .event = event_handler,
   };
   rg_system_init(22050, &handlers, NULL);
   app = rg_system_get_app();
@@ -274,6 +290,9 @@ void app_main() {
   ngp_mem_init();
   map_vdp_tables_full();
 
+  extern void setFlashSize(unsigned int);
+  setFlashSize((unsigned int)rom_size);
+
   // Force Color BIOS mode via RAM register 0x6F91
   tlcsMemWriteB(0x00006F91, 0x10);
 
@@ -283,7 +302,7 @@ void app_main() {
     *bgSelect |= 0x80;
 
   tlcs_init();
-  tlcs_reset();
+  tlcs_reinit();
   Z80_Init();
   Z80_Reset();
   extern void audio_dac_init(void);
@@ -330,13 +349,31 @@ void app_main() {
 
   rg_system_set_tick_rate(1);
 
+  if (app->bootFlags & RG_BOOT_RESUME) {
+    rg_emu_load_state(app->saveSlot);
+  }
+
+  bool menuCancelled = false;
+  bool menuPressed = false;
+  int64_t sram_save_timer = 0;
+
   while (m_bIsActive) {
     uint32_t joystick = rg_input_read_gamepad();
-    if (joystick & RG_KEY_MENU) {
-      rg_gui_game_menu();
-    }
-    if (joystick & RG_KEY_OPTION) {
+
+    if (menuPressed && !(joystick & RG_KEY_MENU)) {
+      if (!menuCancelled) {
+        rg_task_delay(50);
+        rg_gui_game_menu();
+      }
+      menuCancelled = false;
+    } else if (joystick & RG_KEY_OPTION) {
       rg_gui_options_menu();
+    }
+
+    menuPressed = joystick & RG_KEY_MENU;
+
+    if (menuPressed && joystick & ~RG_KEY_MENU) {
+      menuCancelled = true;
     }
 
     poll_input();
@@ -346,6 +383,13 @@ void app_main() {
     if (g_frame_ready) {
       g_frame_ready = 0;
       submit_frame();
+    }
+
+    extern unsigned char needToWriteFile;
+    if (needToWriteFile && rg_system_timer() > sram_save_timer) {
+      extern void writeSaveGameFile(void);
+      writeSaveGameFile();
+      sram_save_timer = rg_system_timer() + 2 * 1000 * 1000;
     }
   }
 
