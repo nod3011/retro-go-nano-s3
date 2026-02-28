@@ -44,10 +44,19 @@ void WsLoadSRAM(void) {
   void *data = NULL;
   size_t size = 0;
   if (rg_storage_read_file(path, &data, &size, 0)) {
-    if (size <= RAMSize) {
-      memcpy(RAMMap[0], data, size);
-    } else {
-      memcpy(RAMMap[0], data, RAMSize);
+    size_t total_ram = RAMBanks * 0x10000;
+    if (CartKind == CK_EEP)
+      total_ram = RAMSize;
+
+    if (size > total_ram)
+      size = total_ram;
+
+    // Load into banks
+    size_t remaining = size;
+    for (int i = 0; i < RAMBanks && remaining > 0; i++) {
+      size_t to_copy = (remaining > 0x10000) ? 0x10000 : remaining;
+      memcpy(RAMMap[i], (uint8_t *)data + (i * 0x10000), to_copy);
+      remaining -= to_copy;
     }
     free(data);
   }
@@ -61,7 +70,18 @@ void WsSaveSRAM(void) {
   if (!path)
     return;
 
-  rg_storage_write_file(path, RAMMap[0], RAMSize, 0);
+  size_t total_size = (CartKind == CK_EEP) ? RAMSize : (RAMBanks * 0x10000);
+  uint8_t *buffer = malloc(total_size);
+  if (!buffer)
+    return;
+
+  for (int i = 0; i < RAMBanks; i++) {
+    size_t bank_size = (CartKind == CK_EEP) ? RAMSize : 0x10000;
+    memcpy(buffer + (i * 0x10000), RAMMap[i], bank_size);
+  }
+
+  rg_storage_write_file(path, buffer, total_size, 0);
+  free(buffer);
   free(path);
 }
 
@@ -450,17 +470,19 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize) {
   /* SRAM 1/2 page (32KB) */
   /* Can't support game with multiple RAM banks, no mem space left for that */
   /* MAX_SRAM_ALLOCATED is defined in WS.c */
-  if (RAMBanks == 1) {
-    BYTE *one = (BYTE *)malloc(0x8000);
-    if (!one) {
-      printf("[WS] RAM malloc 32K failed, mapping to MemDummy\n");
-      for (i = 0; i < 256; ++i)
+  /* SRAM Allocation */
+  if (RAMBanks > 0) {
+    for (i = 0; i < RAMBanks; i++) {
+      size_t alloc_sz = (CartKind == CK_EEP) ? ((RAMSize + 15) & ~15) : 0x10000;
+      RAMMap[i] = (BYTE *)malloc(alloc_sz);
+      if (RAMMap[i]) {
+        memset(RAMMap[i], 0, alloc_sz);
+      } else {
         RAMMap[i] = MemDummy;
-    } else {
-      memset(one, 0x00, 0x8000);
-      RAMMap[0] = one;
-      for (i = RAMBanks; i < 256; ++i)
-        RAMMap[i] = MemDummy;
+      }
+    }
+    for (i = RAMBanks; i < 256; i++) {
+      RAMMap[i] = MemDummy;
     }
   }
 

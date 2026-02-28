@@ -46,7 +46,7 @@ const unsigned char *mainrom = NULL; // ROM mapped top XIP
 unsigned char *cpuram = NULL;
 unsigned char ldcRegs[64];
 
-static unsigned char *s_cpuram_256 = NULL;
+unsigned char *s_cpuram_256 = NULL;
 
 size_t g_mainram_size = 0;
 size_t g_cpurom_size = 0;

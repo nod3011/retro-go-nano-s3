@@ -529,18 +529,13 @@ void WriteIO(DWORD A, BYTE V) {
     }
     RAMEnable = 0;
 
-    // IMPORTANT; only Bank 0 can be mapped and allocated; no heap space for
-    // more
-    if (V != 0) {
-      Page[1] = MemDummy; // banques != 0 ignored
+    // Allow any allocated bank to be mapped
+    if (V < RAMBanks && RAMMap[V] != MemDummy) {
+      Page[1] = RAMMap[V];
+      RAMEnable = 1;
     } else {
-      // Bank 0 only
-      if (RAMBanks >= 1 && RAMMap[0]) {
-        Page[1] = RAMMap[0];
-        RAMEnable = 1;
-      } else {
-        Page[1] = MemDummy;
-      }
+      Page[1] = MemDummy;
+      RAMEnable = 0;
     }
     break;
   case 0xC2:

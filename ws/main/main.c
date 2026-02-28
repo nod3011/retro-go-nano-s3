@@ -193,7 +193,7 @@ void app_main(void) {
       .event = &event_handler,
   };
 
-  app = rg_system_init(48000, &handlers, NULL);
+  app = rg_system_init(48000, &handlers, event_handler);
   rg_system_set_tick_rate(75);
 
   updates[0] = rg_surface_create(WIDTH, HEIGHT, RG_PIXEL_565_LE, MEM_FAST);
@@ -221,6 +221,9 @@ void app_main(void) {
     rg_gui_alert("Error", "Failed to load ROM.");
     rg_system_exit();
   }
+
+  extern void WsLoadSRAM(void);
+  WsLoadSRAM();
 
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);

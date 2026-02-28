@@ -19,33 +19,35 @@
 #endif
 #include "neopopsound.h"
 
-#include <string.h>
+#include "race-memory.h"
+#include "retro_compat.h"
 #include "state.h"
 #include "tlcs900h.h"
-#include "race-memory.h"
+#include <string.h>
+
+extern unsigned char *s_cpuram_256;
+extern int is_mono_game;
 
 #ifdef PC
 #undef PC
 #endif
 
-#define CURRENT_SAVE_STATE_VERSION 0x11
+#define CURRENT_SAVE_STATE_VERSION 0x12
 
-struct race_state_header
-{
+struct race_state_header {
   u8 state_version;       /* State version */
   u8 rom_signature[0x40]; /* Rom signature, for verification */
 };
 
-struct race_state_0x11
-{
-	/* Memory */
-	u8 ram[0xc000];
-  u8 cpuram[0x08a0];
+struct race_state_0x12 {
+  /* Memory */
+  u8 ram[0x14000];
+  u8 cpuram[0x1000];
 
-	/* TLCS-900h Registers */
-	u32 pc, sr;
-	u8 f_dash;
-	u32 gpr[23];
+  /* TLCS-900h Registers */
+  u32 pc, sr;
+  u8 f_dash;
+  u32 gpr[23];
 
   /* Z80 Registers */
 #ifdef CZ80
@@ -60,55 +62,58 @@ struct race_state_0x11
   SoundChip toneChip;
   SoundChip noiseChip;
 
-	/* Timers */
+  /* Timers */
   int timer0, timer1, timer2, timer3;
 
-	/* DMA */
+  /* DMA */
   u8 ldcRegs[64];
+
+  /* System State */
+  u8 machine_type;
+  u8 is_mono;
 };
 
 struct race_state_0x10 /* Older state format */
 {
-   /* Save state version */
-   u8 state_version; /* = 0x10 */
+  /* Save state version */
+  u8 state_version; /* = 0x10 */
 
-   /* Rom signature */
-   u8 rom_signature[0x40];
+  /* Rom signature */
+  u8 rom_signature[0x40];
 
-   /* Memory */
-   u8 ram[0xc000];
-   u8 cpuram[0x08a0]; /* 0xC000]; 0x38000  */
+  /* Memory */
+  u8 ram[0xc000];
+  u8 cpuram[0x08a0]; /* 0xC000]; 0x38000  */
 
-   /* TLCS-900h Registers */
-   u32 pc, sr;
-   u8 f_dash;
-   u32 gpr[23];
+  /* TLCS-900h Registers */
+  u32 pc, sr;
+  u8 f_dash;
+  u32 gpr[23];
 
-   /* Z80 Registers */
+  /* Z80 Registers */
 #ifdef CZ80
-   cz80_struc RACE_cz80_struc;
-   u32 PC_offset;
-   s32 Z80_ICount;
+  cz80_struc RACE_cz80_struc;
+  u32 PC_offset;
+  s32 Z80_ICount;
 #elif DRZ80
-   struct Z80_Regs Z80;
+  struct Z80_Regs Z80;
 #endif
 
-   /* Sound Chips */
-   int sndCycles;
-   SoundChip toneChip;
-   SoundChip noiseChip;
+  /* Sound Chips */
+  int sndCycles;
+  SoundChip toneChip;
+  SoundChip noiseChip;
 
-   /* Timers */
-   int timer0, timer1, timer2, timer3;
+  /* Timers */
+  int timer0, timer1, timer2, timer3;
 
-   /* DMA */
-   u8 ldcRegs[64];
+  /* DMA */
+  u8 ldcRegs[64];
 };
 
-typedef struct race_state_0x11 race_state_t;
+typedef struct race_state_0x12 race_state_t;
 
-static int state_store(race_state_t *rs)
-{
+static int state_store(race_state_t *rs) {
   int i = 0;
 #ifdef CZ80
   extern cz80_struc *RACE_cz80_struc;
@@ -155,8 +160,8 @@ static int state_store(race_state_t *rs)
 
   /* Z80 Registers */
 #ifdef CZ80
-  size_of_z80 = 
-     (uintptr_t)(&(RACE_cz80_struc->CycleSup)) - (uintptr_t)(&(RACE_cz80_struc->BC));
+  size_of_z80 = (uintptr_t)(&(RACE_cz80_struc->CycleSup)) -
+                (uintptr_t)(&(RACE_cz80_struc->BC));
   memcpy(&rs->RACE_cz80_struc, RACE_cz80_struc, size_of_z80);
   rs->Z80_ICount = Z80_ICount;
   rs->PC_offset = Cz80_Get_PC(RACE_cz80_struc);
@@ -179,14 +184,18 @@ static int state_store(race_state_t *rs)
   memcpy(&rs->ldcRegs, &ldcRegs, sizeof(ldcRegs));
 
   /* Memory */
-  memcpy(rs->ram, mainram, sizeof(rs->ram));
-  memcpy(rs->cpuram, &mainram[0x20000], sizeof(rs->cpuram));
+  memcpy(rs->ram, mainram, 0x14000);
+  if (s_cpuram_256)
+    memcpy(rs->cpuram, s_cpuram_256, 0x1000);
+
+  /* System State */
+  rs->machine_type = (u8)m_emuInfo.machine;
+  rs->is_mono = (u8)is_mono_game;
 
   return 1;
 }
 
-static int state_restore(race_state_t *rs)
-{
+static int state_restore(race_state_t *rs) {
   int i = 0;
 #ifdef CZ80
   extern cz80_struc *RACE_cz80_struc;
@@ -196,6 +205,9 @@ static int state_restore(race_state_t *rs)
   extern struct Z80_Regs Z80;
 #endif
   extern int sndCycles;
+
+  /* Reinitialize TLCS (mainly redirect pointers) */
+  tlcs_reinit();
 
   /* TLCS-900h Registers */
   gen_regsPC = rs->pc;
@@ -233,8 +245,8 @@ static int state_restore(race_state_t *rs)
 
   /* Z80 Registers */
 #ifdef CZ80
-  size_of_z80 = 
-     (uintptr_t)(&(RACE_cz80_struc->CycleSup)) - (uintptr_t)(&(RACE_cz80_struc->BC));
+  size_of_z80 = (uintptr_t)(&(RACE_cz80_struc->CycleSup)) -
+                (uintptr_t)(&(RACE_cz80_struc->BC));
 
   memcpy(RACE_cz80_struc, &rs->RACE_cz80_struc, size_of_z80);
   Z80_ICount = rs->Z80_ICount;
@@ -258,26 +270,21 @@ static int state_restore(race_state_t *rs)
   memcpy(&ldcRegs, &rs->ldcRegs, sizeof(ldcRegs));
 
   /* Memory */
-  memcpy(mainram, rs->ram, sizeof(rs->ram));
-  memcpy(&mainram[0x20000], rs->cpuram, sizeof(rs->cpuram));
+  memcpy(mainram, rs->ram, 0x14000);
+  if (s_cpuram_256)
+    memcpy(s_cpuram_256, rs->cpuram, 0x1000);
 
-  /* Reinitialize TLCS (mainly redirect pointers) */
-  tlcs_reinit();
+  /* System State */
+  m_emuInfo.machine = rs->machine_type;
+  is_mono_game = (int)rs->is_mono;
 
   return 1;
 }
 
-int state_store_mem(void *state)
-{
-  return state_store((race_state_t*)state);
+int state_store_mem(void *state) { return state_store((race_state_t *)state); }
+
+int state_restore_mem(void *state) {
+  return state_restore((race_state_t *)state);
 }
 
-int state_restore_mem(void *state)
-{
-  return state_restore((race_state_t*)state);
-}
-
-int state_get_size(void)
-{
-  return sizeof(race_state_t);
-}
+int state_get_size(void) { return sizeof(race_state_t); }

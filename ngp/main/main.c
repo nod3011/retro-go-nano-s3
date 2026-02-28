@@ -192,10 +192,8 @@ static bool save_state_handler(const char *filename) {
 
 static void event_handler(int event, void *arg) {
   if (event == RG_EVENT_SHUTDOWN || event == RG_EVENT_SLEEP) {
-    extern unsigned char needToWriteFile;
-    extern void writeSaveGameFile(void);
-    if (needToWriteFile)
-      writeSaveGameFile();
+    extern void flashShutdown(void);
+    flashShutdown();
   }
 }
 
@@ -208,6 +206,9 @@ static bool load_state_handler(const char *filename) {
 
   if (size == state_get_size()) {
     state_restore_mem(data);
+  } else {
+    free(data);
+    return false;
   }
   free(data);
   return true;
@@ -258,7 +259,7 @@ void app_main() {
       .screenshot = screenshot_handler,
       .event = event_handler,
   };
-  rg_system_init(22050, &handlers, NULL);
+  rg_system_init(22050, &handlers, event_handler);
   app = rg_system_get_app();
 
   // Load ROM
