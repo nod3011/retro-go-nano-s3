@@ -54,6 +54,7 @@ int ws_input_poll(int mode) {
   static bool menuPressed = false;
 
   if (menuPressed && !(joystick & RG_KEY_MENU)) {
+    menuPressed = false;
     if (!menuCancelled) {
       rg_task_delay(50);
       rg_gui_game_menu();
@@ -166,7 +167,10 @@ static bool reset_handler(bool hard) {
 }
 
 static bool screenshot_handler(const char *filename, int width, int height) {
-  return rg_surface_save_image_file(update, filename, width, height);
+  rg_audio_set_mute(true);
+  bool success = rg_surface_save_image_file(update, filename, width, height);
+  rg_audio_set_mute(false);
+  return success;
 }
 
 static bool load_state_handler(const char *filename) {

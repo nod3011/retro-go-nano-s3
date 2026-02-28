@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 #include "rg_system.h"
 
 #define CZ80 1
@@ -205,8 +208,15 @@ static bool load_state_handler(const char *filename) {
     return false;
 
   if (size == state_get_size()) {
+    RG_LOGI("Loading state: size matched %d\n", (int)size);
+    rg_audio_set_mute(true);
+    vTaskDelay(pdMS_TO_TICKS(50)); // Allow sound thread to settle longer
     state_restore_mem(data);
+    rg_audio_set_mute(false);
+    RG_LOGI("State restore complete.\n");
   } else {
+    RG_LOGE("State size mismatch: expected %d, got %d\n", (int)state_get_size(),
+            (int)size);
     free(data);
     return false;
   }

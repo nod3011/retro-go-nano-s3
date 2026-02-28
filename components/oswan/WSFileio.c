@@ -72,12 +72,16 @@ void WsSaveSRAM(void) {
 
   size_t total_size = (CartKind == CK_EEP) ? RAMSize : (RAMBanks * 0x10000);
   uint8_t *buffer = malloc(total_size);
-  if (!buffer)
+  if (!buffer) {
+    free(path);
     return;
+  }
 
-  for (int i = 0; i < RAMBanks; i++) {
-    size_t bank_size = (CartKind == CK_EEP) ? RAMSize : 0x10000;
-    memcpy(buffer + (i * 0x10000), RAMMap[i], bank_size);
+  size_t remaining = total_size;
+  for (int i = 0; i < RAMBanks && remaining > 0; i++) {
+    size_t to_copy = (remaining > 0x10000) ? 0x10000 : remaining;
+    memcpy(buffer + (i * 0x10000), RAMMap[i], to_copy);
+    remaining -= to_copy;
   }
 
   rg_storage_write_file(path, buffer, total_size, 0);

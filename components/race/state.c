@@ -205,8 +205,6 @@ static int state_restore(race_state_t *rs) {
   extern struct Z80_Regs Z80;
 #endif
   extern int sndCycles;
-
-  /* Reinitialize TLCS (mainly redirect pointers) */
   tlcs_reinit();
 
   /* TLCS-900h Registers */
