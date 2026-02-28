@@ -12,7 +12,6 @@ $Rev: 71 $
 #include "WSRender.h"
 #include "cpu/necintrf.h"
 
-
 #define ERR_MALLOC 0
 #define ERR_OVER_RAMSIZE 0
 #define ERR_WRITE_ROM 0
@@ -27,6 +26,40 @@ $Rev: 71 $
 
 static char *SaveDir = "RAM";
 static char *StateDir = "STATE";
+
+#include <rg_system.h>
+
+void WsLoadSRAM(void) {
+  if (RAMBanks == 0)
+    return;
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, rg_system_get_app()->romPath);
+  if (!path)
+    return;
+
+  void *data = NULL;
+  size_t size = 0;
+  if (rg_storage_read_file(path, &data, &size, 0)) {
+    if (size <= RAMSize) {
+      memcpy(RAMMap[0], data, size);
+    } else {
+      memcpy(RAMMap[0], data, RAMSize);
+    }
+    free(data);
+  }
+  free(path);
+}
+
+void WsSaveSRAM(void) {
+  if (RAMBanks == 0)
+    return;
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, rg_system_get_app()->romPath);
+  if (!path)
+    return;
+
+  rg_storage_write_file(path, RAMMap[0], RAMSize, 0);
+  free(path);
+}
+
 static char SaveName[1]; // unused
 static char StateName[1];
 static char *IEepPath = "./oswan-od.dat";
@@ -431,6 +464,10 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize) {
 
   printf("[WS] Ready (HVMode=%d). XIP ROM mapped.\n", footer[6] & 1);
   printf("[WS] ============================================\n");
+
+  // Actually call WsLoadSRAM since we allocated SRAM
+  WsLoadSRAM();
+
   return 0;
 }
 

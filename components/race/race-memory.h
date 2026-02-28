@@ -21,7 +21,6 @@
 #include "sound.h"
 #include "types.h"
 
-
 #ifdef DRZ80
 #include "DrZ80_support.h"
 #else
@@ -97,12 +96,20 @@ static inline const unsigned char *get_address(unsigned int addr) {
       return &mainram[addr - 0x00004000];
     }
   } else {
-    if (addr < 0x00400000)
-      return &mainrom[(addr - 0x00200000) /*&cartAddrMask*/];
+    if (addr < 0x00400000) {
+      unsigned int offset = addr - 0x00200000;
+      if (offset < m_emuInfo.romSize)
+        return &mainrom[offset];
+      return 0;
+    }
     if (addr < 0x00800000) /* Flavor added */
       return 0;
-    if (addr < 0x00A00000)
-      return &mainrom[(addr - (0x00800000 - 0x00200000)) /*&cartAddrMask*/];
+    if (addr < 0x00A00000) {
+      unsigned int offset = addr - 0x00600000;
+      if (offset < m_emuInfo.romSize)
+        return &mainrom[offset];
+      return 0;
+    }
     if (addr < 0x00FF0000) /* Flavor added */
       return 0;
 
@@ -142,12 +149,20 @@ static INLINE unsigned char tlcsMemReadB(unsigned int addr) {
       return mainram[addr - 0x00004000];
     }
   } else {
-    if (addr < 0x00400000)
-      return mainrom[(addr - 0x00200000) /*&cartAddrMask*/];
+    if (addr < 0x00400000) {
+      unsigned int offset = addr - 0x00200000;
+      if (offset < m_emuInfo.romSize)
+        return mainrom[offset];
+      return 0xFF;
+    }
     if (addr < 0x00800000)
       return 0xFF;
-    if (addr < 0x00a00000)
-      return mainrom[(addr - (0x00800000 - 0x00200000)) /*&cartAddrMask*/];
+    if (addr < 0x00a00000) {
+      unsigned int offset = addr - 0x00600000;
+      if (offset < m_emuInfo.romSize)
+        return mainrom[offset];
+      return 0xFF;
+    }
     if (addr < 0x00ff0000)
       return 0xFF;
     return cpurom[addr - 0x00ff0000];
