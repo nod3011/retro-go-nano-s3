@@ -165,8 +165,9 @@ static void poll_input(void) {
 }
 
 static bool reset_handler(bool hard) {
-  if (hard)
-    return false;
+  if (hard) {
+    rg_system_restart();
+  }
   tlcs_reinit();
   Z80_Reset();
   return true;

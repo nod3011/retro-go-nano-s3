@@ -161,9 +161,7 @@ static void IRAM_ATTR SubmitFrame(void) {
 void ws_graphics_paint(void) { SubmitFrame(); }
 
 static bool reset_handler(bool hard) {
-  if (hard)
-    return false;
-  WsReset();
+  rg_system_restart();
   return true;
 }
 
