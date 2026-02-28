@@ -3,7 +3,6 @@
 #include <stdint.h>
 #include <string.h>
 
-
 extern void WsInit(void);
 extern void WsReset(void);
 extern int WsRun(void);
@@ -200,6 +199,10 @@ void app_main(void) {
   if (WsCreateFromMemory(rom_ptr, rom_size) != 0) {
     rg_gui_alert("Error", "Failed to load ROM.");
     rg_system_exit();
+  }
+
+  if (app->bootFlags & RG_BOOT_RESUME) {
+    rg_emu_load_state(app->saveSlot);
   }
 
   for (;;) {

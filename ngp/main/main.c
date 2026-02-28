@@ -330,6 +330,10 @@ void app_main() {
 
   rg_system_set_tick_rate(1);
 
+  if (app->bootFlags & RG_BOOT_RESUME) {
+    rg_emu_load_state(app->saveSlot);
+  }
+
   while (m_bIsActive) {
     uint32_t joystick = rg_input_read_gamepad();
     if (joystick & RG_KEY_MENU) {
