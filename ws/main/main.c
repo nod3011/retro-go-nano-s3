@@ -50,14 +50,27 @@ int ws_input_poll(int mode) {
   uint32_t joystick = rg_input_read_gamepad();
   uint16_t state = 0x0000; // Active High for oswan core
   static bool combo_pressed = false;
+  static bool menuCancelled = false;
+  static bool menuPressed = false;
 
-  if (joystick & RG_KEY_MENU) {
-    rg_gui_game_menu();
-    return lastPadState;
-  }
-  if (joystick & RG_KEY_OPTION) {
+  if (menuPressed && !(joystick & RG_KEY_MENU)) {
+    if (!menuCancelled) {
+      rg_task_delay(50);
+      rg_gui_game_menu();
+      return lastPadState;
+    }
+    menuCancelled = false;
+  } else if (joystick & RG_KEY_OPTION) {
     rg_gui_options_menu();
     return lastPadState;
+  }
+
+  menuPressed = joystick & RG_KEY_MENU;
+
+  if (menuPressed) {
+    if (joystick & ~RG_KEY_MENU) {
+      menuCancelled = true;
+    }
   }
 
   bool select_pressed = (joystick & RG_KEY_SELECT) != 0;
@@ -148,6 +161,8 @@ static void IRAM_ATTR SubmitFrame(void) {
 void ws_graphics_paint(void) { SubmitFrame(); }
 
 static bool reset_handler(bool hard) {
+  if (hard)
+    return false;
   WsReset();
   return true;
 }
@@ -164,12 +179,20 @@ static bool save_state_handler(const char *filename) {
   return WsSaveState(filename) != 0;
 }
 
+static void event_handler(int event, void *arg) {
+  if (event == RG_EVENT_SHUTDOWN || event == RG_EVENT_SLEEP) {
+    extern void WsSaveSRAM(void);
+    WsSaveSRAM();
+  }
+}
+
 void app_main(void) {
   const rg_handlers_t handlers = {
       .reset = &reset_handler,
       .screenshot = &screenshot_handler,
       .loadState = &load_state_handler,
       .saveState = &save_state_handler,
+      .event = &event_handler,
   };
 
   app = rg_system_init(48000, &handlers, NULL);

@@ -199,15 +199,27 @@ void app_main(void) {
 
   RG_LOGI("emulation loop");
 
+  bool menuCancelled = false;
+  bool menuPressed = false;
+
   while (true) {
     rg_audio_sample_t mixbuffer[AUDIO_BUFFER_LENGTH];
     uint32_t joystick = rg_input_read_gamepad();
 
-    if (joystick & (RG_KEY_MENU | RG_KEY_OPTION)) {
-      if (joystick & RG_KEY_MENU)
+    if (menuPressed && !(joystick & RG_KEY_MENU)) {
+      if (!menuCancelled) {
+        rg_task_delay(50);
         rg_gui_game_menu();
-      else
-        rg_gui_options_menu();
+      }
+      menuCancelled = false;
+    } else if (joystick & RG_KEY_OPTION) {
+      rg_gui_options_menu();
+    }
+
+    menuPressed = joystick & RG_KEY_MENU;
+
+    if (menuPressed && joystick & ~RG_KEY_MENU) {
+      menuCancelled = true;
     }
 
     int64_t start_time = rg_system_timer();
