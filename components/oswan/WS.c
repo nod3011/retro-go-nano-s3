@@ -41,11 +41,11 @@ int CartKind;        // Z[u̎ށiCK_EEP = EEPROMj
 
 static int ButtonState =
     0x0000; // Button state: B.A.START.OPTION.X4.X3.X2.X1.Y4.Y3.Y2.Y1
-static int HVMode;
-static WORD HTimer;
-static WORD VTimer;
-static int RtcCount;
-static int RAMEnable;
+int HVMode;
+WORD HTimer;
+WORD VTimer;
+int RtcCount;
+int RAMEnable;
 int FrameSkip = 4;
 static int SkipCnt = 0;
 static int TblSkip[5][5] = {
