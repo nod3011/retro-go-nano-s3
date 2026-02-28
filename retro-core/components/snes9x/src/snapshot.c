@@ -72,6 +72,7 @@ bool S9xLoadState(const char *filename)
    chunks += fread(Memory.FillRAM, FILLRAM_SIZE, 1, fp);
    chunks += fread(&APU, sizeof(APU), 1, fp);
    chunks += fread(&IAPU, sizeof(IAPU), 1, fp);
+   IAPU.RAM = IAPU_RAM;  // Restore correct pointer before using it
    chunks += fread(IAPU.RAM, 0x10000, 1, fp);
    chunks += fread(&SoundData, sizeof(SoundData), 1, fp);
 
@@ -83,7 +84,6 @@ bool S9xLoadState(const char *filename)
    IAPU.DirectPage = IAPU.DirectPage - IAPU.RAM + IAPU_RAM;
    IAPU.WaitAddress1 = IAPU.WaitAddress1 - IAPU.RAM + IAPU_RAM;
    IAPU.WaitAddress2 = IAPU.WaitAddress2 - IAPU.RAM + IAPU_RAM;
-   IAPU.RAM = IAPU_RAM;
 
    FixROMSpeed();
    IPPU.ColorsChanged = true;

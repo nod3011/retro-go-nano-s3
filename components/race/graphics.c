@@ -822,6 +822,9 @@ bool graphics_init(void) {
   dbg_print("in graphics_init\n");
 
   palette_init = palette_init16;
+  // Display driver byte-swaps RG_PIXEL_565_LE before sending to LCD.
+  // Using BGR565 masks here so after the byte-swap the R/G/B channels are
+  // correct.
   palette_init(0xF800, 0x07E0, 0x001F);
 #endif
   if (!scanlineY) {

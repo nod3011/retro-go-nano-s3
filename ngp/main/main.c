@@ -323,7 +323,7 @@ void app_main() {
 
   set_defaults_after_boot();
 
-  // Display
+  // Display - use default LE format; driver will swap bytes for BGR LCD.
   updates[0] = rg_surface_create(160, 152, RG_PIXEL_565_LE, MEM_FAST);
   updates[1] = rg_surface_create(160, 152, RG_PIXEL_565_LE, MEM_FAST);
   update = updates[0];
