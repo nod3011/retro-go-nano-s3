@@ -27,6 +27,16 @@
 
 extern unsigned char *s_cpuram_256;
 extern int is_mono_game;
+extern unsigned char interruptPendingLevel;
+extern unsigned char pendingInterrupts[7][4];
+extern int dacLBufferRead, dacLBufferWrite, dacLBufferCount;
+extern u16 *dacBufferL;
+extern int fixsoundmahjong;
+extern int finscan, contador;
+extern int DMAstate;
+extern int tlcsClockMulti;
+extern int ngOverflow;
+extern unsigned char *my_pc;
 
 #ifdef PC
 #undef PC
@@ -62,15 +72,31 @@ struct race_state_0x12 {
   SoundChip toneChip;
   SoundChip noiseChip;
 
+  /* DAC State */
+  int dacLBufferRead;
+  int dacLBufferWrite;
+  int dacLBufferCount;
+  u16 dacBufferL[4096];
+  int fixsoundmahjong;
+
   /* Timers */
   int timer0, timer1, timer2, timer3;
 
   /* DMA */
   u8 ldcRegs[64];
 
+  /* Interrupt State */
+  u8 interruptPendingLevel;
+  u8 pendingInterrupts[7][4];
+
   /* System State */
   u8 machine_type;
   u8 is_mono;
+  int finscan;
+  int contador;
+  int DMAstate;
+  int tlcsClockMulti;
+  int ngOverflow;
 };
 
 struct race_state_0x10 /* Older state format */
@@ -174,6 +200,14 @@ static int state_store(race_state_t *rs) {
   memcpy(&rs->toneChip, &toneChip, sizeof(SoundChip));
   memcpy(&rs->noiseChip, &noiseChip, sizeof(SoundChip));
 
+  /* DAC State */
+  rs->dacLBufferRead = dacLBufferRead;
+  rs->dacLBufferWrite = dacLBufferWrite;
+  rs->dacLBufferCount = dacLBufferCount;
+  if (dacBufferL)
+    memcpy(rs->dacBufferL, dacBufferL, 4096 * sizeof(u16));
+  rs->fixsoundmahjong = fixsoundmahjong;
+
   /* Timers */
   rs->timer0 = timer0;
   rs->timer1 = timer1;
@@ -183,6 +217,10 @@ static int state_store(race_state_t *rs) {
   /* DMA */
   memcpy(&rs->ldcRegs, &ldcRegs, sizeof(ldcRegs));
 
+  /* Interrupt State */
+  rs->interruptPendingLevel = interruptPendingLevel;
+  memcpy(rs->pendingInterrupts, pendingInterrupts, sizeof(pendingInterrupts));
+
   /* Memory */
   memcpy(rs->ram, mainram, 0x14000);
   if (s_cpuram_256)
@@ -191,6 +229,11 @@ static int state_store(race_state_t *rs) {
   /* System State */
   rs->machine_type = (u8)m_emuInfo.machine;
   rs->is_mono = (u8)is_mono_game;
+  rs->finscan = finscan;
+  rs->contador = contador;
+  rs->DMAstate = DMAstate;
+  rs->tlcsClockMulti = tlcsClockMulti;
+  rs->ngOverflow = ngOverflow;
 
   return 1;
 }
@@ -258,6 +301,14 @@ static int state_restore(race_state_t *rs) {
   memcpy(&toneChip, &rs->toneChip, sizeof(SoundChip));
   memcpy(&noiseChip, &rs->noiseChip, sizeof(SoundChip));
 
+  /* DAC State */
+  dacLBufferRead = rs->dacLBufferRead;
+  dacLBufferWrite = rs->dacLBufferWrite;
+  dacLBufferCount = rs->dacLBufferCount;
+  if (dacBufferL)
+    memcpy(dacBufferL, rs->dacBufferL, 4096 * sizeof(u16));
+  fixsoundmahjong = rs->fixsoundmahjong;
+
   /* Timers */
   timer0 = rs->timer0;
   timer1 = rs->timer1;
@@ -267,6 +318,10 @@ static int state_restore(race_state_t *rs) {
   /* DMA */
   memcpy(&ldcRegs, &rs->ldcRegs, sizeof(ldcRegs));
 
+  /* Interrupt State */
+  interruptPendingLevel = rs->interruptPendingLevel;
+  memcpy(pendingInterrupts, rs->pendingInterrupts, sizeof(pendingInterrupts));
+
   /* Memory */
   memcpy(mainram, rs->ram, 0x14000);
   if (s_cpuram_256)
@@ -275,6 +330,14 @@ static int state_restore(race_state_t *rs) {
   /* System State */
   m_emuInfo.machine = rs->machine_type;
   is_mono_game = (int)rs->is_mono;
+  finscan = rs->finscan;
+  contador = rs->contador;
+  DMAstate = rs->DMAstate;
+  tlcsClockMulti = rs->tlcsClockMulti;
+  ngOverflow = rs->ngOverflow;
+
+  /* Update my_pc manually after restoring all state and memory */
+  my_pc = (unsigned char *)get_address(gen_regsPC);
 
   return 1;
 }

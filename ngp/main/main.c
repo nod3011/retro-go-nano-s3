@@ -161,8 +161,6 @@ static void poll_input(void) {
     joy |= (1 << 5);
   if (state & (RG_KEY_START | RG_KEY_SELECT | RG_KEY_OPTION))
     joy |= (1 << 6);
-  if (state & RG_KEY_MENU)
-    joy |= (1 << 6);
 
   ngpInputState = (unsigned char)joy;
 }

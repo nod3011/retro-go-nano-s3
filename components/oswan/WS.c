@@ -115,7 +115,7 @@ void ComEEP(struct EEPROM *eeprom, WORD *cmd, WORD *data) {
       break;
     case 2: // `bv
       if (eeprom->we) {
-        memset(eeprom->data, 0xFF, sizeof(eeprom->data) * 2);
+        memset(eeprom->data, 0xFF, (tblmask[i][4] + 1) * sizeof(WORD));
       }
       break;
     case 3: // ݋

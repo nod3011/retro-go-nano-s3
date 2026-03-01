@@ -157,9 +157,10 @@ int WsCreate(char *CartName) {
     ROMMap[i] = MemDummy;
     RAMMap[i] = MemDummy;
   }
-  memset(IRAM, 0, sizeof(IRAM));
-  memset(MemDummy, 0xA0, sizeof(MemDummy));
-  memset(IO, 0, sizeof(IO));
+  memset(IRAM, 0, 0x10000); // 64KB
+  g_dummy_ff = 0xA0;
+  MemDummy = &g_dummy_ff;
+  memset(IO, 0, 0x100);
   if (CartName == NULL) {
     return WsSetPdata();
   }
