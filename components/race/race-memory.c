@@ -425,6 +425,7 @@ void ngp_mem_free(void) {
     s_cpuram_256 = NULL;
   }
   // mainrom est un pointeur vers la ROM fournie
+  mainrom = NULL;
   cpuram = NULL;
 }
 

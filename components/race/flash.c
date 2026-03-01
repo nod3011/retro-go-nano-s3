@@ -179,6 +179,9 @@ void writeSaveGameFile(void) {
   struct NGFheaderStruct NGFheader;
   struct blockStruct block;
 
+  // Prevent crash if mainrom is already freed
+  if (!mainrom) return;
+
   setupNGFfilename();
 
   NGFheader.version = 0x53;

@@ -14,6 +14,9 @@
 #define INLINE inline
 #endif
 
+// Enable 16-bit read optimization for faster memory access
+#define NGP_OPTIMIZATION_16BIT_READ
+
 #include "flash.h"
 #include "graphics.h"
 #include "input.h"
@@ -71,49 +74,51 @@ extern unsigned char realBIOSloaded;
 
 static inline const unsigned char *get_address(unsigned int addr) {
   addr &= 0x00FFFFFF;
-  if (addr < 0x00200000) {
-    if (addr < 0x000008a0)
-      return &cpuram[addr];
-    if (addr > 0x00003fff && addr < 0x00018000) {
-      switch (addr) /* Thanks Koyote */
-      {
-      case 0x6F80:
-        mainram[addr - 0x00004000] = 0xFF;
-        break;
-      case 0x6F80 + 1:
-        mainram[addr - 0x00004000] = 0x03;
-        break;
-      case 0x6F85:
-        mainram[addr - 0x00004000] = 0x00;
-        break;
-      case 0x6F82:
-        mainram[addr - 0x00004000] = ngpInputState;
-        break;
-      case 0x6DA2:
-        mainram[addr - 0x00004000] = 0x80;
-        break;
-      }
-      return &mainram[addr - 0x00004000];
-    }
-  } else {
+  
+  // Optimization: Check ROM first (Most frequent access)
+  if (addr >= 0x00200000) {
     if (addr < 0x00400000) {
       unsigned int offset = addr - 0x00200000;
       if (offset < m_emuInfo.romSize)
         return &mainrom[offset];
       return 0;
     }
-    if (addr < 0x00800000) /* Flavor added */
-      return 0;
     if (addr < 0x00A00000) {
+      if (addr < 0x00800000) return 0; /* Flavor added */
       unsigned int offset = addr - 0x00600000;
       if (offset < m_emuInfo.romSize)
         return &mainrom[offset];
       return 0;
     }
-    if (addr < 0x00FF0000) /* Flavor added */
-      return 0;
+    if (addr < 0x00FF0000) return 0; /* Flavor added */
 
     return &cpurom[addr - 0x00ff0000];
+  }
+
+  // RAM Access
+  if (addr < 0x000008a0)
+    return &cpuram[addr];
+  
+  if (addr > 0x00003fff && addr < 0x00018000) {
+    switch (addr) /* Thanks Koyote */
+    {
+    case 0x6F80:
+      mainram[addr - 0x00004000] = 0xFF;
+      break;
+    case 0x6F80 + 1:
+      mainram[addr - 0x00004000] = 0x03;
+      break;
+    case 0x6F85:
+      mainram[addr - 0x00004000] = 0x00;
+      break;
+    case 0x6F82:
+      mainram[addr - 0x00004000] = ngpInputState;
+      break;
+    case 0x6DA2:
+      mainram[addr - 0x00004000] = 0x80;
+      break;
+    }
+    return &mainram[addr - 0x00004000];
   }
   return 0; /* Flavor ERROR */
 }
@@ -122,10 +127,32 @@ static inline const unsigned char *get_address(unsigned int addr) {
 static INLINE unsigned char tlcsMemReadB(unsigned int addr) {
   addr &= 0x00FFFFFF;
 
-  if (currentCommand == COMMAND_INFO_READ)
+  // Optimization: Flash command is unlikely, hint compiler
+  if (__builtin_expect(currentCommand == COMMAND_INFO_READ, 0))
     return flashReadInfo(addr);
 
-  if (addr < 0x00200000) {
+  // Optimization: Check ROM first (Most frequent access for instruction fetch)
+  if (addr >= 0x00200000) {
+    if (addr < 0x00400000) {
+      unsigned int offset = addr - 0x00200000;
+      if (offset < m_emuInfo.romSize)
+        return mainrom[offset];
+      return 0xFF;
+    }
+    if (addr < 0x00A00000) {
+      if (addr < 0x00800000) return 0xFF;
+      unsigned int offset = addr - 0x00600000;
+      if (offset < m_emuInfo.romSize)
+        return mainrom[offset];
+      return 0xFF;
+    }
+    if (addr < 0x00ff0000)
+      return 0xFF;
+    return cpurom[addr - 0x00ff0000];
+  }
+
+  // RAM Access
+  {
     if (addr < 0x000008A0) {
       if (addr == 0xBC)
         ngpSoundExecute();
@@ -148,24 +175,6 @@ static INLINE unsigned char tlcsMemReadB(unsigned int addr) {
       }
       return mainram[addr - 0x00004000];
     }
-  } else {
-    if (addr < 0x00400000) {
-      unsigned int offset = addr - 0x00200000;
-      if (offset < m_emuInfo.romSize)
-        return mainrom[offset];
-      return 0xFF;
-    }
-    if (addr < 0x00800000)
-      return 0xFF;
-    if (addr < 0x00a00000) {
-      unsigned int offset = addr - 0x00600000;
-      if (offset < m_emuInfo.romSize)
-        return mainrom[offset];
-      return 0xFF;
-    }
-    if (addr < 0x00ff0000)
-      return 0xFF;
-    return cpurom[addr - 0x00ff0000];
   }
   return 0xFF;
 }
