@@ -459,20 +459,17 @@ IRAM_ATTR void drawSprites(unsigned short *draw, MYSPRITEREF *sprites,
       }
     } else if (cx + 7 < x1) {
       if (spr->flip & 0x80) {
-        for (; pattern && cx < x1; ++cx) {
+        for (; pattern; ++cx) {
           pix = pattern & 0x3;
           if (pix)
             draw[cx] = pal[pix];
           pattern >>= 2;
         }
       } else {
-        for (cx += 7; pattern && cx >= (spr->x > 248 ? spr->x - 256 : spr->x);
-             --cx) {
-          if (cx < x1 && cx >= x0) {
-            pix = pattern & 0x3;
-            if (pix)
-              draw[cx] = pal[pix];
-          }
+        for (cx += 7; pattern; --cx) {
+          pix = pattern & 0x3;
+          if (pix)
+            draw[cx] = pal[pix];
           pattern >>= 2;
         }
       }
@@ -520,10 +517,11 @@ IRAM_ATTR void drawScrollPlane(unsigned short *draw, unsigned short *tile_table,
   dy &= 0xf8; // Base Y for row
   dx &= 0xf8; // Base X for column
 
+  unsigned int tile_row_base = (((dy >> 3) & 31) << 5);
   i = x0;
 
   if (count < 8) {
-    tile = *(tiles + (((dy >> 3) & 31) << 5) + ((dx >> 3) & 31));
+    tile = tiles[tile_row_base + ((dx >> 3) & 31)];
     pattern =
         patterns[(((tile & 0x1ff)) << 3) + (tile & 0x4000 ? idy : (7 - idy))];
     if (pattern) {
@@ -557,39 +555,37 @@ IRAM_ATTR void drawScrollPlane(unsigned short *draw, unsigned short *tile_table,
 
   x2 = i + ((x1 - i) & 0xf8);
 
+  unsigned int tile_col = (dx >> 3) & 31;
+
   for (; i < x2; i += 8) {
-    tile = *(tiles + (((dy >> 3) & 31) << 5) + ((dx >> 3) & 31));
+    tile = tiles[tile_row_base + tile_col];
+    tile_col = (tile_col + 1) & 31;
     pattern =
         patterns[(((tile & 0x1ff)) << 3) + (tile & 0x4000 ? idy : (7 - idy))];
     if (pattern) {
       pal = &myPalettes[scrpal +
                         (bw ? (tile & 0x2000 ? 4 : 0) : ((tile >> 7) & 0x3c))];
       if (tile & 0x8000) {
-        for (j = i; pattern && j < x1; ++j) {
-          if (j >= x0) {
-            pix = pattern & 0x3;
-            if (pix)
-              draw[j] = pal[pix];
-          }
+        for (j = i; pattern; ++j) {
+          pix = pattern & 0x3;
+          if (pix)
+            draw[j] = pal[pix];
           pattern >>= 2;
         }
       } else {
-        for (j = i + 7; pattern && j >= x0; --j) {
-          if (j < x1) {
-            pix = pattern & 0x3;
-            if (pix)
-              draw[j] = pal[pix];
-          }
+        for (j = i + 7; pattern; --j) {
+          pix = pattern & 0x3;
+          if (pix)
+            draw[j] = pal[pix];
           pattern >>= 2;
         }
       }
     }
-    dx += 8;
   }
 
   if (x2 != x1) {
     count = x1 - x2;
-    tile = *(tiles + (((dy >> 3) & 31) << 5) + ((dx >> 3) & 31));
+    tile = tiles[tile_row_base + tile_col];
     pattern =
         patterns[(((tile & 0x1ff)) << 3) + (tile & 0x4000 ? idy : (7 - idy))];
     if (pattern) {
