@@ -139,24 +139,23 @@ static INLINE unsigned char tlcsMemReadB(unsigned int addr) {
     return flashReadInfo(addr);
 
   // Optimization: Check ROM first (Most frequent access for instruction fetch)
+  // Neo Geo Pocket ROM addresses are 0x200000..0x3FFFFF and 0x800000..0x9FFFFF
   if (addr >= 0x00200000) {
     if (addr < 0x00400000) {
-      unsigned int offset = addr - 0x00200000;
+      unsigned int offset = addr - 0x200000;
       if (offset < m_emuInfo.romSize)
         return mainrom[offset];
       return 0xFF;
     }
-    if (addr < 0x00A00000) {
-      if (addr < 0x00800000)
-        return 0xFF;
-      unsigned int offset = addr - 0x00600000;
+    if (addr >= 0x00800000 && addr < 0x00A00000) {
+      unsigned int offset = addr - 0x600000;
       if (offset < m_emuInfo.romSize)
         return mainrom[offset];
       return 0xFF;
     }
-    if (addr < 0x00ff0000)
-      return 0xFF;
-    return cpurom[addr - 0x00ff0000];
+    if (addr >= 0x00FF0000)
+      return cpurom[addr - 0x00ff0000];
+    return 0xFF;
   }
 
   // RAM Access

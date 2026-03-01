@@ -729,7 +729,7 @@ IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
         if (right > 0)
           fill16_fast(draw + x1, OOWCol, right);
         // Palettes - Update only if dirty
-        if (!win_empty && g_palette_dirty) {
+        if (g_palette_dirty) {
           if (is_bw || is_mono_game) {
             for (int i = 0; i < 4; ++i) {
               myPalettes[i] =
@@ -750,6 +750,12 @@ IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
             for (int i = 0; i < 192; ++i)
               myPalettes[i] = NGPC_TO_SDL16(palette_table[i]);
           }
+          // ONLY reset if this is the start of a frame or a mid-frame change
+          // was processed. We'll reset it at the end of the visible frame (y ==
+          // 151) normally. But for performance, we only want to do this loop
+          // ONCE per frame unless g_palette_dirty is set AGAIN mid-frame by the
+          // CPU.
+          g_palette_dirty = false;
         }
       }
 
