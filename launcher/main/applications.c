@@ -646,7 +646,7 @@ void applications_init(void) {
   // application("Neo Geo Pocket Color", "ngp", "ngp ngc zip", "ngpocket-go",
   // 0);
   application("WonderSwan", "ws", "ws wsc zip", "ws", 0);
-  application("Neo Geo Pocket", "ngp", "ngp ngc zip", "ngp", 0);
+  application("Neo Geo Pocket", "ngp", "ngc zip", "ngp", 0);
   application("DOOM", "doom", "wad zip", "prboom-go", 0);
   // application("MSX", "msx", "rom mx1 mx2 dsk", "fmsx", 0);
 

@@ -74,7 +74,7 @@ extern unsigned char realBIOSloaded;
 
 static inline const unsigned char *get_address(unsigned int addr) {
   addr &= 0x00FFFFFF;
-  
+
   // Optimization: Check ROM first (Most frequent access)
   if (addr >= 0x00200000) {
     if (addr < 0x00400000) {
@@ -84,13 +84,15 @@ static inline const unsigned char *get_address(unsigned int addr) {
       return 0;
     }
     if (addr < 0x00A00000) {
-      if (addr < 0x00800000) return 0; /* Flavor added */
+      if (addr < 0x00800000)
+        return 0; /* Flavor added */
       unsigned int offset = addr - 0x00600000;
       if (offset < m_emuInfo.romSize)
         return &mainrom[offset];
       return 0;
     }
-    if (addr < 0x00FF0000) return 0; /* Flavor added */
+    if (addr < 0x00FF0000)
+      return 0; /* Flavor added */
 
     return &cpurom[addr - 0x00ff0000];
   }
@@ -98,7 +100,7 @@ static inline const unsigned char *get_address(unsigned int addr) {
   // RAM Access
   if (addr < 0x000008a0)
     return &cpuram[addr];
-  
+
   if (addr > 0x00003fff && addr < 0x00018000) {
     switch (addr) /* Thanks Koyote */
     {
@@ -120,7 +122,9 @@ static inline const unsigned char *get_address(unsigned int addr) {
     }
     return &mainram[addr - 0x00004000];
   }
-  return 0; /* Flavor ERROR */
+  static const unsigned char dummy_page[256] = {0};
+  return dummy_page; /* Fallback to dummy data instead of NULL to prevent panic
+                      */
 }
 
 /* read a byte from a memory address (addr) */
@@ -140,7 +144,8 @@ static INLINE unsigned char tlcsMemReadB(unsigned int addr) {
       return 0xFF;
     }
     if (addr < 0x00A00000) {
-      if (addr < 0x00800000) return 0xFF;
+      if (addr < 0x00800000)
+        return 0xFF;
       unsigned int offset = addr - 0x00600000;
       if (offset < m_emuInfo.romSize)
         return mainrom[offset];
