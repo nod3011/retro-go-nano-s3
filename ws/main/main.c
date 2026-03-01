@@ -208,6 +208,7 @@ void app_main(void) {
   // Instead we will copy during SubmitFrame or map directly.
   AllocateBuffers();
   WsInit();
+  extern void WsSplash(void);
 
   size_t rom_size = 0;
   void *rom_ptr = NULL;
@@ -231,6 +232,8 @@ void app_main(void) {
 
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
+  } else {
+    WsSplash();
   }
 
   for (;;) {

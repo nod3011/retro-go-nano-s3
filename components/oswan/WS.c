@@ -1033,7 +1033,6 @@ void WsInit(void) {
   WsAllocateBuffers();
   apuInit();
   WsLoadIEep();
-  WsSplash();
 }
 
 void WsDeInit(void) {
