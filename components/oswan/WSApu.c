@@ -28,6 +28,7 @@ unsigned char* PData[4] = { NULL, NULL, NULL, NULL };// static unsigned char PDa
 int16_t* sndbuffer[2] = { NULL, NULL };  // [L/R]
 int32_t rBuf = 0, wBuf = 0;
 static int   StartupFlag;
+static uint32_t s_invPeriod[2049];
 
 // -----------------------------------------------------------------------------
 // Allocation buffers sound
@@ -93,6 +94,11 @@ int apuInit(void)
   rBuf = 0;
   wBuf = 0;
   apuWaveCreate();
+
+  // Precompute inverse period table to avoid division in WsWaveSet
+  for (int i = 1; i <= 2048; i++) {
+      s_invPeriod[i] = (1 << 20) / i;
+  }
   return 0;
 }
 
@@ -302,7 +308,9 @@ void WsWaveSet(BYTE voice, BYTE hvoice)
     } else if (Sound[channel] == 0) {
       lVol[channel]=rVol[channel]=0; continue;
     } else {
-      index = (3072000 / WAV_FREQ) * point[channel] / (2048 - Ch[channel].freq);
+      // index = (3072000 / WAV_FREQ) * point[channel] / (2048 - Ch[channel].freq);
+      // Optimized: (256 * point) / period  ->  (256 * point * inv_period) >> 20
+      index = ((uint64_t)(256 * point[channel]) * s_invPeriod[2048 - Ch[channel].freq]) >> 20;
       if ((index %= 32) == 0 && preindex[channel]) point[channel] = 0;
       value = (int16_t)PData[channel][index] - 8;   // <- **PSG actif**
       preindex[channel] = index;

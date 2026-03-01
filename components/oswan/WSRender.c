@@ -147,8 +147,8 @@ IRAM_ATTR void RefreshLine(int Line) {
     TMapXEnd = ((SCR1X + LCD_MAIN_W + 7) >> 2) & 0xFFE;
 
     for (; TMapX < TMapXEnd;) {
-      TMap = *(pbTMap + (TMapX++ & 0x3F));
-      TMap |= *(pbTMap + (TMapX++ & 0x3F)) << 8;
+      TMap = *(WORD*)(pbTMap + (TMapX & 0x3F));
+      TMapX += 2;
 
       if (COLCTL & 0x40) // 16 colors
       {
@@ -330,8 +330,8 @@ IRAM_ATTR void RefreshLine(int Line) {
     pZ = ZBuf + 8 - OffsetX;
 
     for (; TMapX < TMapXEnd;) {
-      TMap = *(pbTMap + (TMapX++ & 0x3F));
-      TMap |= *(pbTMap + (TMapX++ & 0x3F)) << 8;
+      TMap = *(WORD*)(pbTMap + (TMapX & 0x3F));
+      TMapX += 2;
 
       if (COLCTL & 0x40) {
         if (TMap & MAP_BANK) {
@@ -489,8 +489,7 @@ IRAM_ATTR void RefreshLine(int Line) {
 
     for (pbTMap = SprETMap; pbTMap >= SprTTMap; pbTMap -= 4) //
     {
-      TMap = pbTMap[0];
-      TMap |= pbTMap[1] << 8;
+      TMap = *(WORD*)pbTMap;
 
       if (pbTMap[2] > 0xF8) {
         j = pbTMap[2] - 0x100;
