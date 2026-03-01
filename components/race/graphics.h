@@ -14,6 +14,8 @@
 #ifndef AFX_GRAPHICS_H
 #define AFX_GRAPHICS_H
 
+#include <stdint.h>
+
 /* actual NGPC */
 #define NGPC_SIZEX 160
 #define NGPC_SIZEY 152
@@ -60,6 +62,7 @@ extern unsigned short *oowTable;
 extern unsigned char *color_switch;
 
 #include <stdbool.h>
+extern bool g_palette_dirty;
 bool graphics_init(void);
 void graphics_paint(unsigned char render);
 void graphicsSetDarkFilterLevel(unsigned filterLevel);

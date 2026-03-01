@@ -23,6 +23,9 @@
 #include "neopopsound.h"
 #include "sound.h"
 #include "types.h"
+#include <stdbool.h>
+
+extern bool g_palette_dirty;
 
 #ifdef DRZ80
 #include "DrZ80_support.h"
@@ -300,12 +303,17 @@ static INLINE void tlcsMemWriteB(unsigned int addr, unsigned char data) {
       break;
     }
     cpuram[addr] = data;
+    if (addr >= 0x83E0 && addr < 0x8400)
+      g_palette_dirty = true;
     return;
   } else if (addr > 0x00003fff && addr < 0x00018000) {
     if (addr == 0x87E2 && mainram[0x47F0] != 0xAA)
       return; /* disallow writes to GEMODE */
 
     mainram[addr - 0x00004000] = data;
+    // Palette memory for NGPC is usually in this range
+    if (addr >= 0x8000 && addr < 0x8800)
+      g_palette_dirty = true;
     return;
   } else if (addr >= 0x00200000 && addr < 0x00400000)
     flashChipWrite(addr, data);

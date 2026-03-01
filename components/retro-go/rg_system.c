@@ -258,8 +258,10 @@ static void system_monitor_task(void *arg)
 
     rg_task_delay(2000);
 
-    while (!exitCalled)
+    while (true)
     {
+        if (exitCalled)
+            break;
         nextLoopTime = rg_system_timer() + 1000000;
         rtcValue = time(NULL);
 
@@ -301,7 +303,8 @@ static void system_monitor_task(void *arg)
             if (rg_input_wait_for_key(RG_KEY_MENU, true, 1000))
             {
                 const char *message = "App unresponsive... Hold MENU to quit!";
-                // Drawing at this point isn't safe. But the alternative is being frozen...
+                if (exitCalled)
+                    break;
                 rg_gui_draw_text(RG_GUI_CENTER, RG_GUI_CENTER, 0, message, C_RED, C_BLACK, RG_TEXT_BIGGER);
                 if (!rg_input_wait_for_key(RG_KEY_MENU, false, 2000))
                     RG_PANIC("Application terminated!"); // We're not in a nice state, don't normal exit
@@ -687,9 +690,11 @@ size_t rg_task_messages_waiting(rg_task_t *task)
     if (!task)
         task = rg_task_current();
 #if defined(ESP_PLATFORM)
+    if (!task || !task->queue)
+        return 0;
     return uxQueueMessagesWaiting(task->queue);
 #elif defined(RG_TARGET_SDL2)
-    return task->msgWaiting;
+    return task ? task->msgWaiting : 0;
 #endif
 }
 
@@ -864,6 +869,7 @@ void rg_system_event(int event, void *arg)
 static void shutdown_cleanup(void)
 {
     exitCalled = true;
+    rg_task_delay(10);                        // Give other tasks a chance to see exitCalled and yield
     rg_display_clear(C_BLACK);                // Let the user know that something is happening
     rg_gui_draw_hourglass();                  // ...
     rg_system_event(RG_EVENT_SHUTDOWN, NULL); // Allow apps to save their state if they want
@@ -1537,3 +1543,8 @@ NO_PROFILE void __cyg_profile_func_exit(void *this_fn, void *call_site)
     UNLOCK_PROFILE();
 }
 #endif
+
+bool rg_system_exit_called(void)
+{
+    return exitCalled;
+}

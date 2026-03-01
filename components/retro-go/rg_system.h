@@ -241,6 +241,7 @@ extern "C"
     rg_app_t *rg_system_get_app(void);
     // rg_config_t rg_system_get_config(void);
     rg_stats_t rg_system_get_stats(void);
+    bool rg_system_exit_called(void);
 
     // Speed and Overclock
     void rg_system_set_app_speed(float speed);

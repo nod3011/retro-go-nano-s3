@@ -42,6 +42,7 @@ extern struct ngp_screen *screen;
 extern int gfx_hacks;
 extern int finscan;
 extern volatile unsigned g_frame_ready;
+bool g_palette_dirty = true;
 
 /*
  * 16-bit graphics buffers
@@ -335,6 +336,7 @@ static INLINE void RenderTileCache(TILECACHE *tC, unsigned int bw) {
 typedef struct {
   unsigned char flip;
   unsigned char x;
+  unsigned char y;
   unsigned char pal;
 } MYSPRITE;
 
@@ -363,31 +365,24 @@ IRAM_ATTR void sortSprites(unsigned int bw) {
 
   for (unsigned i = 0; i < 64; ++i) {
     unsigned short spriteCode = *((unsigned short *)(sprite_table + 4 * i));
-    if ((spriteCode <= 0x00FF) || ((spriteCode & 0x1800) == 0))
-      continue;
 
-    /* positions cumulatives  */
+    /* positions cumulatives */
     prevx = (spriteCode & 0x0400 ? prevx : 0) + *(sprite_table + 4 * i + 2);
     prevy = (spriteCode & 0x0200 ? prevy : 0) + *(sprite_table + 4 * i + 3);
+
+    if ((spriteCode <= 0x00FF) || ((spriteCode & 0x1800) == 0))
+      continue;
 
     unsigned char x = (unsigned char)(prevx + *scrollSpriteX);
     unsigned char y = (unsigned char)(prevy + *scrollSpriteY);
 
-    /* hors screen */
-    if ((x > 167 && x < 249) || (y > 151 && y < 249))
+    if (x > 167 && x < 249)
       continue;
 
-    /* sprite touche ligne ? */
+    if (lineY < y || lineY >= y + 8)
+      continue;
+
     int dy = (int)lineY - (int)y;
-    if (dy < 0 || dy > 7)
-      continue;
-
-    /* meta pour drawSprites() */
-    mySprites[i].x = x;
-    mySprites[i].pal =
-        bw ? (unsigned char)((spriteCode >> 11) & 0x04)
-           : (unsigned char)((sprite_palette_numbers[i] & 0x0F) << 2);
-    mySprites[i].flip = (unsigned char)(spriteCode >> 8);
 
     /* tuile + ligne */
     const unsigned short baseTile =
@@ -396,7 +391,13 @@ IRAM_ATTR void sortSprites(unsigned int bw) {
     const unsigned short tileLine =
         (unsigned short)(baseTile + (flipV ? (7 - dy) : dy));
 
-    /* prio */
+    MYSPRITE *spr = &mySprites[i];
+    spr->x = x;
+    spr->y = y;
+    spr->pal = bw ? (unsigned char)((spriteCode >> 11) & 0x04)
+                  : (unsigned char)((sprite_palette_numbers[i] & 0x0F) << 2);
+    spr->flip = (unsigned char)(spriteCode >> 8);
+
     MYSPRITELINE *dstList = NULL;
     switch (spriteCode & 0x1800) {
     case 0x1800:
@@ -411,12 +412,12 @@ IRAM_ATTR void sortSprites(unsigned int bw) {
     default:
       continue;
     }
-    if (dstList->count >= 64)
-      continue;
 
-    MYSPRITEREF *dst = &dstList->refs[dstList->count++];
-    dst->id = (unsigned char)i;
-    dst->tile = tileLine;
+    if (dstList->count < 64) {
+      MYSPRITEREF *dst = &dstList->refs[dstList->count++];
+      dst->id = (unsigned char)i;
+      dst->tile = tileLine;
+    }
   }
 }
 
@@ -661,7 +662,8 @@ static inline IRAM_ATTR void fill16_fast(uint16_t *__restrict dst, uint16_t v,
 
 IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
   // Prevent crash if memory is freed (System Panic Fix)
-  if (!mainram) return;
+  if (!mainram)
+    return;
 
   if (!scanlineY) {
     static unsigned char dummy = 0;
@@ -695,7 +697,7 @@ IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
       // window vide ?
       const int win_empty = (wnd_w == 0) | (wnd_h == 0) |
                             (y < (uint8_t)wnd_tly) |
-                            (y > (uint8_t)(wnd_tly + wnd_h));
+                            (y >= (uint8_t)(wnd_tly + wnd_h));
 
       // couleurs OOW + fond
       const uint8_t oow_idx = (uint8_t)(*oowSelect & 0x07);
@@ -726,8 +728,8 @@ IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
         const int right = 160 - x1;
         if (right > 0)
           fill16_fast(draw + x1, OOWCol, right);
-        // Palettes - Update every line to avoid late-refresh artifacts
-        if (!win_empty) {
+        // Palettes - Update only if dirty
+        if (!win_empty && g_palette_dirty) {
           if (is_bw || is_mono_game) {
             for (int i = 0; i < 4; ++i) {
               myPalettes[i] =
@@ -755,7 +757,8 @@ IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
         sortSprites(is_bw);
 
         // Ordre empilement
-        drawSprites(draw, mySprPri40.refs, mySprPri40.count, x0, x1);
+        if (mySprPri40.count > 0)
+          drawSprites(draw, mySprPri40.refs, mySprPri40.count, x0, x1);
 
         // plans + 0x80 entre les deux
         const uint8_t frame1 = *frame1Pri;
@@ -785,6 +788,7 @@ IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
       tlcsMemWriteB(0x00008010, (uint8_t)(ifr | 0x40));
       // graphics_paint(render);
       g_frame_ready = 1;
+      g_palette_dirty = false; // Reset dirty flag at end of visible frame
     }
 
     *scanlineY = (uint8_t)(y + 1);
@@ -816,6 +820,8 @@ bool graphics_init(void) {
   if (!mySprites) {
     mySprites = calloc(64, sizeof(MYSPRITE));
   }
+
+  g_palette_dirty = true;
 
 #ifdef __LIBRETRO__
   palette_init = palette_init16;

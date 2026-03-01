@@ -351,6 +351,8 @@ static INLINE void tlcsMemWriteW(unsigned int addr, unsigned short data) {
   } else {
     tlcsMemWriteB(addr, data & 0xFF);
     tlcsMemWriteB(addr + 1, data >> 8);
+    if ((addr & 0xFFFFFF) >= 0x8000 && (addr & 0xFFFFFF) < 0xA000)
+      g_palette_dirty = true;
   }
 }
 
@@ -7145,6 +7147,8 @@ void tlcs_reinit(void) {
 
   tlcsClockMulti = 1;
   DMAstate = 0;
+
+  g_palette_dirty = true;
 
   interruptPendingLevel = 0;
   for (i = 0; i < 7; i++) {
