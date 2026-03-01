@@ -11,7 +11,7 @@
 // -----------------------------------------------------------------------------
 // Config
 // -----------------------------------------------------------------------------
-#define WAV_FREQ    12000
+#define WAV_FREQ    48000
 #define WAV_VOLUME  40
 // -----------------------------------------------------------------------------
 // State APU
@@ -28,7 +28,9 @@ unsigned char* PData[4] = { NULL, NULL, NULL, NULL };// static unsigned char PDa
 int16_t* sndbuffer[2] = { NULL, NULL };  // [L/R]
 int32_t rBuf = 0, wBuf = 0;
 static int   StartupFlag;
-static uint32_t s_invPeriod[2049];
+static int psg_counter[4] = {0, 0, 0, 0};
+static int psg_sample_ptr[4] = {0, 0, 0, 0};
+static int psg_noise_state = 0;
 
 // -----------------------------------------------------------------------------
 // Allocation buffers sound
@@ -95,10 +97,11 @@ int apuInit(void)
   wBuf = 0;
   apuWaveCreate();
 
-  // Precompute inverse period table to avoid division in WsWaveSet
-  for (int i = 1; i <= 2048; i++) {
-      s_invPeriod[i] = (1 << 20) / i;
+  for (int i = 0; i < 4; i++) {
+      psg_counter[i] = 0;
+      psg_sample_ptr[i] = 0;
   }
+  psg_noise_state = 0;
   return 0;
 }
 
@@ -289,45 +292,56 @@ static inline int16_t clamp16(int32_t v)
 
 void WsWaveSet(BYTE voice, BYTE hvoice)
 {
-  static int point[4]    = {0,0,0,0};
-  static int preindex[4] = {0,0,0,0};
-  int16_t lVol[4], rVol[4];
+  int16_t lVol, rVol;
   int conv = 4;
-  int channel, index;
+  int channel;
   int16_t value;
+  int32_t mix;
 
-  for (channel = 0; channel < 4; channel++) {
-    if (!Ch[channel].on) { lVol[channel]=rVol[channel]=0; continue; }
+  // Pre-calculate voice volumes (constant for this batch)
+  int16_t vVol = ((int16_t)voice  - 0x80) * 2;
+  int16_t hVol = ((int16_t)hvoice - 0x80) * 2;
 
-    if (channel == 1 && VoiceOn && Sound[4])      { lVol[channel]=rVol[channel]=0; continue; }
-    if (channel == 2 && Swp.on && !Sound[5])      { lVol[channel]=rVol[channel]=0; continue; }
+  // Generate 4 samples at 48kHz resolution
+  for (int i = 0; i < conv; ++i) {
+    mix = vVol + hVol;
 
-    if (channel == 3 && Noise.on && Sound[6]) {
-      // Bruit 
-      value = (apuMrand(15 - Noise.pattern) & 1) ? 7 : -8;
-    } else if (Sound[channel] == 0) {
-      lVol[channel]=rVol[channel]=0; continue;
-    } else {
-      // index = (3072000 / WAV_FREQ) * point[channel] / (2048 - Ch[channel].freq);
-      // Optimized: (256 * point) / period  ->  (256 * point * inv_period) >> 20
-      index = ((uint64_t)(256 * point[channel]) * s_invPeriod[2048 - Ch[channel].freq]) >> 20;
-      if ((index %= 32) == 0 && preindex[channel]) point[channel] = 0;
-      value = (int16_t)PData[channel][index] - 8;   // <- **PSG actif**
-      preindex[channel] = index;
-      point[channel]++;
+    for (channel = 0; channel < 4; channel++) {
+      if (!Ch[channel].on) continue;
+      if (channel == 1 && VoiceOn && Sound[4]) continue;
+      if (channel == 2 && Swp.on && !Sound[5]) continue;
+
+      // PSG: Calculate at 48kHz resolution (64 master cycles per step)
+      int freq = Ch[channel].freq & 0x7FF;
+      int period = 2048 - freq;
+      if (period == 0) period = 1;
+
+      if (channel == 3 && Noise.on && Sound[6]) {
+        // Noise channel: Update LFSR based on frequency
+        psg_counter[channel] -= 64;
+        while (psg_counter[channel] <= 0) {
+            psg_counter[channel] += period;
+            psg_noise_state = (apuMrand(15 - Noise.pattern) & 1);
+        }
+        value = psg_noise_state ? 7 : -8;
+      } else if (Sound[channel] == 0) {
+        continue;
+      } else {
+        // Waveform channel: Advance pointer based on frequency
+        psg_counter[channel] -= 64;
+        while (psg_counter[channel] <= 0) {
+            psg_counter[channel] += period;
+            psg_sample_ptr[channel] = (psg_sample_ptr[channel] + 1) & 0x1F;
+        }
+        value = (int16_t)PData[channel][psg_sample_ptr[channel]] - 8;
+      }
+
+      lVol = (int16_t)(value * Ch[channel].volL);
+      rVol = (int16_t)(value * Ch[channel].volR);
+      mix += lVol + rVol;
     }
 
-    lVol[channel] = (int16_t)(value * Ch[channel].volL);
-    rVol[channel] = (int16_t)(value * Ch[channel].volR);
-  }
-
-  int16_t vVol = ((int16_t)voice  - 0x80) * 2;  // DMA voice
-  int16_t hVol = ((int16_t)hvoice - 0x80) * 2;  // Hyper voice
-  int32_t mix  = (int32_t)(lVol[0]+lVol[1]+lVol[2]+lVol[3] + vVol + hVol) * WAV_VOLUME;
-
-
-  int16_t LL = clamp16(mix);
-  for (int i = 0; i < conv; ++i) {
+    int16_t LL = clamp16(mix * WAV_VOLUME);
     sndbuffer[0][wBuf] = LL;
     sndbuffer[1][wBuf] = LL;
     if (++wBuf >= SND_RNGSIZE) wBuf = 0;

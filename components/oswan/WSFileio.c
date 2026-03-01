@@ -152,6 +152,7 @@ int WsCreate(char *CartName) {
   int Checksum, i, j;
   FILE *fp;
   BYTE buf[16];
+  long fileSize;
 
   for (i = 0; i < 256; i++) {
     ROMMap[i] = MemDummy;
@@ -169,6 +170,8 @@ int WsCreate(char *CartName) {
     fprintf(stderr, "ERR_FOPEN");
     return ERR_FOPEN;
   }
+  fseek(fp, 0, SEEK_END);
+  fileSize = ftell(fp);
   fseek(fp, -10, SEEK_END);
   if (fread(buf, 1, 10, fp) != 10) {
     // ErrorMsg(ERR_FREAD_ROMINFO);
@@ -204,7 +207,9 @@ int WsCreate(char *CartName) {
     ROMBanks = 256;
     break;
   default:
-    ROMBanks = 0;
+    /* Fallback for bad ROM size header: calculate from file size */
+    ROMBanks = (int)((fileSize + 0xFFFF) >> 16);
+    if (ROMBanks > 256) ROMBanks = 256;
     break;
   }
   if (ROMBanks == 0) {
@@ -249,8 +254,9 @@ int WsCreate(char *CartName) {
     CartKind = CK_EEP;
     break;
   default:
-    RAMBanks = 0;
-    RAMSize = 0;
+    /* Force 64KB SRAM if unspecified/unknown (Fixes games with bad headers) */
+    RAMBanks = 1;
+    RAMSize = 0x10000;
     CartKind = 0;
     break;
   }
@@ -452,9 +458,11 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize) {
     CartKind = CK_EEP;
     break; /* 1 KiB  */
   default:
-    RAMBanks = 0;
-    RAMSize = 0;
+    /* Force 64KB SRAM if unspecified/unknown (Fixes games with bad headers) */
+    RAMBanks = 1;
+    RAMSize = 0x10000;
     CartKind = 0;
+    printf("[WS] Unknown RAM flag %02X, defaulting to 64KB SRAM\n", footer[5]);
     break;
   }
   printf("[WS] RAMBanks=%d, RAMSize=0x%X, CartKind=%d\n", RAMBanks, RAMSize,
@@ -476,19 +484,17 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize) {
   /* Can't support game with multiple RAM banks, no mem space left for that */
   /* MAX_SRAM_ALLOCATED is defined in WS.c */
   /* SRAM Allocation */
-  if (RAMBanks > 0) {
-    for (i = 0; i < RAMBanks; i++) {
-      size_t alloc_sz = (CartKind == CK_EEP) ? ((RAMSize + 15) & ~15) : 0x10000;
-      RAMMap[i] = (BYTE *)malloc(alloc_sz);
-      if (RAMMap[i]) {
-        memset(RAMMap[i], 0, alloc_sz);
-      } else {
-        RAMMap[i] = MemDummy;
-      }
-    }
-    for (i = RAMBanks; i < 256; i++) {
+  for (i = 0; i < RAMBanks; i++) {
+    size_t alloc_sz = (CartKind == CK_EEP) ? ((RAMSize + 15) & ~15) : 0x10000;
+    RAMMap[i] = (BYTE *)malloc(alloc_sz);
+    if (RAMMap[i]) {
+      memset(RAMMap[i], 0, alloc_sz);
+    } else {
       RAMMap[i] = MemDummy;
     }
+  }
+  for (i = RAMBanks; i < 256; i++) {
+    RAMMap[i] = MemDummy;
   }
 
   WsReset();
