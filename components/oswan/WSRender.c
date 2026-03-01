@@ -2,7 +2,9 @@
 $Date: 2009-10-30 05:26:46 +0100 (ven., 30 oct. 2009) $
 $Rev: 71 $
 */
+#include <stdint.h>
 #include <string.h>
+
 
 #include "WS.h"
 #include "WSRender.h"
@@ -125,10 +127,10 @@ IRAM_ATTR void RefreshLine(int Line) {
   } else {
     BaseCol = 0;
   }
-  for (i = 0; i < LCD_MAIN_W; i++) {
-    {
-      *pSWrBuf++ = BaseCol;
-    }
+  uint32_t *pSWrBuf32 = (uint32_t *)pSWrBuf;
+  uint32_t BaseCol32 = (BaseCol << 16) | BaseCol;
+  for (i = 0; i < LCD_MAIN_W / 2; i++) {
+    *pSWrBuf32++ = BaseCol32;
   }
   if (!(LCDSLP & 0x01))
     return;
