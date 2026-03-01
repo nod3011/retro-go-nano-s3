@@ -37,6 +37,7 @@ extern int DMAstate;
 extern int tlcsClockMulti;
 extern int ngOverflow;
 extern unsigned char *my_pc;
+extern unsigned int ngpRunning;
 
 #ifdef PC
 #undef PC
@@ -97,6 +98,7 @@ struct race_state_0x12 {
   int DMAstate;
   int tlcsClockMulti;
   int ngOverflow;
+  unsigned int ngpRunning;
 };
 
 struct race_state_0x10 /* Older state format */
@@ -186,8 +188,7 @@ static int state_store(race_state_t *rs) {
 
   /* Z80 Registers */
 #ifdef CZ80
-  size_of_z80 = (uintptr_t)(&(RACE_cz80_struc->CycleSup)) -
-                (uintptr_t)(&(RACE_cz80_struc->BC));
+  size_of_z80 = sizeof(cz80_struc);
   memcpy(&rs->RACE_cz80_struc, RACE_cz80_struc, size_of_z80);
   rs->Z80_ICount = Z80_ICount;
   rs->PC_offset = Cz80_Get_PC(RACE_cz80_struc);
@@ -234,6 +235,7 @@ static int state_store(race_state_t *rs) {
   rs->DMAstate = DMAstate;
   rs->tlcsClockMulti = tlcsClockMulti;
   rs->ngOverflow = ngOverflow;
+  rs->ngpRunning = ngpRunning;
 
   return 1;
 }
@@ -286,8 +288,7 @@ static int state_restore(race_state_t *rs) {
 
   /* Z80 Registers */
 #ifdef CZ80
-  size_of_z80 = (uintptr_t)(&(RACE_cz80_struc->CycleSup)) -
-                (uintptr_t)(&(RACE_cz80_struc->BC));
+  size_of_z80 = sizeof(cz80_struc);
 
   memcpy(RACE_cz80_struc, &rs->RACE_cz80_struc, size_of_z80);
   Z80_ICount = rs->Z80_ICount;
@@ -335,6 +336,7 @@ static int state_restore(race_state_t *rs) {
   DMAstate = rs->DMAstate;
   tlcsClockMulti = rs->tlcsClockMulti;
   ngOverflow = rs->ngOverflow;
+  ngpRunning = rs->ngpRunning;
 
   /* Update my_pc manually after restoring all state and memory */
   my_pc = (unsigned char *)get_address(gen_regsPC);
