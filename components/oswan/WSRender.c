@@ -272,46 +272,16 @@ IRAM_ATTR void RefreshLine(int Line) {
         index[4] = j;
       }
 
+      const int is_transparent_0 = (COLCTL & 0x40) || (TMap & 0x0800);
       PalIndex = (TMap & MAP_PAL) >> 9;
-      if ((!index[0]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[0]];
-      }
-      if ((!index[1]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[1]];
-      }
-      if ((!index[2]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[2]];
-      }
-      if ((!index[3]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[3]];
-      }
-      if ((!index[4]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[4]];
-      }
-      if ((!index[5]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[5]];
-      }
-      if ((!index[6]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[6]];
-      }
-      if ((!index[7]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[7]];
+      for (int k = 0; k < 8; k++) {
+        if (index[k]) {
+          *pSWrBuf++ = Palette[PalIndex][index[k]];
+        } else if (!is_transparent_0) {
+          *pSWrBuf++ = Palette[PalIndex][0];
+        } else {
+          pSWrBuf++;
+        }
       }
     }
   }
@@ -484,71 +454,21 @@ IRAM_ATTR void RefreshLine(int Line) {
         index[4] = j;
       }
 
+      const int is_transparent_0 = (COLCTL & 0x40) || (TMap & 0x0800);
       PalIndex = (TMap & MAP_PAL) >> 9;
-      if (((!index[0]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[0]];
-        *pZ = 1;
+      for (int k = 0; k < 8; k++, pW++, pZ++) {
+        if (*pW) {
+          pSWrBuf++;
+        } else if (index[k]) {
+          *pSWrBuf++ = Palette[PalIndex][index[k]];
+          *pZ = 1;
+        } else if (!is_transparent_0) {
+          *pSWrBuf++ = Palette[PalIndex][0];
+          *pZ = 1;
+        } else {
+          pSWrBuf++;
+        }
       }
-      pW++;
-      pZ++;
-      if (((!index[1]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[1]];
-        *pZ = 1;
-      }
-      pW++;
-      pZ++;
-      if (((!index[2]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[2]];
-        *pZ = 1;
-      }
-      pW++;
-      pZ++;
-      if (((!index[3]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[3]];
-        *pZ = 1;
-      }
-      pW++;
-      pZ++;
-      if (((!index[4]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[4]];
-        *pZ = 1;
-      }
-      pW++;
-      pZ++;
-      if (((!index[5]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[5]];
-        *pZ = 1;
-      }
-      pW++;
-      pZ++;
-      if (((!index[6]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[6]];
-        *pZ = 1;
-      }
-      pW++;
-      pZ++;
-      if (((!index[7]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) || (*pW))
-        pSWrBuf++;
-      else {
-        *pSWrBuf++ = Palette[PalIndex][index[7]];
-        *pZ = 1;
-      }
-      pW++;
-      pZ++;
     }
   }
   /*********************************************************************/
@@ -708,9 +628,15 @@ IRAM_ATTR void RefreshLine(int Line) {
       pW = WBuf + 8 + k;
       pZ = ZBuf + k + 8;
       PalIndex = ((TMap & SPR_PAL) >> 9) + 8;
+
+      const int is_transparent_0 = (COLCTL & 0x40) || (TMap & 0x0800);
+      const int check_window = (DSPCTL & 0x08);
+      const int sprite_clip = (TMap & SPR_CLIP);
+      const int sprite_layer = (TMap & SPR_LAYR);
+
       for (i = 0; i < 8; i++, pZ++, pW++) {
-        if (DSPCTL & 0x08) {
-          if (TMap & SPR_CLIP) {
+        if (check_window) {
+          if (sprite_clip) {
             if (!*pW) {
               pSWrBuf++;
               continue;
@@ -722,11 +648,13 @@ IRAM_ATTR void RefreshLine(int Line) {
             }
           }
         }
-        if ((!index[i]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) {
-          pSWrBuf++;
-          continue;
+        if (!index[i]) {
+          if (is_transparent_0) {
+            pSWrBuf++;
+            continue;
+          }
         }
-        if ((*pZ) && (!(TMap & SPR_LAYR))) {
+        if ((*pZ) && (!sprite_layer)) {
           pSWrBuf++;
           continue;
         }
