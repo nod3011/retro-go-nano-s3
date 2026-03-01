@@ -660,6 +660,9 @@ static inline IRAM_ATTR void fill16_fast(uint16_t *__restrict dst, uint16_t v,
 }
 
 IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
+  // Prevent crash if memory is freed (System Panic Fix)
+  if (!mainram) return;
+
   if (!scanlineY) {
     static unsigned char dummy = 0;
     scanlineY = &dummy;
@@ -728,17 +731,17 @@ IRAM_ATTR void myGraphicsBlitLine(unsigned char render) {
           if (is_bw || is_mono_game) {
             for (int i = 0; i < 4; ++i) {
               myPalettes[i] =
-                  NGPC_TO_SDL16(bwTable[bw_palette_table[0 + i] & 0x07]);
-              myPalettes[4 + i] =
-                  NGPC_TO_SDL16(bwTable[bw_palette_table[4 + i] & 0x07]);
-              myPalettes[64 + i] =
-                  NGPC_TO_SDL16(bwTable[bw_palette_table[8 + i] & 0x07]);
-              myPalettes[68 + i] =
-                  NGPC_TO_SDL16(bwTable[bw_palette_table[12 + i] & 0x07]);
-              myPalettes[128 + i] =
                   NGPC_TO_SDL16(bwTable[bw_palette_table[16 + i] & 0x07]);
-              myPalettes[132 + i] =
+              myPalettes[4 + i] =
                   NGPC_TO_SDL16(bwTable[bw_palette_table[20 + i] & 0x07]);
+              myPalettes[64 + i] =
+                  NGPC_TO_SDL16(bwTable[bw_palette_table[0 + i] & 0x07]);
+              myPalettes[68 + i] =
+                  NGPC_TO_SDL16(bwTable[bw_palette_table[4 + i] & 0x07]);
+              myPalettes[128 + i] =
+                  NGPC_TO_SDL16(bwTable[bw_palette_table[8 + i] & 0x07]);
+              myPalettes[132 + i] =
+                  NGPC_TO_SDL16(bwTable[bw_palette_table[12 + i] & 0x07]);
             }
           } else if (palette_table) {
             // 192 entries NGPC
@@ -835,6 +838,9 @@ bool graphics_init(void) {
       printf("[SAFE INIT] scanlineY not mapped yet -> using dummy\n");
     }
   }
+
+  // Initialize bw_palette_table to point to the correct memory location
+  bw_palette_table = (unsigned char *)get_address(0x000083E0);
 
   switch (m_emuInfo.machine) {
   case NGP:
