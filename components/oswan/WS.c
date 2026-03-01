@@ -768,131 +768,132 @@ void WsRomPatch(BYTE *buf) {
   }
 }
 
-int Interrupt(void) {
-  static int LCount = 0, Joyz = 0x0000;
-  int i, j;
+static int Joyz = 0x0000;
 
-  if (++LCount >= 8) // 81Hblank
-  {
-    LCount = 0;
-  }
-  switch (LCount) {
-  case 0:
-    if (RSTRL == 144) {
-      DWORD VCounter;
-
-      ButtonState = WsInputGetState(HVMode);
-      if ((ButtonState ^ Joyz) & Joyz) {
-        if (IRQENA & KEY_IFLAG) {
-          IRQACK |= KEY_IFLAG;
-        }
-      }
-      Joyz = ButtonState;
-      // VblankJEgAbv
-      VCounter = VCNTH << 16 | VCNTL;
-      VCounter++;
-      VCNTL = (WORD)VCounter;
-      VCNTH = (WORD)(VCounter >> 16);
+// Helper macro to execute CPU and check IRQs
+// Batches 2 slots (32*2 = 64 cycles) to reduce overhead
+#define CPU_STEP_DOUBLE(code) \
+    cycle = nec_execute(period); \
+    period += (IPeriod * 2) - cycle; \
+    { code } \
+    if (IRQACK) { \
+        int iack = IRQACK; \
+        for (int inum = 7; inum >= 0; inum--) { \
+            if (iack & 0x80) { \
+                nec_int((inum + IRQBSE) << 2); \
+                break; \
+            } \
+            iack <<= 1; \
+        } \
     }
-    break;
-  case 2:
-    // Hblank1TvZbg邱Ƃ12KHzwavef[^o
-    apuWaveSet();
-    // NCSR = apuShiftReg();
-    break;
-  case 4:
-    if (RSTRL == 140) {
-      i = (SPRTAB & 0x1F) << 9;
-      i += SPRBGN << 2;
-      j = SPRCNT << 2;
-      memcpy(SprTMap, IRAM + i, j);
-      SprTTMap = SprTMap;
-      SprETMap = SprTMap + j - 4;
-    }
-
-    if (LCDSLP & 0x01) {
-      if (RSTRL == 0) {
-        SkipCnt--;
-        if (SkipCnt < 0) {
-          SkipCnt = 4;
-        }
-      }
-      if (TblSkip[FrameSkip][SkipCnt]) {
-        if (RSTRL < 144) {
-          RefreshLine(RSTRL);
-        }
-        if (RSTRL == 144) {
-          ws_graphics_paint();
-        }
-      }
-    }
-    break;
-  case 6:
-    if ((TIMCTL & 0x01) && HTimer) {
-      HTimer--;
-      if (!HTimer) {
-        if (TIMCTL & 0x02) {
-          HTimer = HPRE;
-        }
-        if (IRQENA & HTM_IFLAG) {
-          IRQACK |= HTM_IFLAG;
-        }
-      }
-    } else if (HPRE == 1) {
-      if (IRQENA & HTM_IFLAG) {
-        IRQACK |= HTM_IFLAG;
-      }
-    }
-    if ((IRQENA & VBB_IFLAG) && (RSTRL == 144)) {
-      IRQACK |= VBB_IFLAG;
-    }
-    if ((TIMCTL & 0x04) && (RSTRL == 144) && VTimer) {
-      VTimer--;
-      if (!VTimer) {
-        if (TIMCTL & 0x08) {
-          VTimer = VPRE;
-        }
-        if (IRQENA & VTM_IFLAG) {
-          IRQACK |= VTM_IFLAG;
-        }
-      }
-    }
-    if ((IRQENA & RST_IFLAG) && (RSTRL == RSTRLC)) {
-      IRQACK |= RST_IFLAG;
-    }
-    break;
-  case 7:
-    RSTRL++;
-    if (RSTRL >= 159) {
-      RSTRL = 0;
-    }
-    // HblankJEgAbv
-    HCNT++;
-    break;
-  default:
-    break;
-  }
-  return IRQACK;
-}
 
 int WsRun(void) {
-  static int period = IPeriod;
-  int i, cycle, iack, inum;
+  static int period = IPeriod * 2;
+  int cycle;
 
-  for (i = 0; i < 159 * 8; i++) // 1/75s
+  // Unrolled loop: 159 lines * 4 double-slots = 636 iterations
+  // Original was 159 * 8 = 1272 iterations
+  for (int i = 0; i < 159; i++)
   {
-    cycle = nec_execute(period);
-    period += IPeriod - cycle;
-    if (Interrupt()) {
-      iack = IRQACK;
-      for (inum = 7; inum >= 0; inum--) {
-        if (iack & 0x80) {
-          break;
+    // Slot 0 & 1 (Input/VBlank check moved to end of line for cleaner flow, effectively Slot 0 logic)
+    // Slot 2 & 3 (Audio at Slot 2)
+    CPU_STEP_DOUBLE(
+        apuWaveSet();
+    )
+
+    // Slot 4 & 5 (Video/DMA at Slot 4)
+    CPU_STEP_DOUBLE(
+        if (RSTRL == 140) {
+            int idx = (SPRTAB & 0x1F) << 9;
+            idx += SPRBGN << 2;
+            int size = SPRCNT << 2;
+            memcpy(SprTMap, IRAM + idx, size);
+            SprTTMap = SprTMap;
+            SprETMap = SprTMap + size - 4;
         }
-        iack <<= 1;
-      }
-      nec_int((inum + IRQBSE) << 2);
-    }
+
+        if (LCDSLP & 0x01) {
+            if (RSTRL == 0) {
+                SkipCnt--;
+                if (SkipCnt < 0) {
+                    SkipCnt = 4;
+                }
+            }
+            if (TblSkip[FrameSkip][SkipCnt]) {
+                if (RSTRL < 144) {
+                    RefreshLine(RSTRL);
+                }
+                if (RSTRL == 144) {
+                    ws_graphics_paint();
+                }
+            }
+        }
+    )
+
+    // Slot 6 & 7 (Timers at Slot 6, Line Inc at Slot 7)
+    CPU_STEP_DOUBLE(
+        // --- Slot 6 Logic ---
+        if ((TIMCTL & 0x01) && HTimer) {
+            HTimer--;
+            if (!HTimer) {
+                if (TIMCTL & 0x02) {
+                    HTimer = HPRE;
+                }
+                if (IRQENA & HTM_IFLAG) {
+                    IRQACK |= HTM_IFLAG;
+                }
+            }
+        } else if (HPRE == 1) {
+            if (IRQENA & HTM_IFLAG) {
+                IRQACK |= HTM_IFLAG;
+            }
+        }
+        if ((IRQENA & VBB_IFLAG) && (RSTRL == 144)) {
+            IRQACK |= VBB_IFLAG;
+        }
+        if ((TIMCTL & 0x04) && (RSTRL == 144) && VTimer) {
+            VTimer--;
+            if (!VTimer) {
+                if (TIMCTL & 0x08) {
+                    VTimer = VPRE;
+                }
+                if (IRQENA & VTM_IFLAG) {
+                    IRQACK |= VTM_IFLAG;
+                }
+            }
+        }
+        if ((IRQENA & RST_IFLAG) && (RSTRL == RSTRLC)) {
+            IRQACK |= RST_IFLAG;
+        }
+
+        // --- Slot 7 Logic ---
+        RSTRL++;
+        if (RSTRL >= 159) {
+            RSTRL = 0;
+        }
+        HCNT++;
+    )
+
+    // Slot 0 & 1 (Input/VBlank check - Originally Slot 0)
+    // Executed at the end of the loop to prepare for next line logic
+    CPU_STEP_DOUBLE(
+        if (RSTRL == 144) {
+            DWORD VCounter;
+
+            ButtonState = WsInputGetState(HVMode);
+            if ((ButtonState ^ Joyz) & Joyz) {
+                if (IRQENA & KEY_IFLAG) {
+                    IRQACK |= KEY_IFLAG;
+                }
+            }
+            Joyz = ButtonState;
+            // Vblank counter
+            VCounter = VCNTH << 16 | VCNTL;
+            VCounter++;
+            VCNTL = (WORD)VCounter;
+            VCNTH = (WORD)(VCounter >> 16);
+        }
+    )
   }
   return 0;
 }
