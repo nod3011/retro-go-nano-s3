@@ -35,6 +35,9 @@ PROJECT_APPS = {
 #         PROJECT_APPS[name] = [0, 0, 0]
 try:
     GIT_HASH = subprocess.check_output("git rev-parse --short HEAD", shell=True).decode().rstrip()
+    dirty = subprocess.check_output("git status --porcelain", shell=True).decode().strip()
+    if dirty:
+        GIT_HASH += "-dirty"
 except:
     GIT_HASH = "unknown"
 
@@ -202,6 +205,8 @@ if os.path.exists(f"components/retro-go/targets/{args.target}/env.py"):
 if os.path.exists(f"components/retro-go/targets/{args.target}/sdkconfig"):
     os.putenv("SDKCONFIG_DEFAULTS", os.path.abspath(f"components/retro-go/targets/{args.target}/sdkconfig"))
 os.putenv("IDF_TARGET", IDF_TARGET)
+
+PROJECT_VER += "+" + args.target
 
 command = args.command
 apps = DEFAULT_APPS.split() if "all" in args.apps else args.apps

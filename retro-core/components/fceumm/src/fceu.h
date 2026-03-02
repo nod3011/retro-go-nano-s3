@@ -2,6 +2,7 @@
 #define _FCEUH
 
 #include "fceu-types.h"
+#include <stddef.h>
 
 extern int fceuindbg;
 
@@ -41,7 +42,7 @@ writefunc FASTAPASS(1) GetWriteHandler(int32 a);
 readfunc FASTAPASS(1) GetReadHandler(int32 a);
 #ifdef FCEU_LOW_RAM
 uint8 fceu_read(int32 a);
-void fceu_write(int32 a,uint8 v);
+void fceu_write(int32 a, uint8 v);
 #endif
 
 int AllocGenieRW(void);
@@ -53,6 +54,11 @@ void ResetMapping(void);
 void ResetNES(void);
 void PowerNES(void);
 
+void FCEU_OpenGenie(void);
+void FCEU_CloseGenie(void);
+void FCEUI_GeniePower(void);
+
+#include "gw_malloc.h"
 
 extern uint64 timestampbase;
 extern uint32 MMC5HackVROMMask;
@@ -75,9 +81,9 @@ extern writefunc BWrite[0x10000];
 extern void (*GameInterface)(int h);
 extern void (*GameStateRestore)(int version);
 
-#define GI_RESETM2  1
-#define GI_POWER  2
-#define GI_CLOSE  3
+#define GI_RESETM2 1
+#define GI_POWER 2
+#define GI_CLOSE 3
 
 #include "git.h"
 extern FCEUGI *GameInfo;
@@ -87,28 +93,28 @@ extern uint8 PAL;
 #include "driver.h"
 
 typedef struct {
-	int PAL;
-	int SoundVolume;
-	int TriangleVolume;
-	int SquareVolume[2];
-	int NoiseVolume;
-	int PCMVolume;
-	int GameGenie;
+  int PAL;
+  int SoundVolume;
+  int TriangleVolume;
+  int SquareVolume[2];
+  int NoiseVolume;
+  int PCMVolume;
+  int GameGenie;
 
-	/* Current first and last rendered scanlines. */
-	int FirstSLine;
-	int LastSLine;
+  /* Current first and last rendered scanlines. */
+  int FirstSLine;
+  int LastSLine;
 
-	/* Driver code(user)-specified first and last rendered scanlines.
-	 * Usr*SLine[0] is for NTSC, Usr*SLine[1] is for PAL.
-	 */
-	int UsrFirstSLine[2];
-	int UsrLastSLine[2];
-	uint32 SndRate;
+  /* Driver code(user)-specified first and last rendered scanlines.
+   * Usr*SLine[0] is for NTSC, Usr*SLine[1] is for PAL.
+   */
+  int UsrFirstSLine[2];
+  int UsrLastSLine[2];
+  uint32 SndRate;
 #ifndef TARGET_GNW
-	int soundq;
+  int soundq;
 #endif
-	int lowpass;
+  int lowpass;
 } FCEUS;
 
 extern FCEUS FSettings;
@@ -127,13 +133,13 @@ extern uint8 Exit;
 extern uint8 pale;
 extern uint8 vsdip;
 
-#define JOY_A        0x01
-#define JOY_B        0x02
-#define JOY_SELECT   0x04
-#define JOY_START    0x08
-#define JOY_UP       0x10
-#define JOY_DOWN     0x20
-#define JOY_LEFT     0x40
-#define JOY_RIGHT    0x80
+#define JOY_A 0x01
+#define JOY_B 0x02
+#define JOY_SELECT 0x04
+#define JOY_START 0x08
+#define JOY_UP 0x10
+#define JOY_DOWN 0x20
+#define JOY_LEFT 0x40
+#define JOY_RIGHT 0x80
 
 #endif

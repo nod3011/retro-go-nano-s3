@@ -1,6 +1,8 @@
 #ifndef _FCEU_CHEAT_H
 #define _FCEU_CHEAT_H
 
+#include "fceu-types.h"
+
 extern uint8 *MMapPtrs[64];
 
 void FCEU_CheatResetRAM(void);

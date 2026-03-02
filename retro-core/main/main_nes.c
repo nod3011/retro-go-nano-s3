@@ -1,3 +1,4 @@
+#include "cheat.h"
 #include "fceu.h"
 #include "rom_manager.h"
 #include "shared.h"
@@ -15,6 +16,13 @@ static rg_app_t *app;
 static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
 
+#ifndef RG_ATTR_EXT_RAM
+#define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
+#endif
+
+unsigned int swapDuty = 0;
+void *GetKeyboard(void) { return NULL; }
+
 static uint8_t *nes_framebuffer = NULL;
 static uint16_t palette565[256];
 static uint32_t fceu_joystick;
@@ -22,7 +30,6 @@ static uint32_t fceu_joystick;
 // --- G&W COMPATIBILITY
 rom_manager_t rom_mgr;
 
-// Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
 static bool FCEUSS_Save_Fs(const char *path) {
   size_t size = 1024 * 512; // 512KB is usually enough for NES
@@ -142,9 +149,17 @@ void FCEUD_DispMessage(enum retro_log_level level, unsigned duration,
   printf("FCEU Log [%d]: %s\n", level, str);
 }
 
+// Creates a 565LE color from C_RGB(255, 255, 255)
+#undef C_RGB
+#define C_RGB(r, g, b) ((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3))
 void FCEUD_SetPalette(uint8 index, uint8 r, uint8 g, uint8 b) {
   palette565[index] = C_RGB(r, g, b);
 }
+
+// Game Genie Stubs
+void FCEU_OpenGenie(void) {}
+void FCEU_CloseGenie(void) {}
+void FCEU_GeniePower(void) {}
 
 // --- HANDLERS
 static void event_handler(int event, void *arg) {
@@ -176,8 +191,200 @@ static bool reset_handler(bool hard) {
   return true;
 }
 
+// --- CHEATS
+static void apply_cheat_code(const char *code, const char *name) {
+  if (!code || strlen(code) < 6)
+    return;
+
+  uint16 a_16;
+  uint8 v;
+  int comp;
+
+  if (!FCEUI_DecodeGG(code, &a_16, &v, &comp)) {
+    int type = 0;
+    if (!FCEUI_DecodePAR(code, &a_16, &v, &comp, &type)) {
+      RG_LOGE("Invalid cheat code: %s\n", code);
+      return;
+    }
+  }
+
+  uint32 a = a_16;
+
+  // Use description format: "NAME|CODE"
+  char full_desc[128];
+  snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
+  FCEUI_AddCheat(full_desc, a, v, comp,
+                 1); // Always use type 1 (Sub) for GG/PAR
+}
+
+static void load_cheats(void) {
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
+  if (!path)
+    return;
+
+  char *ext = strrchr(path, '.');
+  if (ext)
+    strcpy(ext, ".cht");
+
+  void *buffer = NULL;
+  size_t size = 0;
+  if (!rg_storage_read_file(path, &buffer, &size, 0)) {
+    free(path);
+    return;
+  }
+
+  FCEU_ResetCheats();
+
+  char *line = strtok((char *)buffer, "\n");
+  while (line) {
+    char *name = line;
+    char *code = strchr(line, '|');
+    if (code) {
+      *code++ = 0;
+      // Clean up potential carriage return
+      char *cr = strchr(code, '\r');
+      if (cr)
+        *cr = 0;
+      apply_cheat_code(code, name);
+    }
+    line = strtok(NULL, "\n");
+  }
+
+  free(buffer);
+  free(path);
+}
+
+static void save_cheats(void) {
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
+  if (!path)
+    return;
+
+  char *ext = strrchr(path, '.');
+  if (ext)
+    strcpy(ext, ".cht");
+
+  char *buffer = malloc(8192);
+  if (!buffer) {
+    free(path);
+    return;
+  }
+  buffer[0] = 0;
+
+  for (int i = 0; i < 64; i++) {
+    uint32 a;
+    uint8 v;
+    int s, t, comp;
+    char *full_name = NULL;
+    if (!FCEUI_GetCheat(i, &full_name, &a, &v, &comp, &s, &t))
+      break;
+
+    if (full_name) {
+      strcat(buffer, full_name);
+      strcat(buffer, "\n");
+    }
+  }
+
+  if (strlen(buffer) > 0) {
+    rg_storage_write_file(path, buffer, strlen(buffer), 0);
+  } else {
+    rg_storage_delete(path);
+  }
+
+  free(buffer);
+  free(path);
+}
+
+static int last_cheat_sel = 0;
+
+static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
+                                      rg_gui_event_t event) {
+  int index = (int)opt->arg;
+  uint32 a;
+  uint8 v;
+  int s, t, comp;
+  char *name = NULL;
+
+  if (event == RG_DIALOG_INIT || event == RG_DIALOG_UPDATE) {
+    if (FCEUI_GetCheat(index, &name, &a, &v, &comp, &s, &t)) {
+      strcpy(opt->value, s ? "ON" : "OFF");
+    }
+    return RG_DIALOG_VOID;
+  }
+
+  if (event != RG_DIALOG_ENTER && event != RG_DIALOG_SELECT)
+    return RG_DIALOG_VOID;
+
+  if (FCEUI_GetCheat(index, &name, &a, &v, &comp, &s, &t)) {
+    FCEUI_SetCheat(index, NULL, -1, -1, -1, !s, t);
+    save_cheats();
+    return RG_DIALOG_UPDATE;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static void handle_cheat_menu(void) {
+  static rg_gui_option_t choices[34];
+  static char choices_names[32][64];
+
+  while (true) {
+    int count = 0;
+    for (int i = 0; i < 30; i++) {
+      uint32 a;
+      uint8 v;
+      int s, t, comp;
+      char *full_name = NULL;
+      if (!FCEUI_GetCheat(i, &full_name, &a, &v, &comp, &s, &t))
+        break;
+
+      char *sep = strchr(full_name, '|');
+      if (sep) {
+        size_t len = sep - full_name;
+        if (len > 60)
+          len = 60;
+        strncpy(choices_names[count], full_name, len);
+        choices_names[count][len] = 0;
+      } else {
+        strncpy(choices_names[count], full_name, 63);
+        choices_names[count][63] = 0;
+      }
+      char *display_name = choices_names[count];
+
+      choices[count].flags = RG_DIALOG_FLAG_NORMAL;
+      choices[count].label = display_name;
+      choices[count].value = s ? "ON" : "OFF";
+      choices[count].update_cb = cheat_toggle_cb;
+      choices[count].arg = (intptr_t)i;
+      count++;
+    }
+
+    choices[count++] = (rg_gui_option_t){-100, _("Add new cheat..."), NULL,
+                                         RG_DIALOG_FLAG_NORMAL, NULL};
+    choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
+
+    intptr_t sel_arg = rg_gui_dialog("Cheats", choices, last_cheat_sel);
+
+    if (sel_arg == RG_DIALOG_CANCELLED)
+      break;
+
+    if (sel_arg == -100) { // Add New Cheat
+      char *code = rg_gui_input_str("Add Cheat", "Enter Code (GG/PAR)", "");
+      if (code) {
+        char *name = rg_gui_input_str("Add Cheat", "Enter Description", "");
+        if (name) {
+          apply_cheat_code(code, name);
+          save_cheats();
+          free(name);
+        }
+        free(code);
+      }
+    }
+  }
+}
+
 // --- GUI CALLBACKS
 static void options_handler(rg_gui_option_t *dest) {
+  *dest++ = (rg_gui_option_t){.label = "Cheats",
+                              .update_cb = (void *)handle_cheat_menu};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -203,7 +410,7 @@ void nes_main(void) {
   rg_system_set_overclock(2);
 
   if (!nes_framebuffer) {
-    // 256x312 for Dendy/PAL support. Move to MEM_FAST for performance.
+    // NES_WIDTH * 312 = 79,872 bytes. Fits in Internal RAM (MEM_FAST).
     nes_framebuffer = rg_alloc(NES_WIDTH * 312, MEM_FAST);
     if (!nes_framebuffer) {
       RG_PANIC("Failed to allocate NES framebuffer in MEM_FAST");
@@ -225,13 +432,14 @@ void nes_main(void) {
     RG_PANIC("FCEUI_LoadGame failed");
   }
 
+  load_sram();
+  load_cheats();
+
   char *sram_path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
   if (sram_path) {
     rg_storage_mkdir(rg_dirname(sram_path));
     free(sram_path);
   }
-
-  load_sram();
 
   // Region detection
   int slstart, slend;
@@ -246,7 +454,8 @@ void nes_main(void) {
                            ? normal_scanlines
                            : NES_HEIGHT;
 
-  updates[0] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, 0);
+  updates[0] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE,
+                                 0); // Default to PSRAM
   updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, 0);
   currentUpdate = updates[0];
 
@@ -367,13 +576,15 @@ void nes_main(void) {
     if (draw_frame && gfx && currentUpdate && currentUpdate->data) {
       bool slow_frame = !rg_display_sync(false);
       currentUpdate = updates[currentUpdate == updates[0]];
-      uint32_t *dst = (uint32_t *)currentUpdate->data;
-      int limit = NES_WIDTH * currentUpdate->height;
 
       // Optimized conversion loop (32-bit writes)
-      for (int i = 0; i < limit; i += 2) {
-        uint32_t p0 = palette565[gfx[i]];
-        uint32_t p1 = palette565[gfx[i + 1]];
+      const uint8_t *src = gfx;
+      uint32_t *dst = (uint32_t *)currentUpdate->data;
+      int limit = (NES_WIDTH * currentUpdate->height) / 2;
+
+      while (limit--) {
+        uint32_t p0 = palette565[*src++];
+        uint32_t p1 = palette565[*src++];
         *dst++ = (p1 << 16) | p0;
       }
       rg_display_submit(currentUpdate, 0);

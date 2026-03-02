@@ -32,7 +32,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "fceu-memory.h"
 #include "fceu-state.h"
 #include "fceu-types.h"
@@ -44,7 +43,6 @@
 #include "video.h"
 #include "vsuni.h"
 
-
 uint8 *XBuf = NULL;
 #ifndef TARGET_GNW
 uint8 *XDBuf = NULL;
@@ -54,10 +52,10 @@ int show_crosshair = 0;
 void FCEU_KillVirtualVideo(void) {
 #ifndef TARGET_GNW
   if (XBuf)
-    rg_free(XBuf);
+    free(XBuf);
   XBuf = 0;
   if (XDBuf)
-    rg_free(XDBuf);
+    free(XDBuf);
   XDBuf = 0;
 #endif
 }
