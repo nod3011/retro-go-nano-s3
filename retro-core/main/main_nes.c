@@ -226,8 +226,11 @@ void nes_main(void) {
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
 
   if (!nes_framebuffer) {
-    // 256x312 for Dendy/PAL support
-    nes_framebuffer = rg_alloc(NES_WIDTH * 312, MEM_SLOW);
+    // 256x312 for Dendy/PAL support. Move to MEM_FAST for performance.
+    nes_framebuffer = rg_alloc(NES_WIDTH * 312, MEM_FAST);
+    if (!nes_framebuffer) {
+      RG_PANIC("Failed to allocate NES framebuffer in MEM_FAST");
+    }
   }
   XBuf = nes_framebuffer;
 
@@ -260,10 +263,8 @@ void nes_main(void) {
                            ? normal_scanlines
                            : NES_HEIGHT;
 
-  updates[0] =
-      rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, MEM_FAST);
-  updates[1] =
-      rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, MEM_FAST);
+  updates[0] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, 0);
+  updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, 0);
   currentUpdate = updates[0];
 
   FCEUI_Sound(app->sampleRate);
@@ -274,6 +275,7 @@ void nes_main(void) {
   }
 
   int64_t last_sram_save = rg_system_timer();
+  int skip_frames = 0;
 
   static uint32_t joystick_old = 0;
   static bool menu_cancelled = false;
@@ -300,13 +302,6 @@ void nes_main(void) {
         turbo_b_toggled = !turbo_b_toggled;
         RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
       }
-      // FDS: Automated Quick Swap (Eject -> Next -> Insert)
-      if (joystick_down & RG_KEY_START) {
-        FCEUI_FDSEject();
-        FCEUI_FDSSelect();
-        FCEUI_FDSInsert(0);
-        RG_LOGI("FDS: Automated Side Swap\n");
-      }
       // FDS: Manual Insert
       if (joystick_down & RG_KEY_UP) {
         FCEUI_FDSInsert(0);
@@ -317,7 +312,7 @@ void nes_main(void) {
         FCEUI_FDSEject();
         RG_LOGI("FDS: Disk Ejected\n");
       }
-      // FDS: Change Side (Next)
+      // FDS: Next Side
       if (joystick_down & RG_KEY_SELECT) {
         FCEUI_FDSSelect();
         RG_LOGI("FDS: Switched Side\n");
@@ -378,25 +373,39 @@ void nes_main(void) {
     fceu_joystick = input_buf;
 
     int64_t startTime = rg_system_timer();
+    bool draw_frame = (skip_frames == 0);
 
     uint8_t *gfx = NULL;
     int32_t *sound = NULL;
     int32_t sound_samples = 0;
 
-    FCEUI_Emulate(&gfx, &sound, &sound_samples, 0);
+    FCEUI_Emulate(&gfx, &sound, &sound_samples, draw_frame ? 0 : 1);
 
-    if (gfx && currentUpdate && currentUpdate->data) {
+    if (draw_frame && gfx && currentUpdate && currentUpdate->data) {
+      bool slow_frame = !rg_display_sync(false);
       currentUpdate = updates[currentUpdate == updates[0]];
       uint16_t *dst = (uint16_t *)currentUpdate->data;
       int limit = NES_WIDTH * currentUpdate->height;
-      for (int i = 0; i < limit; i++) {
-        dst[i] = palette565[gfx[i]];
+
+      // Unrolled conversion loop
+      for (int i = 0; i < limit; i += 4) {
+        dst[i + 0] = palette565[gfx[i + 0]];
+        dst[i + 1] = palette565[gfx[i + 1]];
+        dst[i + 2] = palette565[gfx[i + 2]];
+        dst[i + 3] = palette565[gfx[i + 3]];
       }
       rg_display_submit(currentUpdate, 0);
+
+      // Simple auto-frameskip logic
+      int64_t elapsed = rg_system_timer() - startTime;
+      if (elapsed > app->frameTime + 2000 || slow_frame) {
+        skip_frames = 1;
+      }
+    } else if (skip_frames > 0) {
+      skip_frames--;
     }
 
     update_audio(sound, sound_samples);
-
     rg_system_tick(rg_system_timer() - startTime);
 
     // Auto-save SRAM every 30 seconds

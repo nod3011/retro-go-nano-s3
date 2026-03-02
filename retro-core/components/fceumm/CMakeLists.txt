@@ -80,5 +80,5 @@ rg_setup_compile_options(
     -Wno-implicit-fallthrough
     -Wno-unused-but-set-variable
     -Wno-unused-variable
-    -O2
+    -O3
 )
