@@ -302,20 +302,25 @@ void nes_main(void) {
       }
       // FDS: Automated Quick Swap (Eject -> Next -> Insert)
       if (joystick_down & RG_KEY_START) {
-        FCEU_FDSEject();
-        FCEU_FDSSelect();
-        FCEU_FDSInsert(0);
+        FCEUI_FDSEject();
+        FCEUI_FDSSelect();
+        FCEUI_FDSInsert(0);
         RG_LOGI("FDS: Automated Side Swap\n");
       }
-      // FDS: Manual Switch Next
+      // FDS: Manual Insert
       if (joystick_down & RG_KEY_UP) {
-        FCEU_FDSSelect();
-        RG_LOGI("FDS: Select Next Side\n");
+        FCEUI_FDSInsert(0);
+        RG_LOGI("FDS: Disk Inserted\n");
       }
-      // FDS: Manual Switch Previous
+      // FDS: Manual Eject
       if (joystick_down & RG_KEY_DOWN) {
-        FCEU_FDSSelect_previous();
-        RG_LOGI("FDS: Select Previous Side\n");
+        FCEUI_FDSEject();
+        RG_LOGI("FDS: Disk Ejected\n");
+      }
+      // FDS: Change Side (Next)
+      if (joystick_down & RG_KEY_SELECT) {
+        FCEUI_FDSSelect();
+        RG_LOGI("FDS: Switched Side\n");
       }
 
       // If any other button is pressed while MENU is held, cancel the menu
@@ -356,7 +361,7 @@ void nes_main(void) {
         input_buf |= JOY_SELECT;
     }
 
-    // Apply Turbo Toggles
+    // Apply Turbo Toggles (Continuous auto-fire)
     if (turbo_counter & 4) {
       if (turbo_a_toggled)
         input_buf |= JOY_A;
