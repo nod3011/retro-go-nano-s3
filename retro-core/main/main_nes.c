@@ -22,13 +22,6 @@ static uint32_t fceu_joystick;
 // --- G&W COMPATIBILITY
 rom_manager_t rom_mgr;
 
-// --- SETTINGS
-static int overscan = true;
-static int autocrop = 0;
-
-static const char *SETTING_AUTOCROP = "autocrop";
-static const char *SETTING_OVERSCAN = "overscan";
-
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
 static bool FCEUSS_Save_Fs(const char *path) {
@@ -67,17 +60,20 @@ static CartInfo *get_cart_info(void) {
 }
 
 static bool load_sram(void) {
-  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, NULL);
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
   if (!path)
     return false;
 
   void *buffer = NULL;
   size_t size = 0;
-  if (!rg_storage_read_file(path, &buffer, &size, 0))
+  if (!rg_storage_read_file(path, &buffer, &size, 0)) {
+    free(path);
     return false;
+  }
 
   CartInfo *cart = get_cart_info();
   if (!cart) {
+    free(path);
     free(buffer);
     return false;
   }
@@ -94,22 +90,30 @@ static bool load_sram(void) {
     }
   }
 
+  free(path);
   free(buffer);
   return loaded;
 }
 
 static bool save_sram(void) {
-  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, NULL);
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
   CartInfo *cart = get_cart_info();
-  if (!path || !cart)
+  if (!path)
     return false;
+  if (!cart) {
+    free(path);
+    return false;
+  }
 
   for (int i = 0; i < 4; i++) {
     if (cart->SaveGame[i] && cart->SaveGameLen[i] > 0) {
-      return rg_storage_write_file(path, cart->SaveGame[i],
-                                   cart->SaveGameLen[i], 0);
+      bool ret = rg_storage_write_file(path, cart->SaveGame[i],
+                                       cart->SaveGameLen[i], 0);
+      free(path);
+      return ret;
     }
   }
+  free(path);
   return false;
 }
 
@@ -196,6 +200,7 @@ void nes_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+  rg_system_set_overclock(2);
 
   if (!nes_framebuffer) {
     // 256x312 for Dendy/PAL support. Move to MEM_FAST for performance.
@@ -218,6 +223,12 @@ void nes_main(void) {
 
   if (!FCEUI_LoadGame(app->romPath, rom_data, rom_size, NULL)) {
     RG_PANIC("FCEUI_LoadGame failed");
+  }
+
+  char *sram_path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
+  if (sram_path) {
+    rg_storage_mkdir(rg_dirname(sram_path));
+    free(sram_path);
   }
 
   load_sram();
@@ -356,15 +367,14 @@ void nes_main(void) {
     if (draw_frame && gfx && currentUpdate && currentUpdate->data) {
       bool slow_frame = !rg_display_sync(false);
       currentUpdate = updates[currentUpdate == updates[0]];
-      uint16_t *dst = (uint16_t *)currentUpdate->data;
+      uint32_t *dst = (uint32_t *)currentUpdate->data;
       int limit = NES_WIDTH * currentUpdate->height;
 
-      // Unrolled conversion loop
-      for (int i = 0; i < limit; i += 4) {
-        dst[i + 0] = palette565[gfx[i + 0]];
-        dst[i + 1] = palette565[gfx[i + 1]];
-        dst[i + 2] = palette565[gfx[i + 2]];
-        dst[i + 3] = palette565[gfx[i + 3]];
+      // Optimized conversion loop (32-bit writes)
+      for (int i = 0; i < limit; i += 2) {
+        uint32_t p0 = palette565[gfx[i]];
+        uint32_t p1 = palette565[gfx[i + 1]];
+        *dst++ = (p1 << 16) | p0;
       }
       rg_display_submit(currentUpdate, 0);
 
