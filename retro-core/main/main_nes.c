@@ -1,322 +1,241 @@
+#include "fceu.h"
+#include "rom_manager.h"
 #include "shared.h"
+#include <fceumm.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <streams/memory_stream.h>
+#include <string.h>
 
-#include <nofrendo.h>
+#define NES_WIDTH 256
+#define NES_HEIGHT 240
 
-static int overscan = true;
-static int autocrop = 0;
-static int palette = 0;
-static bool slowFrame = false;
-static bool nsfPlayer = false;
-static nes_t *nes;
-
+// --- GLOBALS
 static rg_app_t *app;
 static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
 
+static uint8_t *nes_framebuffer = NULL;
+static uint16_t palette565[256];
+static uint32_t fceu_joystick;
+
+// --- G&W COMPATIBILITY
+rom_manager_t rom_mgr;
+
+// --- SETTINGS
+static int overscan = true;
+static int autocrop = 0;
+static int palette_idx = 0;
+
 static const char *SETTING_AUTOCROP = "autocrop";
 static const char *SETTING_OVERSCAN = "overscan";
 static const char *SETTING_PALETTE = "palette";
-static const char *SETTING_SPRITELIMIT = "spritelimit";
+
+// Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
+static bool FCEUSS_Save_Fs(const char *path) {
+  // Getting size for FCEUMM state
+  size_t size = 1024 * 512; // 512KB is usually enough for NES
+  uint8_t *buffer = malloc(size);
+  if (!buffer)
+    return false;
+
+  memstream_set_buffer(buffer, size);
+  FCEUSS_Save_Mem();
+  size_t used = (size_t)memstream_get_last_size();
+
+  bool success = rg_storage_write_file(path, buffer, used, 0);
+  free(buffer);
+  return success;
+}
+
+static bool FCEUSS_Load_Fs(const char *path) {
+  void *buffer = NULL;
+  size_t size = 0;
+  if (!rg_storage_read_file(path, &buffer, &size, 0))
+    return false;
+
+  memstream_set_buffer((uint8_t *)buffer, size);
+  FCEUSS_Load_Mem();
+
+  free(buffer);
+  return true;
+}
+
+static void update_audio(int32_t *samples, size_t count) {
+  if (count == 0 || !samples)
+    return;
+
+  // Convert int32_t samples to int16_t for retro-go
+  static rg_audio_frame_t audio_buf[2048];
+  if (count > 2048)
+    count = 2048;
+
+  for (size_t i = 0; i < count; i++) {
+    int16_t s = (int16_t)(samples[i]);
+    audio_buf[i].left = s;
+    audio_buf[i].right = s;
+  }
+
+  rg_audio_submit(audio_buf, count);
+}
+
+// --- FCEU CALLBACKS
+void FCEUD_PrintError(char *c) { printf("FCEU Error: %s\n", c); }
+void FCEUD_Message(char *s) { printf("FCEU Message: %s\n", s); }
+void FCEUD_DispMessage(enum retro_log_level level, unsigned duration,
+                       const char *str) {
+  printf("FCEU Log [%d]: %s\n", level, str);
+}
+
+void FCEUD_SetPalette(uint8 index, uint8 r, uint8 g, uint8 b) {
+  palette565[index] = C_RGB(r, g, b);
+}
+
+// --- HANDLERS
+static void event_handler(int event, void *arg) {
+  if (event == RG_EVENT_REDRAW) {
+    rg_display_clear(C_BLACK);
+  }
+}
+
+static bool screenshot_handler(const char *filename, int width, int height) {
+  return rg_surface_save_image_file(currentUpdate, filename, width, height);
+}
+
+static bool save_state_handler(const char *filename) {
+  return FCEUSS_Save_Fs(filename);
+}
+
+static bool load_state_handler(const char *filename) {
+  return FCEUSS_Load_Fs(filename);
+}
+
+static bool reset_handler(bool hard) {
+  if (hard)
+    FCEUI_PowerNES();
+  else
+    FCEUI_ResetNES();
+  return true;
+}
+
+// --- GUI CALLBACKS
+static rg_gui_event_t palette_update_cb(rg_gui_option_t *option,
+                                        rg_gui_event_t event) {
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    return RG_DIALOG_REDRAW;
+  }
+  strcpy(option->value, "Default");
+  return RG_DIALOG_VOID;
+}
+
+static void options_handler(rg_gui_option_t *dest) {
+  *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL,
+                              &palette_update_cb};
+  *dest++ = (rg_gui_option_t)RG_DIALOG_END;
+}
+
 // --- MAIN
+void nes_main(void) {
+  const rg_handlers_t handlers = {
+      .loadState = &load_state_handler,
+      .saveState = &save_state_handler,
+      .reset = &reset_handler,
+      .event = &event_handler,
+      .screenshot = &screenshot_handler,
+      .options = &options_handler,
+  };
 
+  app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
 
-static void event_handler(int event, void *arg)
-{
-    if (event == RG_EVENT_REDRAW)
-    {
-        if (nsfPlayer)
-            rg_display_clear(C_BLACK);
-        else if (nes)
-            (nes->blit_func)(NULL);
-    }
-}
+  updates[0] =
+      rg_surface_create(NES_WIDTH, NES_HEIGHT, RG_PIXEL_565_BE, MEM_FAST);
+  updates[1] =
+      rg_surface_create(NES_WIDTH, NES_HEIGHT, RG_PIXEL_565_BE, MEM_FAST);
+  currentUpdate = updates[0];
 
-static bool screenshot_handler(const char *filename, int width, int height)
-{
-	return rg_surface_save_image_file(currentUpdate, filename, width, height);
-}
+  if (!nes_framebuffer) {
+    // 256x312 for Dendy/PAL support
+    nes_framebuffer = rg_alloc(NES_WIDTH * 312, MEM_SLOW);
+  }
+  XBuf = nes_framebuffer;
 
-static bool save_state_handler(const char *filename)
-{
-    return state_save(filename) == 0;
-}
+  if (!FCEUI_Initialize()) {
+    RG_PANIC("FCEUI_Initialize failed");
+  }
 
-static bool load_state_handler(const char *filename)
-{
-    if (state_load(filename) != 0)
-    {
-        nes_reset(true);
-        return false;
-    }
-    return true;
-}
+  void *rom_data = NULL;
+  size_t rom_size = 0;
+  if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size, 0)) {
+    RG_PANIC("Failed to read ROM");
+  }
 
-static bool reset_handler(bool hard)
-{
-    nes_reset(hard);
-    return true;
-}
+  if (!FCEUI_LoadGame(app->romPath, rom_data, rom_size, NULL)) {
+    RG_PANIC("FCEUI_LoadGame failed");
+  }
 
-static void build_palette(int n)
-{
-    uint16_t *pal = nofrendo_buildpalette(n, 16);
-    for (int i = 0; i < 256; i++)
-    {
-        uint16_t color = (pal[i] >> 8) | ((pal[i]) << 8);
-        updates[0]->palette[i] = color;
-        updates[1]->palette[i] = color;
-    }
-    free(pal);
-}
+  FCEUI_Sound(app->sampleRate);
+  FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
 
-static rg_gui_event_t sprite_limit_cb(rg_gui_option_t *option, rg_gui_event_t event)
-{
-    bool spritelimit = ppu_getopt(PPU_LIMIT_SPRITES);
+  if (app->bootFlags & RG_BOOT_RESUME) {
+    rg_emu_load_state(app->saveSlot);
+  }
 
-    if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
-    {
-        spritelimit = !spritelimit;
-        rg_settings_set_number(NS_APP, SETTING_SPRITELIMIT, spritelimit);
-        ppu_setopt(PPU_LIMIT_SPRITES, spritelimit);
+  rg_system_set_tick_rate(60);
+
+  while (true) {
+    uint32_t joystick = rg_input_read_gamepad();
+
+    if (joystick & (RG_KEY_MENU | RG_KEY_OPTION)) {
+      if (joystick & RG_KEY_MENU)
+        rg_gui_game_menu();
+      else
+        rg_gui_options_menu();
     }
 
-    strcpy(option->value, spritelimit ? _("On") : _("Off"));
+    uint32_t input_buf = 0;
+    if (joystick & RG_KEY_UP)
+      input_buf |= JOY_UP;
+    if (joystick & RG_KEY_DOWN)
+      input_buf |= JOY_DOWN;
+    if (joystick & RG_KEY_LEFT)
+      input_buf |= JOY_LEFT;
+    if (joystick & RG_KEY_RIGHT)
+      input_buf |= JOY_RIGHT;
+    if (joystick & RG_KEY_A)
+      input_buf |= JOY_A;
+    if (joystick & JOY_B)
+      input_buf |= JOY_B;
+    if (joystick & RG_KEY_START)
+      input_buf |= JOY_START;
+    if (joystick & RG_KEY_SELECT)
+      input_buf |= JOY_SELECT;
+    fceu_joystick = input_buf;
 
-    return RG_DIALOG_VOID;
-}
+    int64_t startTime = rg_system_timer();
 
-static rg_gui_event_t overscan_update_cb(rg_gui_option_t *option, rg_gui_event_t event)
-{
-    if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
-    {
-        overscan = !overscan;
-        rg_settings_set_number(NS_APP, SETTING_OVERSCAN, overscan);
-        return RG_DIALOG_REDRAW;
+    uint8_t *gfx = NULL;
+    int32_t *sound = NULL;
+    int32_t sound_samples = 0;
+
+    FCEUI_Emulate(&gfx, &sound, &sound_samples, 0);
+
+    if (gfx && currentUpdate && currentUpdate->data) {
+      currentUpdate = updates[currentUpdate == updates[0]];
+      uint16_t *dst = (uint16_t *)currentUpdate->data;
+      // Use the actual height for the copy loop to avoid overflow
+      // normal_scanlines is updated by FCEU_ResetVidSys called within
+      // FCEUI_LoadGame
+      extern unsigned normal_scanlines;
+      int limit = NES_WIDTH * (normal_scanlines < NES_HEIGHT ? normal_scanlines
+                                                             : NES_HEIGHT);
+      for (int i = 0; i < limit; i++) {
+        dst[i] = palette565[gfx[i]];
+      }
+      rg_display_submit(currentUpdate, 0);
     }
 
-    strcpy(option->value, overscan ? _("Auto") : _("Off"));
+    update_audio(sound, sound_samples);
 
-    return RG_DIALOG_VOID;
-}
-
-static rg_gui_event_t autocrop_update_cb(rg_gui_option_t *option, rg_gui_event_t event)
-{
-    int val = autocrop;
-    int max = 2;
-
-    if (event == RG_DIALOG_PREV) val = val > 0 ? val - 1 : max;
-    if (event == RG_DIALOG_NEXT) val = val < max ? val + 1 : 0;
-
-    if (val != autocrop)
-    {
-        autocrop = val;
-        rg_settings_set_number(NS_APP, SETTING_AUTOCROP, val);
-        return RG_DIALOG_REDRAW;
-    }
-
-    if (val == 0) strcpy(option->value, _("Never"));
-    if (val == 1) strcpy(option->value, _("Auto"));
-    if (val == 2) strcpy(option->value, _("Always"));
-
-    return RG_DIALOG_VOID;
-}
-
-static rg_gui_event_t palette_update_cb(rg_gui_option_t *option, rg_gui_event_t event)
-{
-    int pal = palette;
-    int max = NES_PALETTE_COUNT - 1;
-
-    if (event == RG_DIALOG_PREV) pal = pal > 0 ? pal - 1 : max;
-    if (event == RG_DIALOG_NEXT) pal = pal < max ? pal + 1 : 0;
-
-    if (pal != palette)
-    {
-        palette = pal;
-        rg_settings_set_number(NS_APP, SETTING_PALETTE, pal);
-        build_palette(pal);
-        return RG_DIALOG_REDRAW;
-    }
-
-    if (pal == NES_PALETTE_NOFRENDO)    strcpy(option->value, _("Nofrendo"));
-    if (pal == NES_PALETTE_COMPOSITE)   strcpy(option->value, _("Composite"));
-    if (pal == NES_PALETTE_NESCLASSIC)  strcpy(option->value, _("NES Classic"));
-    if (pal == NES_PALETTE_NTSC)        strcpy(option->value, _("NTSC"));
-    if (pal == NES_PALETTE_PVM)         strcpy(option->value, _("PVM"));
-    if (pal == NES_PALETTE_SMOOTH)      strcpy(option->value, _("Smooth"));
-
-    return RG_DIALOG_VOID;
-}
-
-
-static void blit_screen(uint8 *bmp)
-{
-    slowFrame = bmp && !rg_display_sync(false);
-    // A rolling average should be used for autocrop == 1, it causes jitter in some games...
-    // int crop_h = (autocrop == 2) || (autocrop == 1 && nes->ppu->left_bg_counter > 210) ? 8 : 0;
-    int crop_v = (overscan) ? nes->overscan : 0;
-    int crop_h = (autocrop) ? 8 : 0;
-    // crop_h = (autocrop == 2) || (autocrop == 1 && nes->ppu->left_bg_counter > 210) ? 8 : 0;
-    currentUpdate->width = NES_SCREEN_WIDTH - crop_h * 2;
-    currentUpdate->height = NES_SCREEN_HEIGHT - crop_v * 2;
-    currentUpdate->offset = crop_v * currentUpdate->stride + crop_h + 8;
-    rg_display_submit(currentUpdate, 0);
-}
-
-static void nsf_draw_overlay(void)
-{
-    extern int nsf_current_song;
-    char song[32];
-    const nsfheader_t *header = (nsfheader_t *)nes->cart->data_ptr;
-    const rg_gui_option_t options[] = {
-        {0, _("Name"),      (char*)header->name,      RG_DIALOG_FLAG_NORMAL, NULL},
-        {0, _("Artist"),    (char*)header->artist,    RG_DIALOG_FLAG_NORMAL, NULL},
-        {0, _("Copyright"), (char*)header->copyright, RG_DIALOG_FLAG_NORMAL, NULL},
-        {0, _("Playing"),   (char*)song,              RG_DIALOG_FLAG_NORMAL, NULL},
-        RG_DIALOG_END,
-    };
-    snprintf(song, sizeof(song), "%d / %d", nsf_current_song, header->total_songs);
-    rg_gui_draw_dialog("NSF Player", options, 4, -1);
-}
-
-
-static void options_handler(rg_gui_option_t *dest)
-{
-    *dest++ = (rg_gui_option_t){0, _("Palette"),      "-", RG_DIALOG_FLAG_NORMAL, &palette_update_cb};
-    *dest++ = (rg_gui_option_t){0, _("Overscan"),     "-", RG_DIALOG_FLAG_NORMAL, &overscan_update_cb};
-    *dest++ = (rg_gui_option_t){0, _("Crop sides"),   "-", RG_DIALOG_FLAG_NORMAL, &autocrop_update_cb};
-    *dest++ = (rg_gui_option_t){0, _("Sprite limit"), "-", RG_DIALOG_FLAG_NORMAL, &sprite_limit_cb};
-    *dest++ = (rg_gui_option_t)RG_DIALOG_END;
-}
-
-void nes_main(void)
-{
-    const rg_handlers_t handlers = {
-        .loadState = &load_state_handler,
-        .saveState = &save_state_handler,
-        .reset = &reset_handler,
-        .event = &event_handler,
-        .screenshot = &screenshot_handler,
-        .options = &options_handler,
-    };
-
-    app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-
-    overscan = rg_settings_get_number(NS_APP, SETTING_OVERSCAN, 1);
-    autocrop = rg_settings_get_number(NS_APP, SETTING_AUTOCROP, 0);
-    palette = rg_settings_get_number(NS_APP, SETTING_PALETTE, NES_PALETTE_PVM);
-
-    updates[0] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);
-    updates[1] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);
-    currentUpdate = updates[0];
-
-    nes = nes_init(SYS_DETECT, app->sampleRate, true, RG_BASE_PATH_BIOS "/fds_bios.bin");
-    if (!nes)
-        RG_PANIC("Init failed.");
-
-    int ret = -1;
-
-    if (rg_extension_match(app->romPath, "zip"))
-    {
-        void *data;
-        size_t size;
-        if (!rg_storage_unzip_file(app->romPath, NULL, &data, &size, RG_FILE_ALIGN_8KB))
-            RG_PANIC("ROM file unzipping failed!");
-        ret = nes_insertcart(rom_loadmem(data, size));
-    }
-    else
-    {
-        ret = nes_loadfile(app->romPath);
-    }
-
-    if (ret == -1)
-        RG_PANIC("ROM load failed.");
-    else if (ret == -2)
-        RG_PANIC("Unsupported mapper.");
-    else if (ret == -3)
-        RG_PANIC("BIOS file required.");
-    else if (ret < 0)
-        RG_PANIC("Unsupported ROM.");
-
-    nes->blit_func = blit_screen;
-
-    nsfPlayer = nes->cart->type == ROM_TYPE_NSF;
-
-    ppu_setopt(PPU_LIMIT_SPRITES, rg_settings_get_number(NS_APP, SETTING_SPRITELIMIT, 1));
-
-    build_palette(palette);
-
-    // This is necessary for successful state restoration
-    // I have not yet investigated why that is...
-    nes_emulate(false);
-    nes_emulate(false);
-
-    if (app->bootFlags & RG_BOOT_RESUME)
-    {
-        rg_emu_load_state(app->saveSlot);
-    }
-
-    rg_system_set_tick_rate(nes->refresh_rate);
-
-    int skipFrames = 0;
-
-    while (true)
-    {
-        uint32_t joystick = rg_input_read_gamepad();
-
-        if (joystick & (RG_KEY_MENU|RG_KEY_OPTION))
-        {
-            if (joystick & RG_KEY_MENU)
-                rg_gui_game_menu();
-            else
-                rg_gui_options_menu();
-        }
-
-        int64_t startTime = rg_system_timer();
-        bool drawFrame = !skipFrames && !nsfPlayer;
-        int buttons = 0;
-
-        if (joystick & RG_KEY_START)  buttons |= NES_PAD_START;
-        if (joystick & RG_KEY_SELECT) buttons |= NES_PAD_SELECT;
-        if (joystick & RG_KEY_UP)     buttons |= NES_PAD_UP;
-        if (joystick & RG_KEY_RIGHT)  buttons |= NES_PAD_RIGHT;
-        if (joystick & RG_KEY_DOWN)   buttons |= NES_PAD_DOWN;
-        if (joystick & RG_KEY_LEFT)   buttons |= NES_PAD_LEFT;
-        if (joystick & RG_KEY_A)      buttons |= NES_PAD_A;
-        if (joystick & RG_KEY_B)      buttons |= NES_PAD_B;
-
-        if (drawFrame)
-        {
-            currentUpdate = updates[currentUpdate == updates[0]];
-            nes_setvidbuf(currentUpdate->data);
-        }
-
-        input_update(0, buttons);
-        nes_emulate(drawFrame);
-
-        // Tick before submitting audio/syncing
-        rg_system_tick(rg_system_timer() - startTime);
-
-        // Audio is used to pace emulation :)
-        rg_audio_submit((void*)nes->apu->buffer, nes->apu->samples_per_frame);
-
-        if (skipFrames == 0)
-        {
-            int frameTime = 1000000 / (nes->refresh_rate * app->speed);
-            int elapsed = rg_system_timer() - startTime;
-            if (nsfPlayer)
-                skipFrames = 10, nsf_draw_overlay();
-            else if (app->frameskip > 0)
-                skipFrames = app->frameskip;
-            else if (elapsed > frameTime + 1500) // Allow some jitter
-                skipFrames = 1; // (elapsed / frameTime)
-            else if (drawFrame && slowFrame)
-                skipFrames = 1;
-        }
-        else if (skipFrames > 0)
-        {
-            skipFrames--;
-        }
-    }
-
-    RG_PANIC("Nofrendo died!");
+    rg_system_tick(rg_system_timer() - startTime);
+  }
 }
