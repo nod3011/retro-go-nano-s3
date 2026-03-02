@@ -14,5 +14,7 @@
 // Forward declarations of globals used by main_nes.c
 extern uint8 *XBuf;
 extern void FCEUI_SetPaletteArray(uint8 *pal);
+extern CartInfo iNESCart;
+extern CartInfo UNIFCart;
 
 #endif

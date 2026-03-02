@@ -34,12 +34,11 @@ PROJECT_APPS = {
 #     if name not in PROJECT_APPS:
 #         PROJECT_APPS[name] = [0, 0, 0]
 try:
-    PROJECT_VER = os.getenv("PROJECT_VER") or subprocess.check_output(
-        "git describe --tags --abbrev=5 --dirty --always", shell=True
-    ).decode().rstrip()
+    GIT_HASH = subprocess.check_output("git rev-parse --short HEAD", shell=True).decode().rstrip()
 except:
-    PROJECT_VER = "unknown"
-PROJECT_VER = "v1.4.6-ws-ngp-beta"
+    GIT_HASH = "unknown"
+
+PROJECT_VER = "v1.4.6+ws+ngpc+fceumm"
 FW_FORMAT = "none"
 
 TARGETS = []
@@ -222,20 +221,20 @@ try:
     if command in ["build-fw", "release"]:
         print("=== Step: Packing ===\n")
         if FW_FORMAT in ["odroid", "esplay"]:
-            fw_file = ("%s_%s_%s.fw" % (PROJECT_NAME, PROJECT_VER, args.target)).lower()
+            fw_file = ("%s_%s-%s.fw" % (PROJECT_NAME, PROJECT_VER, GIT_HASH)).lower()
             build_image(apps, fw_file, FW_FORMAT, args.fatsize, args.target, PROJECT_VER)
         else:
             print("Device doesn't support fw format, try build-img!")
 
     if command in ["build-img", "release", "install"]:
         print("=== Step: Packing ===\n")
-        img_file = ("%s_%s-%s.img" % (PROJECT_NAME, PROJECT_VER, args.target)).lower()
+        img_file = ("%s_%s-%s.img" % (PROJECT_NAME, PROJECT_VER, GIT_HASH)).lower()
         build_image(apps, img_file, IDF_TARGET, args.fatsize, args.target, PROJECT_VER)
 
     if command in ["install"]:
         print("=== Step: Flashing entire image to device ===\n")
         # Should probably show a warning here and ask for confirmation...
-        img_file = ("%s_%s-%s.img" % (PROJECT_NAME, PROJECT_VER, args.target)).lower()
+        img_file = ("%s_%s-%s.img" % (PROJECT_NAME, PROJECT_VER, GIT_HASH)).lower()
         flash_image(img_file, args.port, args.baud)
 
     if command in ["flash", "run", "profile"]:
