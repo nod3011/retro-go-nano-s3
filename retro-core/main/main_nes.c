@@ -25,11 +25,9 @@ rom_manager_t rom_mgr;
 // --- SETTINGS
 static int overscan = true;
 static int autocrop = 0;
-static int palette_idx = 0;
 
 static const char *SETTING_AUTOCROP = "autocrop";
 static const char *SETTING_OVERSCAN = "overscan";
-static const char *SETTING_PALETTE = "palette";
 
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
@@ -175,33 +173,7 @@ static bool reset_handler(bool hard) {
 }
 
 // --- GUI CALLBACKS
-static const char *pal_names[] = {"Default", "Sony CRT", "WaveBeam", "Smooth"};
-static rg_gui_event_t palette_update_cb(rg_gui_option_t *option,
-                                        rg_gui_event_t event) {
-  if (event == RG_DIALOG_INIT) {
-    palette_idx = rg_settings_get_number(NS_APP, SETTING_PALETTE, 0);
-  }
-  if (event == RG_DIALOG_PREV) {
-    palette_idx = (palette_idx + 3) % 4;
-  } else if (event == RG_DIALOG_NEXT) {
-    palette_idx = (palette_idx + 1) % 4;
-  } else if (event == RG_DIALOG_VOID) {
-    // No action
-  } else {
-    return RG_DIALOG_VOID;
-  }
-
-  rg_settings_set_number(NS_APP, SETTING_PALETTE, palette_idx);
-  strcpy(option->value, pal_names[palette_idx]);
-  // TODO: Call FCEUI_SetPaletteArray if we have external palette data
-  // For now, we just update the label. Active palette switching needs more
-  // work.
-  return RG_DIALOG_REDRAW;
-}
-
 static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &palette_update_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
