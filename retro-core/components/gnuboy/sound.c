@@ -107,12 +107,6 @@ void gb_sound_emulate(void) {
   int16_t *output_end = host.audio.buffer + host.audio.len;
   bool stereo = host.audio.format == GB_AUDIO_STEREO_S16;
 
-  // If all channels are off, we can skip the heavy synthesis loop.
-  if (!(R_NR52 & 0x0F)) {
-    snd.cycles %= snd.rate;
-    return;
-  }
-
   for (; snd.cycles >= snd.rate; snd.cycles -= snd.rate) {
     int l = 0;
     int r = 0;
