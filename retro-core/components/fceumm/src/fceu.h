@@ -4,6 +4,10 @@
 #include "fceu-types.h"
 #include <stddef.h>
 
+#ifndef RG_ATTR_EXT_RAM
+#define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
+#endif
+
 extern int fceuindbg;
 
 /* Overclocking-related */
@@ -58,6 +62,9 @@ void FCEU_OpenGenie(void);
 void FCEU_CloseGenie(void);
 void FCEUI_GeniePower(void);
 
+// Memory Table Allocation
+void FCEU_AllocMemoryTables(void);
+
 #include "gw_malloc.h"
 
 extern uint64 timestampbase;
@@ -74,8 +81,8 @@ extern uint8 MMC5HackSPPage;
 extern uint8 RAM[0x800];
 
 #ifndef FCEU_LOW_RAM
-extern readfunc ARead[0x10000];
-extern writefunc BWrite[0x10000];
+extern readfunc *ARead;
+extern writefunc *BWrite;
 #endif
 
 extern void (*GameInterface)(int h);
