@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 set(COMPONENTS "main retro-go fceumm gnuboy pce-go gw-emulator handy smsplus snes9x")
-set(RG_ENABLE_NETWORKING 0)
+if(NOT DEFINED RG_ENABLE_NETWORKING)
+    set(RG_ENABLE_NETWORKING 0)
+endif()
 include(../base.cmake)
 project(retro-core)

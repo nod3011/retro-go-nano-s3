@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #define hw GB
 
 // Set in the far future for VBA-M support
@@ -167,7 +166,7 @@ void gnuboy_load_bank(int bank) {
   const size_t OFFSET = bank * BANK_SIZE;
 
   if (!cart.rombanks[bank])
-    cart.rombanks[bank] = malloc(BANK_SIZE);
+    cart.rombanks[bank] = rg_alloc(BANK_SIZE, MEM_SLOW);
 
   if (!cart.romFile)
     return;
