@@ -36,7 +36,7 @@ typedef struct {
 
 static byte gb_link_serial_exchange(byte outgoing) {
   if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED)
-    return 0xFF;
+    return 0xFF; // คืนค่า 0xFF เพื่อบอกเกมว่าไม่มีการเชื่อมต่อ
 
   int64_t sync_start = rg_system_timer();
   gb_link_packet_t local = {.tx = outgoing};
@@ -44,15 +44,19 @@ static byte gb_link_serial_exchange(byte outgoing) {
 
   rg_netplay_sync(&local, &remote, sizeof(local));
 
+  int64_t sync_duration = rg_system_timer() - sync_start;
+
   if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED) {
     if (gbLinkDebug)
-      RG_LOGW("gb-link: sync timeout/fallback tx=%02X rx=FF\n", outgoing);
+      RG_LOGW("gb-link: sync timeout/fallback tx=%02X duration=%lldus\n",
+              outgoing, (long long)sync_duration);
     return 0xFF;
   }
 
-  if (gbLinkDebug)
+  if (gbLinkDebug ||
+      sync_duration > 1000) // Log if debug enabled OR if it took >1ms
     RG_LOGI("gb-link: tx=%02X rx=%02X dt=%dus\n", outgoing, remote.tx,
-            (int)(rg_system_timer() - sync_start));
+            (int)sync_duration);
 
   return remote.tx;
 }

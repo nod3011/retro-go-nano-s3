@@ -30,7 +30,7 @@
 #define WIFI_CHANNEL            6
 #define WIFI_BROADCAST_ADDR     "192.168.4.255"
 #define WIFI_NETPLAY_PORT       1234
-#define NETPLAY_SYNC_TIMEOUT_MS 500
+#define NETPLAY_SYNC_TIMEOUT_MS 10
 
 // Test to skip the network task and semaphores
 #define NETPLAY_SYNCHRONOUS_TEST
@@ -616,7 +616,7 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
     {
         RG_LOGE("netplay: Lost sync...\n");
         memset(data_out, 0xFF, data_len);
-        rg_netplay_stop();
+        // rg_netplay_stop();
         return;
     }
 
