@@ -538,22 +538,18 @@ void nes_main(void) {
         input_buf |= JOY_LEFT;
       if (joystick & RG_KEY_RIGHT)
         input_buf |= JOY_RIGHT;
-      if (joystick & RG_KEY_A)
-        input_buf |= JOY_A;
-      if (joystick & RG_KEY_B)
-        input_buf |= JOY_B;
+      if (joystick & RG_KEY_A) {
+        if (!turbo_a_toggled || (turbo_counter & 4))
+          input_buf |= JOY_A;
+      }
+      if (joystick & RG_KEY_B) {
+        if (!turbo_b_toggled || (turbo_counter & 4))
+          input_buf |= JOY_B;
+      }
       if (joystick & RG_KEY_START)
         input_buf |= JOY_START;
       if (joystick & RG_KEY_SELECT)
         input_buf |= JOY_SELECT;
-    }
-
-    // Apply Turbo Toggles (Continuous auto-fire)
-    if (turbo_counter & 4) {
-      if (turbo_a_toggled)
-        input_buf |= JOY_A;
-      if (turbo_b_toggled)
-        input_buf |= JOY_B;
     }
 
     if (joystick & RG_KEY_OPTION) {
