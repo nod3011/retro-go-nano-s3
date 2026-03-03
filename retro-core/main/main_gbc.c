@@ -1,6 +1,7 @@
 #include "shared.h"
 
 #include <gnuboy.h>
+#include <link_cable.h>
 #include <sys/time.h>
 
 static int skipFrames = 0;
@@ -60,6 +61,7 @@ static byte gb_link_serial_exchange(byte outgoing) {
 
   return remote.tx;
 }
+
 #endif
 
 static void update_rtc_time(void) {
@@ -325,7 +327,7 @@ void gbc_main(void) {
     RG_PANIC("Emulator init failed!");
 
 #ifdef RG_ENABLE_NETPLAY
-  gnuboy_set_serial_callback(&gb_link_serial_exchange);
+  gnuboy_set_link_cable_callback(&gb_link_serial_exchange);
 #endif
 
   gnuboy_set_framebuffer(currentUpdate->data);

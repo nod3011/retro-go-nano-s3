@@ -2,9 +2,11 @@
 #include "cpu.h"
 #include "gnuboy.h"
 #include "lcd.h"
+#include "link_cable.h"
 #include "sound.h"
 #include <stdlib.h>
 #include <string.h>
+
 
 gb_cart_t cart;
 gb_t GB;
@@ -487,11 +489,17 @@ void gb_hw_write(unsigned a, byte b) {
         REG(r) = b;
         break;
       case RI_SC:
-        if ((b & 0x81) == 0x81)
+        if ((b & 0x81) == 0x81) {
           hw.serial = 1952; // 8 * 122us;
-        else
+          if (link_cable_get_state() == LINK_STATE_CONNECTED)
+            hw.serial_timeout = 19520; // ~10ms extended timeout
+          else
+            hw.serial_timeout = 0;
+        } else {
           hw.serial = 0;
-        REG(r) = b; /* & 0x7f; */
+          hw.serial_timeout = 0;
+        }
+        REG(r) = b;
         break;
       case RI_DIV:
         REG(r) = 0;
