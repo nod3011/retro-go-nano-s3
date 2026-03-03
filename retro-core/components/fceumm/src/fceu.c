@@ -31,17 +31,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "fceu-endian.h"
 #include "fceu-memory.h"
 #include "fceu-sound.h"
 #include "fceu-types.h"
 #include "fceu.h"
-#include "fceu.h"
 #include "general.h"
 #include "ppu.h"
 #include "x6502.h"
-
+#include <rg_system.h>
 
 #include "cheat.h"
 #include "fceu-cart.h"
@@ -57,7 +55,6 @@
 #include "video.h"
 #include "vsuni.h"
 
-
 uint64 timestampbase;
 
 FCEUGI *GameInfo = NULL;
@@ -72,8 +69,8 @@ static FCEUGI gameinfo_global;
 // FCEU_LOW_RAM define allows to use a less RAM consuming method (but less CPU
 // optimized) for memory handlers (allows to save about 512KBytes of RAM)
 #ifndef FCEU_LOW_RAM
-readfunc ARead[0x10000];
-writefunc BWrite[0x10000];
+readfunc *ARead = NULL;
+writefunc *BWrite = NULL;
 #else
 typedef struct {
   uint32 min_range, max_range;
@@ -138,6 +135,22 @@ static DECLFR(ARAML) { return RAM[A]; }
 static DECLFW(BRAMH) { RAM[A & 0x7FF] = V; }
 
 static DECLFR(ARAMH) { return RAM[A & 0x7FF]; }
+
+#ifndef FCEU_LOW_RAM
+void FCEU_AllocMemoryTables(void) {
+  if (!ARead) {
+    ARead =
+        (readfunc *)rg_alloc(0x10000 * sizeof(readfunc), MEM_SLOW | MEM_8BIT);
+  }
+  if (!BWrite) {
+    BWrite =
+        (writefunc *)rg_alloc(0x10000 * sizeof(writefunc), MEM_SLOW | MEM_8BIT);
+  }
+  if (!ARead || !BWrite) {
+    RG_PANIC("Failed to allocate FCEU memory tables");
+  }
+}
+#endif
 
 #ifdef FCEU_ENABLE_GAMEGENIE_ROM
 int AllocGenieRW(void) {
@@ -814,6 +827,9 @@ int FCEUI_Initialize(void) {
   FSettings.SoundVolume = 100;
   FCEUPPU_Init();
   X6502_Init();
+#ifndef FCEU_LOW_RAM
+  FCEU_AllocMemoryTables();
+#endif
   return 1;
 }
 
