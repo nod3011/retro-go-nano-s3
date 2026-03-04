@@ -45,6 +45,8 @@ static struct
 #define SETTING_WIFI_SLOT   "Slot"
 #define SETTING_LANGUAGE    "Language"
 
+static const char *current_title = NULL;
+
 static uint16_t *get_draw_buffer(int width, int height, rg_color_t fill_color)
 {
     size_t pixels = width * height;
@@ -435,9 +437,11 @@ rg_rect_t rg_gui_draw_text(int x_pos, int y_pos, int width, const char *text, //
             const char *line = ptr;
             while (x_offset < draw_width && *line && *line != '\n')
             {
+                const char *prev_line = line;
                 int chr = rg_utf8_decode(&line);
                 int width = monospace ?: get_glyph(NULL, font, font_height, chr);
-                if (draw_width - x_offset < width) // Do not truncate glyphs
+                if (draw_width - x_offset < width &&
+                    line != prev_line + 1) // Do not truncate multi-char glyphs but allow progress
                     break;
                 x_offset += width;
             }
@@ -452,21 +456,22 @@ rg_rect_t rg_gui_draw_text(int x_pos, int y_pos, int width, const char *text, //
         if (!(flags & RG_TEXT_DUMMY_DRAW))
             draw_buffer = get_draw_buffer(draw_width, line_height, color_bg);
 
-        while (x_offset < draw_width)
+        const char *line_start = ptr;
+        while (x_offset < draw_width || ptr == line_start)
         {
             uint32_t bitmap[font_height];
             const char *prev_ptr = ptr;
             int glyph_width = get_glyph(bitmap, font, font_height, rg_utf8_decode(&ptr));
             int width = monospace ?: glyph_width;
 
-            if (draw_width - x_offset < width) // Do not truncate glyphs
+            if (draw_width - x_offset < width && prev_ptr != line_start) // Do not truncate glyphs
             {
                 if (flags & RG_TEXT_MULTILINE)
                     ptr = prev_ptr;
                 break;
             }
 
-            if (!(flags & RG_TEXT_DUMMY_DRAW))
+            if (!(flags & RG_TEXT_DUMMY_DRAW) && draw_width > x_offset)
             {
                 for (int y = 0; y < font_height; y++)
                 {
@@ -474,7 +479,7 @@ rg_rect_t rg_gui_draw_text(int x_pos, int y_pos, int width, const char *text, //
                     if (row != 0) // get_draw_buffer fills the bg color, nothing to do if row empty
                     {
                         uint16_t *output = &draw_buffer[(draw_width * (y + padding)) + x_offset];
-                        for (int x = 0; x < width; x++)
+                        for (int x = 0; x < RG_MIN(width, draw_width - x_offset); x++)
                             output[x] = ((row >> x) & 1) ? color_fg : color_bg;
                     }
                 }
@@ -482,7 +487,7 @@ rg_rect_t rg_gui_draw_text(int x_pos, int y_pos, int width, const char *text, //
 
             x_offset += width;
 
-            if (*ptr == 0 || *ptr == '\n')
+            if (*ptr == 0 || *ptr == '\n' || glyph_width < 0)
                 break;
         }
 
@@ -723,7 +728,13 @@ rg_rect_t rg_gui_draw_dialog(const char *title, const rg_gui_option_t *options, 
         inner_width = RG_MAX(inner_width, col1_width + col2_width + sep_width);
 
     inner_width = RG_MIN(inner_width, max_box_width);
-    col2_width = inner_width - col1_width - sep_width;
+
+    if (col2_width >= 0)
+    {
+        col2_width = RG_MAX(8, inner_width - col1_width - sep_width);
+        col1_width = inner_width - col2_width - sep_width;
+    }
+
     box_width += inner_width + row_padding_x * 2;
     box_height = RG_MIN(box_height, max_box_height);
     box_x = (gui.screen_width - box_width) / 2;
@@ -862,6 +873,8 @@ rg_rect_t rg_gui_draw_message(const char *format, ...) // const rg_rect_t *rect,
 
 intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, int selected_index)
 {
+    const char *previous_title = current_title;
+    current_title = title;
     rg_gui_option_t *options = (rg_gui_option_t *)options_const;
     size_t options_count = get_dialog_items_count(options_const);
 
@@ -914,6 +927,7 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
 
     while (event != RG_DIALOG_SELECT && event != RG_DIALOG_CANCEL)
     {
+
         // TO DO: Add acceleration!
         joystick_old = ((rg_system_timer() - joystick_last) > 300000) ? 0 : joystick;
         joystick = rg_input_read_gamepad();
@@ -1018,10 +1032,21 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
     // free(shadow_options);
     free(shadow_text_buffer);
 
+    current_title = previous_title;
+
     if (event == RG_DIALOG_CANCEL || sel < 0)
+    {
+        if (event == RG_DIALOG_SELECT)
+            return RG_DIALOG_SELECTED;
         return RG_DIALOG_CANCELLED;
+    }
 
     return options[sel].arg;
+}
+
+const char *rg_gui_get_dialog_title(void)
+{
+    return current_title;
 }
 
 bool rg_gui_confirm(const char *title, const char *message, bool default_yes)
@@ -2010,25 +2035,55 @@ static rg_gui_event_t wifi_cb(rg_gui_option_t *option, rg_gui_event_t event)
 }
 #endif
 
-static rg_gui_event_t app_options_cb(rg_gui_option_t *option, rg_gui_event_t event)
+static rg_gui_event_t netplay_cb(rg_gui_option_t *option, rg_gui_event_t event)
 {
     if (event == RG_DIALOG_ENTER)
     {
         const rg_app_t *app = rg_system_get_app();
-        rg_gui_option_t options[16] = {
-            {0, _("None"), NULL, RG_DIALOG_FLAG_MESSAGE, 0},
-            RG_DIALOG_END,
-        };
+        rg_gui_option_t options[32] = {RG_DIALOG_END};
+
+        const char *prev_title = current_title;
+        current_title = option->label;
+
         if (app->handlers.options)
             app->handlers.options(options);
-        rg_display_force_redraw();
-        rg_gui_dialog(option->label, options, 0);
+
+        current_title = prev_title;
+
+        int sel = rg_gui_dialog(option->label, options, 0);
+
+        if (sel == RG_DIALOG_SELECTED)
+            return RG_DIALOG_SELECTED;
+
         return RG_DIALOG_REDRAW;
     }
     return RG_DIALOG_VOID;
 }
 
-void rg_gui_options_menu(void)
+static rg_gui_event_t app_options_cb(rg_gui_option_t *option, rg_gui_event_t event)
+{
+    if (event == RG_DIALOG_ENTER)
+    {
+        const rg_app_t *app = rg_system_get_app();
+        rg_gui_option_t options[32] = {RG_DIALOG_END};
+
+        const char *prev_title = current_title;
+        current_title = option->label;
+
+        if (app->handlers.options)
+            app->handlers.options(options);
+
+        current_title = prev_title;
+
+        rg_display_force_redraw();
+        rg_gui_dialog(option->label, options, 0);
+
+        return RG_DIALOG_REDRAW;
+    }
+    return RG_DIALOG_VOID;
+}
+
+int rg_gui_options_menu(void)
 {
     rg_gui_option_t options[20] = {
 #if RG_SCREEN_BACKLIGHT
@@ -2064,6 +2119,9 @@ void rg_gui_options_menu(void)
         {0, _("Overclock"),        "-",  RG_DIALOG_FLAG_NORMAL, &overclock_cb     },
 #endif
         {0, _("Emulator options"), NULL, RG_DIALOG_FLAG_NORMAL, &app_options_cb   },
+#ifdef RG_ENABLE_NETPLAY
+        {0, _("Netplay"),          NULL, RG_DIALOG_FLAG_NORMAL, &netplay_cb       },
+#endif
         RG_DIALOG_END,
     };
 
@@ -2075,10 +2133,17 @@ void rg_gui_options_menu(void)
 
     rg_audio_set_mute(true);
 
-    rg_gui_dialog(_("Options"), options, 0);
+    int sel = rg_gui_dialog(_("Options"), options, 0);
     rg_settings_commit();
 
     rg_audio_set_mute(false);
+
+    if (sel == RG_DIALOG_SELECTED || sel == RG_DIALOG_SELECT)
+    {
+        return RG_DIALOG_SELECTED;
+    }
+
+    return RG_DIALOG_VOID;
 }
 
 void rg_gui_about_menu(void)
@@ -2301,7 +2366,7 @@ void rg_gui_game_menu(void)
         {3001, _("Load game"),       NULL, RG_DIALOG_FLAG_NORMAL,                                           NULL},
         {3000, _("Reset"),           NULL, RG_DIALOG_FLAG_NORMAL,                                           NULL},
 #ifdef RG_ENABLE_NETPLAY
-        {5000, _("Netplay"),         NULL, RG_DIALOG_FLAG_NORMAL,                                           NULL},
+    // {5000, _("Netplay"),         NULL, RG_DIALOG_FLAG_NORMAL,                                           NULL},
 #endif
         {5500, _("Options"),         NULL, have_option_btn ? RG_DIALOG_FLAG_HIDDEN : RG_DIALOG_FLAG_NORMAL, NULL},
         {6000, _("About"),           NULL, RG_DIALOG_FLAG_NORMAL,                                           NULL},
@@ -2346,11 +2411,13 @@ void rg_gui_game_menu(void)
         break;
 #ifdef RG_ENABLE_NETPLAY
     case 5000:
-        rg_netplay_quick_start();
+        // if (rg_netplay_quick_start())
+        //     return;
         break;
 #endif
     case 5500:
-        rg_gui_options_menu();
+        if (rg_gui_options_menu() == RG_DIALOG_SELECTED)
+            return;
         break;
     case 6000:
         rg_gui_about_menu();

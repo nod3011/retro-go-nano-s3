@@ -171,12 +171,14 @@ static void lcd_set_window(int left, int top, int width, int height)
     right += 80;
 #endif
 
-    if (left < 0 || top < 0 || 
-        right >= display.screen.real_width || 
-        bottom >= display.screen.real_height)
+    int max_width = display.screen.real_width;
+#if defined(RG_SCREEN_ST7789_240X240)
+    max_width = 320; // Internal RAM width is 320
+#endif
+
+    if (left < 0 || top < 0 || right >= max_width || bottom >= display.screen.real_height)
     {
-        RG_LOGW("Bad lcd window (x0=%d, y0=%d, x1=%d, y1=%d)\n",
-                left, top, right, bottom);
+        RG_LOGW("Bad lcd window (x0=%d, y0=%d, x1=%d, y1=%d)\n", left, top, right, bottom);
     }
 
     ILI9341_CMD(0x2A, left >> 8, left & 0xff, right >> 8, right & 0xff);
@@ -220,9 +222,9 @@ static void lcd_init(void)
         .channel = LEDC_CHANNEL_0,
         .timer_sel = LEDC_TIMER_0,
         .duty = 0,
-    #ifdef RG_GPIO_LCD_BCKL_INVERT
+#ifdef RG_GPIO_LCD_BCKL_INVERT
         .flags.output_invert = 1,
-    #endif
+#endif
     });
     ledc_fade_func_install(0);
 #endif
@@ -247,12 +249,13 @@ static void lcd_init(void)
 #if defined(RG_SCREEN_ROTATION) && defined(RG_SCREEN_RGB_BGR)
     // The rotation is designed so that the user can simply try all values 0-7 to find what works.
     // It's simpler than trying to explain the MADCTL register bits, combined with hardware variations...
-    ILI9341_CMD(0x36, (RG_SCREEN_RGB_BGR ? 0x08 : 0x00) | (RG_SCREEN_ROTATION << 5)); // MADCTL (0x08=BGR, 0x20=MV, 0x40=MX, 0x80=MY)
+    ILI9341_CMD(0x36, (RG_SCREEN_RGB_BGR ? 0x08 : 0x00) |
+                          (RG_SCREEN_ROTATION << 5)); // MADCTL (0x08=BGR, 0x20=MV, 0x40=MX, 0x80=MY)
 #endif
 #ifdef RG_SCREEN_INIT
     RG_SCREEN_INIT();
 #else
-    #warning "LCD init sequence is not defined for this device!"
+#warning "LCD init sequence is not defined for this device!"
 #endif
     ILI9341_CMD(0x11);    // Exit Sleep
     rg_usleep(10 * 1000); // Wait 10ms after sleep out

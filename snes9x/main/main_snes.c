@@ -3,7 +3,6 @@
 #include <math.h>
 #include <snes9x.h>
 
-
 typedef struct {
   char name[16];
   struct {
@@ -285,7 +284,7 @@ static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
-void snes_main(void) {
+void app_main(void) {
   const rg_handlers_t handlers = {
       .loadState = &load_state_handler,
       .saveState = &save_state_handler,

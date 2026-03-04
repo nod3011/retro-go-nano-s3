@@ -1,7 +1,6 @@
 #include "link_cable.h"
 #include <stddef.h>
 
-static gb_link_state_t link_state = LINK_STATE_DISCONNECTED;
 static uint8_t (*serial_callback)(uint8_t) = NULL;
 
 static uint8_t master_rx_buffer = 0xFF;
@@ -45,12 +44,19 @@ bool link_cable_master_poll(uint8_t *rx) {
 void link_cable_slave_set_sb(uint8_t sb) { slave_sb = sb; }
 
 bool link_cable_slave_poll(uint8_t *rx) {
-  // For now, no external source pushes data in slave mode
-  // but the foundation is here for physical link or low-level netplay
   if (slave_has_data) {
     *rx = slave_rx_buffer;
     slave_has_data = false;
     return true;
   }
+#ifdef RG_ENABLE_NETPLAY
+  extern bool rg_netplay_check(void);
+  if (rg_netplay_check()) {
+    if (serial_callback) {
+      *rx = serial_callback(slave_sb);
+      return true;
+    }
+  }
+#endif
   return false;
 }

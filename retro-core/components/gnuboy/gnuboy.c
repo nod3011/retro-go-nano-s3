@@ -165,8 +165,12 @@ int gnuboy_load_bios_file(const char *file) {
 void gnuboy_load_bank(int bank) {
   const size_t OFFSET = bank * BANK_SIZE;
 
-  if (!cart.rombanks[bank])
-    cart.rombanks[bank] = rg_alloc(BANK_SIZE, MEM_SLOW);
+  if (!cart.rombanks[bank]) {
+    cart.rombanks[bank] = rg_alloc(BANK_SIZE, MEM_SLOW | MEM_NOPANIC);
+    if (!cart.rombanks[bank]) {
+      cart.rombanks[bank] = malloc(BANK_SIZE);
+    }
+  }
 
   if (!cart.romFile)
     return;

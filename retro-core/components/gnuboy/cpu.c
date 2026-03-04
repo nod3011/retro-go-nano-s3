@@ -335,12 +335,19 @@ static inline void serial_advance(int cycles) {
     if (link_cable_get_state() == LINK_STATE_CONNECTED) {
       /* Keep the slave's SB updated so the remote master gets the right byte */
       link_cable_slave_set_sb(R_SB);
-      /* Check if the remote master sent us a byte */
-      if (link_cable_slave_poll(&rx)) {
-        R_SB = rx;
-        R_SC &= 0x7f;
-        gb_hw_interrupt(IF_SERIAL, 1);
-        gb_hw_interrupt(IF_SERIAL, 0);
+
+      /* Throttle polling to avoid hammering network syscalls too frequently */
+      static int slave_poll_counter = 0;
+      slave_poll_counter += cycles;
+      if (slave_poll_counter >= 1024) {
+        slave_poll_counter = 0;
+        /* Check if the remote master sent us a byte */
+        if (link_cable_slave_poll(&rx)) {
+          R_SB = rx;
+          R_SC &= 0x7f;
+          gb_hw_interrupt(IF_SERIAL, 1);
+          gb_hw_interrupt(IF_SERIAL, 0);
+        }
       }
     }
     return;

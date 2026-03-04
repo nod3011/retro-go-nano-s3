@@ -80,3 +80,4 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len);
 
 netplay_mode_t rg_netplay_mode();
 netplay_status_t rg_netplay_status();
+bool rg_netplay_check(void);

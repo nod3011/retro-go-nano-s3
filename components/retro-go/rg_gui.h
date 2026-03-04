@@ -101,6 +101,7 @@ struct rg_gui_option_s
 #define RG_DIALOG_END       {0, NULL, NULL, 0, NULL}
 
 #define RG_DIALOG_CANCELLED -0x7654321
+#define RG_DIALOG_SELECTED  -0x7654322
 
 #define TEXT_RECT(text, max) rg_gui_draw_text(-(max), 0, 0, (text), 0, 0, RG_TEXT_MULTILINE | RG_TEXT_DUMMY_DRAW)
 
@@ -139,9 +140,10 @@ char *rg_gui_file_picker(const char *title, const char *path, bool (*validator)(
                          bool none_option);
 char *rg_gui_input_str(const char *title, const char *message, const char *default_value);
 int rg_gui_input_char(const rg_keyboard_layout_t *map);
+const char *rg_gui_get_dialog_title(void);
 
 int rg_gui_savestate_menu(const char *title, const char *rom_path);
-void rg_gui_options_menu(void);
+int rg_gui_options_menu(void);
 void rg_gui_game_menu(void);
 void rg_gui_about_menu(void);
 void rg_gui_debug_menu(void);

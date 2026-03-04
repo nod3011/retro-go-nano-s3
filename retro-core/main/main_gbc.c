@@ -49,13 +49,18 @@ static byte gb_link_serial_exchange(byte outgoing) {
 
   if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED) {
     if (gbLinkDebug)
-      RG_LOGW("gb-link: sync timeout/fallback tx=%02X duration=%lldus\n",
+      RG_LOGW("gb-link: sync status dropped tx=%02X duration=%lldus\n",
               outgoing, (long long)sync_duration);
     return 0xFF;
   }
 
-  if (gbLinkDebug ||
-      sync_duration > 1000) // Log if debug enabled OR if it took >1ms
+  // If the sync took a really long time (e.g., > 100ms), we shouldn't
+  // necessarily drop the connection entirely, but we need to ensure the game
+  // doesn't think the other side vanished. 0xFF is often used to signal "no
+  // data ready yet". However, `rg_netplay_sync` handles its own timeouts
+  // correctly now. We just log it here if it's over 100ms instead of 1ms to
+  // reduce spam during saves.
+  if (gbLinkDebug || sync_duration > 100000)
     RG_LOGI("gb-link: tx=%02X rx=%02X dt=%dus\n", outgoing, remote.tx,
             (int)sync_duration);
 
@@ -196,6 +201,32 @@ static rg_gui_event_t netlink_debug_cb(rg_gui_option_t *option,
   strcpy(option->value, gbLinkDebug ? _("Yes") : _("No"));
   return RG_DIALOG_VOID;
 }
+
+static rg_gui_event_t netplay_start_cb(rg_gui_option_t *option,
+                                       rg_gui_event_t event) {
+  netplay_status_t status = rg_netplay_status();
+
+  if (event == RG_DIALOG_ENTER) {
+    if (status == NETPLAY_STATUS_CONNECTED) {
+      // Already connected, maybe just acknowledge or offer to stop?
+      // For now, let's just stay in the menu.
+      return RG_DIALOG_VOID;
+    }
+    if (rg_netplay_quick_start()) {
+      return RG_DIALOG_SELECT;
+    }
+  }
+
+  if (status == NETPLAY_STATUS_CONNECTED) {
+    strcpy(option->value, _("Connected"));
+  } else if (status >= NETPLAY_STATUS_CONNECTING) {
+    strcpy(option->value, _("Connecting..."));
+  } else {
+    strcpy(option->value, _("Start"));
+  }
+
+  return RG_DIALOG_VOID;
+}
 #endif
 
 static rg_gui_event_t rtc_t_update_cb(rg_gui_option_t *option,
@@ -279,18 +310,26 @@ static void audio_callback(void *buffer, size_t length) {
 }
 
 static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &palette_update_cb};
-  *dest++ = (rg_gui_option_t){0, _("RTC config"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &rtc_update_cb};
-  *dest++ = (rg_gui_option_t){0, _("SRAM autosave"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &sram_autosave_cb};
-  *dest++ = (rg_gui_option_t){0, _("Enable BIOS"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &enable_bios_cb};
+  const char *title = rg_gui_get_dialog_title();
+  bool is_netplay_menu = (title && strcmp(title, _("Netplay")) == 0);
+
+  if (!is_netplay_menu) {
+    *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL,
+                                &palette_update_cb};
+    *dest++ = (rg_gui_option_t){0, _("RTC config"), "-", RG_DIALOG_FLAG_NORMAL,
+                                &rtc_update_cb};
+    *dest++ = (rg_gui_option_t){0, _("SRAM autosave"), "-",
+                                RG_DIALOG_FLAG_NORMAL, &sram_autosave_cb};
+    *dest++ = (rg_gui_option_t){0, _("Enable BIOS"), "-", RG_DIALOG_FLAG_NORMAL,
+                                &enable_bios_cb};
+  } else {
 #ifdef RG_ENABLE_NETPLAY
-  *dest++ = (rg_gui_option_t){0, _("GB Link debug"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &netlink_debug_cb};
+    *dest++ = (rg_gui_option_t){0, _("Netplay quick start"), "-",
+                                RG_DIALOG_FLAG_NORMAL, &netplay_start_cb};
+    *dest++ = (rg_gui_option_t){0, _("GB Link debug"), "-",
+                                RG_DIALOG_FLAG_NORMAL, &netlink_debug_cb};
 #endif
+  }
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
