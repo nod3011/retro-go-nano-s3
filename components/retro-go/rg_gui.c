@@ -693,7 +693,7 @@ rg_rect_t rg_gui_draw_dialog(const char *title, const rg_gui_option_t *options, 
     int inner_width = TEXT_RECT(title, 0).width;
     int col1_width = -1;
     int col2_width = -1;
-    uint8_t row_height[options_count];
+    uint8_t row_height[options_count ?: 1];
 
     // FIXME: The information built in this loop should be cached between calls to rg_gui_draw_dialog...
     // It doesn't matter for most dialogs but the file picker with 500+ files wastes a LOT of time here.

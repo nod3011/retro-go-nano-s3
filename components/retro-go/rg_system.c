@@ -126,6 +126,22 @@ IRAM_ATTR void esp_panic_putchar_hook(char c)
     logbuf_putc(&panicTrace, c);
 }
 
+static bool clear_boot_config(void)
+{
+    if (app.initialized)
+    {
+        rg_settings_delete(NS_BOOT, SETTING_BOOT_NAME);
+        rg_settings_delete(NS_BOOT, SETTING_BOOT_ARGS);
+        rg_settings_delete(NS_BOOT, SETTING_BOOT_FLAGS);
+        rg_settings_commit();
+    }
+    else
+    {
+        rg_storage_delete(RG_BASE_PATH_CONFIG "/boot.json");
+    }
+    return true;
+}
+
 static bool update_boot_config(const char *partition, const char *name, const char *args, uint32_t flags)
 {
     if (app.initialized)
@@ -145,8 +161,14 @@ static bool update_boot_config(const char *partition, const char *name, const ch
     const esp_partition_t *current = esp_ota_get_boot_partition();
     if (partition && (!current || strncmp(current->label, partition, 16) != 0))
     {
-        esp_err_t err = esp_ota_set_boot_partition(
-            esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, partition));
+        const esp_partition_t *target =
+            esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, partition);
+        if (!target)
+        {
+            RG_LOGE("Partition '%s' not found!", partition);
+            return false;
+        }
+        esp_err_t err = esp_ota_set_boot_partition(target);
         if (err != ESP_OK)
         {
             RG_LOGE("esp_ota_set_boot_partition returned 0x%02X!", err);
@@ -921,7 +943,23 @@ void rg_system_restart(void)
 void rg_system_exit(void)
 {
     RG_LOGW("Exiting application!");
-    rg_system_switch_app(RG_APP_LAUNCHER, 0, 0, 0);
+
+    // Try launcher, if it fails or doesn't exist, try factory
+    if (rg_system_have_app(RG_APP_LAUNCHER))
+    {
+        rg_system_switch_app(RG_APP_LAUNCHER, 0, 0, 0);
+    }
+
+    if (RG_APP_FACTORY && rg_system_have_app(RG_APP_FACTORY))
+    {
+        RG_LOGW("Launcher not found, trying factory...");
+        rg_system_switch_app(RG_APP_FACTORY, 0, 0, 0);
+    }
+
+    // Still here? Just clear boot args and restart, hopefully we reach somewhere safe
+    RG_LOGE("No launcher or factory app found. Clearing boot config.");
+    clear_boot_config();
+    rg_system_restart();
 }
 
 void rg_system_switch_app(const char *partition, const char *name, const char *args, uint32_t flags)
@@ -929,9 +967,29 @@ void rg_system_switch_app(const char *partition, const char *name, const char *a
     RG_LOGI("Switching to app %s (%s)", partition ?: "-", name ?: "-");
 
     if (update_boot_config(partition, name, args, flags))
+    {
         rg_system_restart();
+    }
 
-    RG_PANIC("Failed to switch app!");
+    // If switching failed and we were already trying to reach a recovery app, we are in trouble
+    bool is_recovery = false;
+    const char *recovery_apps[] = {RG_APP_LAUNCHER, RG_APP_FACTORY, NULL};
+    for (const char **recover_app = recovery_apps; partition && *recover_app; ++recover_app)
+    {
+        if (strcmp(partition, *recover_app) == 0)
+        {
+            is_recovery = true;
+            break;
+        }
+    }
+
+    if (is_recovery)
+    {
+        RG_PANIC("Failed to switch to recovery app!");
+    }
+
+    RG_LOGE("Failed to switch app, trying to exit instead.");
+    rg_system_exit();
 }
 
 bool rg_system_have_app(const char *app)
