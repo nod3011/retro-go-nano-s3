@@ -65,6 +65,7 @@ typedef struct __attribute__((packed))
     uint16_t status;
     uint8_t mac_addr[6];
     uint32_t last_contact;
+    bool is_paused;
     uint8_t sync_data[16];
 } netplay_player_t;
 
@@ -80,6 +81,7 @@ void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len);
 void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int timeout_ms);
 bool rg_netplay_poll_sync(void *data_in, void *data_out, uint8_t data_len);
 void rg_netplay_async(void *data_in, void *data_out, uint8_t data_len);
+void rg_netplay_send_pause(bool paused);
 
 netplay_mode_t rg_netplay_get_mode();
 netplay_status_t rg_netplay_status();

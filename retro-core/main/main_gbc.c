@@ -407,9 +407,14 @@ void gbc_main(void) {
       if (joystick & RG_KEY_MENU) {
         if (gnuboy_sram_dirty()) // save in case the user quits
           gnuboy_save_sram(sramFile, false);
+        rg_netplay_send_pause(true);
         rg_gui_game_menu();
-      } else
+        rg_netplay_send_pause(false);
+      } else {
+        rg_netplay_send_pause(true);
         rg_gui_options_menu();
+        rg_netplay_send_pause(false);
+      }
     } else if (joystick != joystick_old) {
       int pad = 0;
       if (joystick & RG_KEY_UP)

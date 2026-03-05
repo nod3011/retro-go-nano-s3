@@ -260,6 +260,16 @@ static void netplay_task()
             }
             break;
 
+        case NETPLAY_PACKET_GAME_PAUSE:
+            RG_LOGI("netplay: Received PAUSE from peer\n");
+            packet_from->is_paused = true;
+            break;
+
+        case NETPLAY_PACKET_GAME_START:
+            RG_LOGI("netplay: Received RESUME from peer\n");
+            packet_from->is_paused = false;
+            break;
+
         case NETPLAY_PACKET_READY:
             RG_LOGI("netplay: Received READY from Host\n");
             remote_player = packet_from; // ensure remote_player is set
@@ -567,7 +577,7 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
 
     netplay_packet_t packet;
     int64_t start_time = rg_system_timer();
-    const int SYNC_TIMEOUT_MS = 15000;
+    const int SYNC_TIMEOUT_MS = 2000;
 
     // Role-agnostic: The serial Master (caller) always sends SYNC_REQ.
     // This works regardless of whether we are netplay HOST or GUEST,
@@ -580,20 +590,25 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
 
     while ((rg_system_timer() - start_time) / 1000 < SYNC_TIMEOUT_MS)
     {
-        // (Re)send our SYNC_REQ every 50ms
-        if ((rg_system_timer() - last_send) / 1000 >= 50)
+        if (remote_player->is_paused)
+        {
+            return; // Don't block if peer is paused
+        }
+
+        // (Re)send our SYNC_REQ every 40ms
+        if ((rg_system_timer() - last_send) / 1000 >= 40)
         {
             send_packet(remote_player->id, NETPLAY_PACKET_SYNC_REQ, seq, data_in, data_len);
             last_send = rg_system_timer();
         }
 
-        if (!dialog_shown && (rg_system_timer() - start_time) / 1000 > 2000)
+        if (!dialog_shown && (rg_system_timer() - start_time) / 1000 > 1000)
         {
             RG_LOGI("netplay_sync_ex: waiting for peer to respond...\n");
             dialog_shown = true;
         }
 
-        if (receive_packet(&packet, 10))
+        if (receive_packet(&packet, 2))
         {
             if (packet.cmd == NETPLAY_PACKET_SYNC_ACK && packet.arg == seq)
             {
@@ -602,6 +617,14 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
                     memcpy(data_out, packet.data, data_len);
                 remote_last_seq[packet.player_id] = packet.arg;
                 return;
+            }
+            else if (packet.cmd == NETPLAY_PACKET_GAME_PAUSE)
+            {
+                players[packet.player_id].is_paused = true;
+            }
+            else if (packet.cmd == NETPLAY_PACKET_GAME_START)
+            {
+                players[packet.player_id].is_paused = false;
             }
             else if (packet.cmd == NETPLAY_PACKET_SYNC_REQ)
             {
@@ -636,6 +659,16 @@ netplay_mode_t rg_netplay_mode()
 netplay_status_t rg_netplay_status()
 {
     return netplay_status;
+}
+
+void rg_netplay_send_pause(bool paused)
+{
+    if (netplay_status != NETPLAY_STATUS_CONNECTED || !remote_player)
+    {
+        return;
+    }
+    RG_LOGI("netplay: Sending %s to peer\n", paused ? "PAUSE" : "RESUME");
+    send_packet(remote_player->id, paused ? NETPLAY_PACKET_GAME_PAUSE : NETPLAY_PACKET_GAME_START, 0, NULL, 0);
 }
 
 #endif
