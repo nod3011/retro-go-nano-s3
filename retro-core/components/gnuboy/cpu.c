@@ -2,7 +2,6 @@
 #include "gnuboy.h"
 #include "hw.h"
 #include "lcd.h"
-#include "link_cable.h"
 #include "sound.h"
 
 // For cycle accurate emulation this needs to be 1
@@ -328,89 +327,30 @@ static inline void timer_advance(int cycles) {
 
 /* cnt - time to emulate, expressed in real clock cycles */
 static inline void serial_advance(int cycles) {
-  uint8_t rx;
-
-  /* --- Slave mode: no active transfer, but link cable may push data --- */
-  if (GB.serial == 0 && GB.serial_timeout == 0) {
-    if (link_cable_get_state() == LINK_STATE_CONNECTED) {
-      /* Keep the slave's SB updated so the remote master gets the right byte */
-      link_cable_slave_set_sb(R_SB);
-
-      /* Throttle polling to avoid hammering network syscalls too frequently */
-      static int slave_poll_counter = 0;
-      slave_poll_counter += cycles;
-      if (slave_poll_counter >= 1024) {
-        slave_poll_counter = 0;
-        /* Check if the remote master sent us a byte */
-        if (link_cable_slave_poll(&rx)) {
-          R_SB = rx;
-          R_SC &= 0x7f;
-          gb_hw_interrupt(IF_SERIAL, 1);
-          gb_hw_interrupt(IF_SERIAL, 0);
-        }
-      }
-    }
-    return;
-  }
-
-  /* --- Master mode: active transfer countdown --- */
   if (GB.serial > 0) {
-    /* On first tick of a connected transfer, send our byte */
-    if (link_cable_get_state() == LINK_STATE_CONNECTED && GB.serial == 1952) {
-      link_cable_master_transfer(R_SB);
-    }
-
     GB.serial -= cycles << 1;
-
-    if (link_cable_get_state() == LINK_STATE_CONNECTED) {
-      /* Check if response arrived from peer */
-      if (link_cable_master_poll(&rx)) {
-        R_SB = rx;
-        R_SC &= 0x7f;
-        GB.serial = 0;
-        GB.serial_timeout = 0;
-        gb_hw_interrupt(IF_SERIAL, 1);
-        gb_hw_interrupt(IF_SERIAL, 0);
-        return;
-      }
-      /* Normal countdown expired — enter extended timeout */
-      if (GB.serial <= 0) {
-        GB.serial = 0;
-        /* serial_timeout continues below */
-      }
-    } else {
-      /* No link cable — original behavior */
-      if (GB.serial <= 0) {
-        R_SB = 0xFF;
-        R_SC &= 0x7f;
-        GB.serial = 0;
-        gb_hw_interrupt(IF_SERIAL, 1);
-        gb_hw_interrupt(IF_SERIAL, 0);
-      }
-    }
-    return;
-  }
-
-  /* --- Extended timeout: waiting for wireless response --- */
-  if (GB.serial_timeout > 0) {
-    GB.serial_timeout -= cycles << 1;
-
-    if (link_cable_master_poll(&rx)) {
-      R_SB = rx;
+    if (GB.serial <= 0) {
+      R_SB = gnuboy_serial_exchange(R_SB);
       R_SC &= 0x7f;
-      GB.serial_timeout = 0;
+      GB.serial = 0;
       gb_hw_interrupt(IF_SERIAL, 1);
       gb_hw_interrupt(IF_SERIAL, 0);
+    }
+  } else if ((R_SC & 0x80) && !(R_SC & 0x01)) {
+    // Slave mode: poll for incoming serial data from Master.
+    // The real GB hardware doesn't have its own serial clock in Slave mode —
+    // it just responds whenever the Master drives a clock pulse.
+    // We emulate this by polling the netplay queue for SYNC_REQ packets.
+    // Throttle polling to avoid hammering the network queue every 8 CPU cycles.
+    static int slave_poll_cooldown = 0;
+    if (--slave_poll_cooldown > 0)
       return;
-    }
-
-    /* Timeout expired — peer unresponsive, fall back to 0xFF */
-    if (GB.serial_timeout <= 0) {
-      R_SB = 0xFF;
+    slave_poll_cooldown = 128; // poll every ~1ms at 4MHz/8 granularity
+    if (gnuboy_serial_poll(R_SB, &R_SB)) {
       R_SC &= 0x7f;
-      GB.serial_timeout = 0;
       gb_hw_interrupt(IF_SERIAL, 1);
       gb_hw_interrupt(IF_SERIAL, 0);
+      slave_poll_cooldown = 0; // reset so next byte can be picked up quickly
     }
   }
 }

@@ -1,7 +1,6 @@
 #include "shared.h"
 
 #include <gnuboy.h>
-#include <link_cable.h>
 #include <sys/time.h>
 
 static int skipFrames = 0;
@@ -24,11 +23,10 @@ static const char *SETTING_SAVESRAM = "SaveSRAM";
 static const char *SETTING_PALETTE = "Palette";
 static const char *SETTING_SYSTIME = "SysTime";
 static const char *SETTING_LOADBIOS = "LoadBIOS";
-static const char *SETTING_NETLINK_DEBUG = "NetLinkDbg";
 // --- MAIN
 
 #ifdef RG_ENABLE_NETPLAY
-static bool gbLinkDebug = false;
+static const bool gbLinkDebug = false;
 
 typedef struct {
   uint8_t tx;
@@ -37,34 +35,38 @@ typedef struct {
 
 static byte gb_link_serial_exchange(byte outgoing) {
   if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED)
-    return 0xFF; // คืนค่า 0xFF เพื่อบอกเกมว่าไม่มีการเชื่อมต่อ
+    return 0xFF;
 
-  int64_t sync_start = rg_system_timer();
   gb_link_packet_t local = {.tx = outgoing};
-  gb_link_packet_t remote = {0};
+  gb_link_packet_t remote = {.tx = 0xFF};
+  int64_t sync_start = rg_system_timer();
 
-  rg_netplay_sync(&local, &remote, sizeof(local));
+  // Full synchronous exchange. This blocks until the network operation is
+  // complete. For Pokemon, this is exactly what we need to ensure bit-perfect
+  // sync.
+  rg_netplay_sync_ex(&local, &remote, sizeof(local), 0);
 
   int64_t sync_duration = rg_system_timer() - sync_start;
 
-  if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED) {
-    if (gbLinkDebug)
-      RG_LOGW("gb-link: sync status dropped tx=%02X duration=%lldus\n",
-              outgoing, (long long)sync_duration);
-    return 0xFF;
-  }
-
-  // If the sync took a really long time (e.g., > 100ms), we shouldn't
-  // necessarily drop the connection entirely, but we need to ensure the game
-  // doesn't think the other side vanished. 0xFF is often used to signal "no
-  // data ready yet". However, `rg_netplay_sync` handles its own timeouts
-  // correctly now. We just log it here if it's over 100ms instead of 1ms to
-  // reduce spam during saves.
-  if (gbLinkDebug || sync_duration > 100000)
+  if (gbLinkDebug || (sync_duration > 50000)) {
     RG_LOGI("gb-link: tx=%02X rx=%02X dt=%dus\n", outgoing, remote.tx,
             (int)sync_duration);
+  }
 
   return remote.tx;
+}
+
+static bool gb_link_serial_poll(byte tx, byte *rx) {
+  if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED)
+    return false;
+
+  gb_link_packet_t local = {.tx = tx};
+  gb_link_packet_t remote = {.tx = 0xFF};
+  if (rg_netplay_poll_sync(&local, &remote, sizeof(local))) {
+    *rx = remote.tx;
+    return true;
+  }
+  return false;
 }
 
 #endif
@@ -192,16 +194,6 @@ static rg_gui_event_t enable_bios_cb(rg_gui_option_t *option,
 }
 
 #ifdef RG_ENABLE_NETPLAY
-static rg_gui_event_t netlink_debug_cb(rg_gui_option_t *option,
-                                       rg_gui_event_t event) {
-  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
-    gbLinkDebug = !gbLinkDebug;
-    rg_settings_set_number(NS_APP, SETTING_NETLINK_DEBUG, gbLinkDebug);
-  }
-  strcpy(option->value, gbLinkDebug ? _("Yes") : _("No"));
-  return RG_DIALOG_VOID;
-}
-
 static rg_gui_event_t netplay_start_cb(rg_gui_option_t *option,
                                        rg_gui_event_t event) {
   netplay_status_t status = rg_netplay_status();
@@ -326,8 +318,6 @@ static void options_handler(rg_gui_option_t *dest) {
 #ifdef RG_ENABLE_NETPLAY
     *dest++ = (rg_gui_option_t){0, _("Netplay quick start"), "-",
                                 RG_DIALOG_FLAG_NORMAL, &netplay_start_cb};
-    *dest++ = (rg_gui_option_t){0, _("GB Link debug"), "-",
-                                RG_DIALOG_FLAG_NORMAL, &netlink_debug_cb};
 #endif
   }
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
@@ -352,9 +342,6 @@ void gbc_main(void) {
   useSystemTime = (bool)rg_settings_get_number(NS_APP, SETTING_SYSTIME, 1);
   loadBIOSFile = (bool)rg_settings_get_number(NS_APP, SETTING_LOADBIOS, 0);
   autoSaveSRAM = (int)rg_settings_get_number(NS_APP, SETTING_SAVESRAM, 0);
-#ifdef RG_ENABLE_NETPLAY
-  gbLinkDebug = (bool)rg_settings_get_number(NS_APP, SETTING_NETLINK_DEBUG, 0);
-#endif
   sramFile = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
 
   if (!rg_storage_mkdir(rg_dirname(sramFile)))
@@ -366,7 +353,8 @@ void gbc_main(void) {
     RG_PANIC("Emulator init failed!");
 
 #ifdef RG_ENABLE_NETPLAY
-  gnuboy_set_link_cable_callback(&gb_link_serial_exchange);
+  gnuboy_set_serial_callback(&gb_link_serial_exchange);
+  gnuboy_set_serial_poll_callback(&gb_link_serial_poll);
 #endif
 
   gnuboy_set_framebuffer(currentUpdate->data);

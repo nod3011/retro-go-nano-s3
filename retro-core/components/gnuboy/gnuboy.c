@@ -14,6 +14,7 @@
 #define BANK_SIZE 0x4000
 
 static gb_serial_cb_t *serial_callback = NULL;
+static gb_serial_poll_cb_t *serial_poll_callback = NULL;
 
 // Note: Eventually we'll just pass a gb_host_t to init...
 // But for now assume it's been configured before we were alled!
@@ -119,8 +120,16 @@ void gnuboy_set_serial_callback(gb_serial_cb_t *callback) {
   serial_callback = callback;
 }
 
+void gnuboy_set_serial_poll_callback(gb_serial_poll_cb_t *callback) {
+  serial_poll_callback = callback;
+}
+
 byte gnuboy_serial_exchange(byte outgoing) {
   return serial_callback ? serial_callback(outgoing) : 0xFF;
+}
+
+bool gnuboy_serial_poll(byte tx, byte *rx) {
+  return serial_poll_callback ? serial_poll_callback(tx, rx) : false;
 }
 
 int gnuboy_load_bios(const byte *data, size_t size) {

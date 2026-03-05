@@ -489,18 +489,15 @@ void gb_hw_write(unsigned a, byte b) {
         break;
       case RI_SC:
         if ((b & 0x81) == 0x81) {
-          hw.serial = 1952; // 8 * 122us;
-          if (link_cable_get_state() == LINK_STATE_CONNECTED) {
-            // Increase timeout significantly (~1 second or 1952000 cycles) to
-            // prevent the game from detecting a link drop during operations
-            // like SRAM saving where the other side is unresponsive.
-            hw.serial_timeout = 1952000;
+          // Gameboy serial clock is 8kHz (1024Hz * 8 bits) by default.
+          // CGB supports a "Fast" mode (32kHz) if Bit 1 is set.
+          if (IS_CGB && (b & 0x02)) {
+            hw.serial = 1048; // 32kHz (approx 2048 cycles at 4MHz)
           } else {
-            hw.serial_timeout = 0;
+            hw.serial = 4192; // 8kHz (approx 8192 cycles at 4MHz)
           }
         } else {
           hw.serial = 0;
-          hw.serial_timeout = 0;
         }
         REG(r) = b;
         break;

@@ -1,20 +1,17 @@
 #ifdef RG_ENABLE_NETPLAY
 
 #include <freertos/FreeRTOS.h>
-#include <lwip/ip_addr.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <sys/time.h>
 #include <esp_system.h>
 #include <esp_event.h>
 #include <esp_netif.h>
 #include <esp_wifi.h>
 #include <esp_wifi_default.h>
+#include <esp_now.h>
+#include <esp_mac.h>
 #include <esp_log.h>
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
-#include <netdb.h>
 #include <nvs_flash.h>
 
 #include "rg_system.h"
@@ -30,8 +27,7 @@
 #define WIFI_CHANNEL            6
 #define WIFI_BROADCAST_ADDR     "192.168.4.255"
 #define WIFI_NETPLAY_PORT       1234
-#define NETPLAY_SYNC_TIMEOUT_MS 500   // Increased to 500ms to tolerate SRAM saves
-#define NETPLAY_DISCONNECT_MS   15000 // 15 seconds without contact = disconnect
+#define NETPLAY_SYNC_TIMEOUT_MS 500
 
 // Test to skip the network task and semaphores
 #define NETPLAY_SYNCHRONOUS_TEST
@@ -40,22 +36,27 @@ static netplay_status_t netplay_status = NETPLAY_STATUS_NOT_INIT;
 static netplay_mode_t netplay_mode = NETPLAY_MODE_NONE;
 static netplay_callback_t netplay_callback = NULL;
 static SemaphoreHandle_t netplay_sync;
-static SemaphoreHandle_t netplay_send_mutex;
-static QueueHandle_t netplay_queue = NULL;
 // static bool netplay_available = false;
 
 static netplay_player_t players[MAX_PLAYERS];
 static netplay_player_t *local_player;
 static netplay_player_t *remote_player; // This only works in 2 player mode
-static uint8_t local_seq = 0;
-static uint8_t remote_last_seq[MAX_PLAYERS] = {0};
 
-static esp_netif_ip_info_t local_if;
-static wifi_config_t wifi_config;
 static esp_netif_t *netif_sta;
 static esp_netif_t *netif_ap;
 
-static int rx_sock, tx_sock;
+static QueueHandle_t espnow_rx_queue = NULL;
+static QueueHandle_t netplay_queue = NULL;
+static SemaphoreHandle_t netplay_send_mutex = NULL;
+static uint8_t local_seq = 0;
+static uint8_t remote_last_seq[MAX_PLAYERS] = {0};
+static const uint8_t broadcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+typedef struct
+{
+    uint8_t mac_addr[6];
+    netplay_packet_t packet;
+} espnow_packet_t;
 
 
 static void dummy_netplay_callback(netplay_event_t event, void *arg)
@@ -63,59 +64,20 @@ static void dummy_netplay_callback(netplay_event_t event, void *arg)
     RG_LOGI("...\n");
 }
 
-
-static void network_cleanup()
+static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
 {
-    if (rx_sock)
-        close(rx_sock);
-    if (tx_sock)
-        close(tx_sock);
-
-    rx_sock = tx_sock = 0;
-    memset(&local_if, 0, sizeof(local_if));
-}
-
-
-static void network_setup(esp_netif_t *netif)
-{
-    if (esp_netif_get_ip_info(netif, &local_if) != ESP_OK)
-    {
-        RG_LOGE("netplay: failed to get IP info.\n");
-        memset(&local_if, 0, sizeof(local_if));
+    if (len < 4 || len > sizeof(netplay_packet_t) || !espnow_rx_queue)
         return;
-    }
-
-    // Current netplay implementation only handles two players reliably.
-    int player_id = (netplay_mode == NETPLAY_MODE_HOST) ? 0 : 1;
-    struct sockaddr_in rx_addr;
-    int bc_val = 1;
-
-    local_player = &players[player_id];
-    local_player->id = player_id;
-    local_player->version = NETPLAY_VERSION;
-    const char *rom_path = rg_system_get_app()->romPath ?: "";
-    local_player->game_id = rg_crc32(0, (const uint8_t *)rom_path, strlen(rom_path));
-    local_player->ip_addr = local_if.ip.addr;
-
-    RG_LOGI("netplay: Local player ID: %d\n", local_player->id);
-
-    rx_addr.sin_family = AF_INET;
-    rx_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    rx_addr.sin_port = htons(WIFI_NETPLAY_PORT);
-
-    rx_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    tx_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    assert(rx_sock > 0 && tx_sock > 0);
-
-    setsockopt(rx_sock, SOL_SOCKET, SO_BROADCAST, &bc_val, sizeof bc_val);
-    setsockopt(tx_sock, SOL_SOCKET, SO_BROADCAST, &bc_val, sizeof bc_val);
-
-    if (bind(rx_sock, (struct sockaddr *)&rx_addr, sizeof rx_addr) < 0)
-    {
-        RG_PANIC("netplay: bind() failed");
-    }
+    espnow_packet_t pkt;
+    memcpy(pkt.mac_addr, recv_info->src_addr, 6);
+    memcpy(&pkt.packet, data, len);
+    xQueueSend(espnow_rx_queue, &pkt, 0);
 }
 
+static void espnow_send_cb(const esp_now_send_info_t *tx_info, esp_now_send_status_t status)
+{
+    // Optionally log send failures here if needed
+}
 
 static void set_status(netplay_status_t status)
 {
@@ -129,7 +91,8 @@ static void set_status(netplay_status_t status)
     }
 }
 
-static bool receive_packet(netplay_packet_t *packet, int timeout_ms)
+
+static inline bool receive_packet(netplay_packet_t *packet, int timeout_ms)
 {
     if (!netplay_queue)
         return false;
@@ -140,77 +103,50 @@ static bool receive_packet(netplay_packet_t *packet, int timeout_ms)
     while (1)
     {
         if (xQueueReceive(netplay_queue, packet, wait_ticks) != pdPASS)
+        {
             return false;
+        }
 
-        // Duplicate check logic (now safe as it's the only consumer of the queue)
         if (packet->player_id < MAX_PLAYERS)
         {
-            if (packet->arg != 0 && packet->arg == remote_last_seq[packet->player_id])
-            {
-                players[packet->player_id].last_contact = rg_system_timer();
-
-                // It's a duplicate. If we have time left, we should wait for the NEXT packet
-                // rather than returning false immediately.
-                if (timeout_ms > 0)
-                {
-                    int64_t elapsed_ms = (rg_system_timer() - start_time) / 1000;
-                    if (elapsed_ms < timeout_ms)
-                    {
-                        wait_ticks = pdMS_TO_TICKS(timeout_ms - (int)elapsed_ms);
-                        continue;
-                    }
-                }
-                return false;
-            }
-            remote_last_seq[packet->player_id] = packet->arg;
+            players[packet->player_id].last_contact = rg_system_timer();
         }
         return true;
     }
 }
 
-
 static inline void send_packet(uint32_t dest, uint8_t cmd, uint8_t arg, void *data, uint8_t data_len)
 {
-    netplay_packet_t packet = {local_player->id, cmd, arg, data_len, {}};
+    if (!local_player)
+        return;
+    netplay_packet_t packet = {.player_id = local_player->id, .cmd = cmd, .arg = arg, .data_len = data_len};
     size_t len = sizeof(packet) - sizeof(packet.data) + data_len;
-    struct sockaddr_in tx_addr;
 
-    // Use a sequence number if arg is not explicitly provided (0)
-    if (arg == 0)
+    if (arg == 0 && cmd > NETPLAY_PACKET_READY)
     {
         packet.arg = ++local_seq;
         if (packet.arg == 0)
-            packet.arg = 1; // Avoid 0
+            packet.arg = 1;
     }
 
     if (data_len > 0)
-    {
-        memcpy(&packet.data, data, data_len);
-    }
+        memcpy(packet.data, data, data_len);
 
+    const uint8_t *target_mac = broadcast_mac;
     if (dest < MAX_PLAYERS)
     {
-        tx_addr.sin_family = AF_INET;
-        tx_addr.sin_port = htons(WIFI_NETPLAY_PORT);
-        tx_addr.sin_addr.s_addr = players[dest].ip_addr;
-    }
-    else
-    {
-        tx_addr.sin_family = AF_INET;
-        tx_addr.sin_port = htons(WIFI_NETPLAY_PORT);
-        tx_addr.sin_addr.s_addr = dest;
+        target_mac = players[dest].mac_addr;
+        if (!esp_now_is_peer_exist(target_mac))
+            target_mac = broadcast_mac;
     }
 
     if (netplay_send_mutex)
         xSemaphoreTake(netplay_send_mutex, portMAX_DELAY);
 
-    sendto(tx_sock, &packet, len, 0, (struct sockaddr *)&tx_addr, sizeof tx_addr);
+    esp_now_send(target_mac, (uint8_t *)&packet, len);
 
-    // Redundancy: Send SYNC and handshake packets twice to combat UDP loss
     if (cmd <= NETPLAY_PACKET_SYNC_DONE)
-    {
-        sendto(tx_sock, &packet, len, 0, (struct sockaddr *)&tx_addr, sizeof tx_addr);
-    }
+        esp_now_send(target_mac, (uint8_t *)&packet, len);
 
     if (netplay_send_mutex)
         xSemaphoreGive(netplay_send_mutex);
@@ -218,159 +154,127 @@ static inline void send_packet(uint32_t dest, uint8_t cmd, uint8_t arg, void *da
 
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    if (event_base == WIFI_EVENT)
+    if (event_base == WIFI_EVENT && (event_id == WIFI_EVENT_STA_STOP || event_id == WIFI_EVENT_AP_STOP))
     {
-        if (event_id == WIFI_EVENT_AP_START)
-        {
-            network_setup(netif_ap);
-            set_status(NETPLAY_STATUS_LISTENING);
-        }
-        else if (event_id == WIFI_EVENT_AP_STOP || event_id == WIFI_EVENT_STA_STOP)
-        {
-            set_status(NETPLAY_STATUS_STOPPED);
-        }
-        else if (event_id == WIFI_EVENT_STA_CONNECTED || event_id == WIFI_EVENT_AP_STACONNECTED)
-        {
-            set_status(NETPLAY_STATUS_CONNECTING);
-        }
-        else if (event_id == WIFI_EVENT_AP_STADISCONNECTED || event_id == WIFI_EVENT_STA_DISCONNECTED)
-        {
-            set_status(NETPLAY_STATUS_DISCONNECTED);
-        }
-    }
-    else if (event_base == IP_EVENT)
-    {
-        if (event_id == IP_EVENT_STA_GOT_IP)
-        {
-            network_setup(netif_sta);
-            set_status(NETPLAY_STATUS_HANDSHAKE);
-        }
-        else if (event_id == IP_EVENT_AP_STAIPASSIGNED)
-        {
-            ip_event_ap_staipassigned_t *event = (ip_event_ap_staipassigned_t *)event_data;
-
-            send_packet(event->ip.addr, NETPLAY_PACKET_INFO, 0, (void *)local_player, sizeof(netplay_player_t));
-            set_status(NETPLAY_STATUS_HANDSHAKE);
-        }
+        set_status(NETPLAY_STATUS_STOPPED);
     }
 }
 
-
 static void netplay_task()
 {
-    netplay_packet_t packet;
-    struct sockaddr_in from_addr;
-    socklen_t from_len = sizeof(from_addr);
-    fd_set read_fd_set;
-    struct timeval tv;
+    espnow_packet_t rx_pkt;
+    netplay_packet_t *packet = &rx_pkt.packet;
+    int64_t last_handshake_broadcast = 0;
 
     RG_LOGI("netplay: Task started!\n");
 
     while (1)
     {
-        // Allow listening as soon as we have a socket, even if status is just LISTENING
-        if (!rx_sock || netplay_status < NETPLAY_STATUS_LISTENING)
+        if (netplay_status == NETPLAY_STATUS_HANDSHAKE || netplay_status == NETPLAY_STATUS_LISTENING)
         {
-            rg_task_delay(10);
+            if (rg_system_timer() - last_handshake_broadcast > 500 * 1000)
+            {
+                send_packet(MAX_PLAYERS, NETPLAY_PACKET_INFO, 0, (void *)local_player, sizeof(netplay_player_t));
+                last_handshake_broadcast = rg_system_timer();
+            }
+        }
+
+        if (netplay_status < NETPLAY_STATUS_LISTENING || !espnow_rx_queue)
+        {
+            rg_task_delay(50);
             continue;
         }
 
-        FD_ZERO(&read_fd_set);
-        FD_SET(rx_sock, &read_fd_set);
-        tv.tv_sec = 0;
-        tv.tv_usec = 50 * 1000; // 50ms wait for better responsiveness
-
-        if (select(rx_sock + 1, &read_fd_set, NULL, NULL, &tv) <= 0)
-        {
-            continue;
-        }
-
-        int len = recvfrom(rx_sock, &packet, sizeof(netplay_packet_t), 0, (struct sockaddr *)&from_addr, &from_len);
-        if (len < 4)
+        if (xQueueReceive(espnow_rx_queue, &rx_pkt, pdMS_TO_TICKS(50)) != pdPASS)
         {
             continue;
         }
 
-        if (packet.player_id >= MAX_PLAYERS)
-        {
-            // RG_LOGE("netplay: Packet invalid player id: %d\n", packet.player_id);
-            continue;
-        }
-
-        if (packet.player_id == local_player->id)
+        if (packet->player_id >= MAX_PLAYERS || (local_player && packet->player_id == local_player->id))
         {
             continue;
         }
 
-        // --- IP Learning ---
-        // Always learn or update the peer's IP from the packet header
-        players[packet.player_id].ip_addr = from_addr.sin_addr.s_addr;
+        netplay_player_t *packet_from = &players[packet->player_id];
 
-        // --- Dispatching Logic ---
-        if (packet.cmd >= NETPLAY_PACKET_SYNC_REQ && packet.cmd <= NETPLAY_PACKET_RAW_DATA)
+        if (memcmp(packet_from->mac_addr, rx_pkt.mac_addr, 6) != 0 || !esp_now_is_peer_exist(rx_pkt.mac_addr))
+        {
+            memcpy(packet_from->mac_addr, rx_pkt.mac_addr, 6);
+            if (!esp_now_is_peer_exist(rx_pkt.mac_addr))
+            {
+                esp_now_peer_info_t peer = {0};
+                peer.channel = WIFI_CHANNEL;
+                peer.ifidx = ESP_IF_WIFI_STA;
+                peer.encrypt = false;
+                memcpy(peer.peer_addr, rx_pkt.mac_addr, 6);
+                esp_now_add_peer(&peer);
+            }
+        }
+        packet_from->last_contact = rg_system_timer();
+
+        if (packet->cmd >= NETPLAY_PACKET_SYNC_REQ && packet->cmd <= NETPLAY_PACKET_RAW_DATA)
         {
             if (netplay_queue)
             {
-                if (xQueueSend(netplay_queue, &packet, 0) != pdPASS)
+                if (xQueueSend(netplay_queue, packet, 0) != pdPASS)
                 {
                     netplay_packet_t tmp;
                     xQueueReceive(netplay_queue, &tmp, 0);
-                    xQueueSend(netplay_queue, &packet, 0);
+                    xQueueSend(netplay_queue, packet, 0);
                 }
             }
             continue;
         }
 
-        netplay_player_t *packet_from = &players[packet.player_id];
-        packet_from->last_contact = rg_system_timer();
-
-        switch (packet.cmd)
+        switch (packet->cmd)
         {
-        case NETPLAY_PACKET_INFO: // HOST <-> GUEST
-            if (packet.data_len != sizeof(netplay_player_t))
-            {
-                RG_LOGE("netplay: Player struct size mismatch. expected=%d received=%d\n",
-                        (int)sizeof(netplay_player_t), packet.data_len);
+        case NETPLAY_PACKET_INFO:
+            if (packet->data_len != sizeof(netplay_player_t))
                 break;
-            }
 
-            memcpy(packet_from, packet.data, packet.data_len);
-            packet_from->ip_addr = from_addr.sin_addr.s_addr; // Ensure IP is correct
+            memcpy(packet_from, packet->data, packet->data_len);
+            memcpy(packet_from->mac_addr, rx_pkt.mac_addr, 6);
             remote_player = packet_from;
 
-            RG_LOGI("netplay: Remote client info id=%d game=%08lX ip=%s\n", packet_from->id,
-                    (unsigned long)packet_from->game_id, inet_ntoa(from_addr.sin_addr));
+            RG_LOGI("netplay: Remote update id=%d game_id=%08lX\n", packet_from->id,
+                    (unsigned long)packet_from->game_id);
 
-            // Handshake Reset
-            local_seq = 0;
-            memset(remote_last_seq, 0, sizeof(remote_last_seq));
-
-            if (netplay_mode == NETPLAY_MODE_HOST)
-            {
-                send_packet(packet_from->id, NETPLAY_PACKET_READY, 0, 0, 0);
-                set_status(NETPLAY_STATUS_CONNECTED);
-            }
-            else
+            // If we receive a broadcast (arg=0), always reply with our info (arg=1)
+            if (packet->arg == 0)
             {
                 send_packet(packet_from->id, NETPLAY_PACKET_INFO, 1, (void *)local_player, sizeof(netplay_player_t));
             }
+
+            if (packet_from->version != NETPLAY_VERSION)
+            {
+                RG_LOGE("netplay: protocol version mismatch!\n");
+                break;
+            }
+
+            if (netplay_mode == NETPLAY_MODE_HOST)
+            {
+                // Host sends READY once it knows about the Guest.
+                // Resend on every INFO to handle packet loss.
+                send_packet(packet_from->id, NETPLAY_PACKET_READY, 0, 0, 0);
+                set_status(NETPLAY_STATUS_CONNECTED);
+            }
             break;
 
-        case NETPLAY_PACKET_READY: // HOST -> GUEST
+        case NETPLAY_PACKET_READY:
+            RG_LOGI("netplay: Received READY from Host\n");
+            remote_player = packet_from; // ensure remote_player is set
             set_status(NETPLAY_STATUS_CONNECTED);
             break;
 
         case NETPLAY_PACKET_PING:
-            send_packet(packet.player_id, NETPLAY_PACKET_PONG, 0, 0, 0);
+            send_packet(packet->player_id, NETPLAY_PACKET_PONG, 0, 0, 0);
             break;
 
         default:
-            // RG_LOGE("netplay: Received unknown packet type 0x%02x\n", packet.cmd);
             break;
         }
     }
 }
-
 
 static void netplay_init()
 {
@@ -383,7 +287,8 @@ static void netplay_init()
         netplay_mode = NETPLAY_MODE_NONE;
         netplay_sync = xSemaphoreCreateMutex();
         netplay_send_mutex = xSemaphoreCreateMutex();
-        netplay_queue = xQueueCreate(16, sizeof(netplay_packet_t));
+        netplay_queue = xQueueCreate(64, sizeof(netplay_packet_t));
+        espnow_rx_queue = xQueueCreate(32, sizeof(espnow_packet_t));
 
         esp_err_t err = esp_netif_init();
         if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
@@ -402,29 +307,18 @@ static void netplay_init()
             ESP_ERROR_CHECK(err);
 
         netif_sta = esp_netif_create_default_wifi_sta();
-        netif_ap = esp_netif_create_default_wifi_ap();
         if (!netif_sta)
             netif_sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-        if (!netif_ap)
-            netif_ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
 
         wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
         err = esp_wifi_init(&cfg);
         if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
             ESP_ERROR_CHECK(err);
 
-        err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL);
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
-            ESP_ERROR_CHECK(err);
-
-        err = esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL);
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
-            ESP_ERROR_CHECK(err);
-
         ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE)); // Improves latency a lot
         ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-        rg_task_create("rg_netplay", &netplay_task, NULL, 4096, RG_TASK_PRIORITY_4, 1);
+        rg_task_create("rg_netplay", &netplay_task, NULL, 8192, RG_TASK_PRIORITY_4, 1);
     }
 }
 
@@ -465,6 +359,11 @@ bool rg_netplay_quick_start(void)
         switch (netplay_status)
         {
         case NETPLAY_STATUS_CONNECTED:
+            if (!remote_player || !local_player)
+            {
+                set_status(NETPLAY_STATUS_HANDSHAKE);
+                break;
+            }
             return remote_player->game_id == local_player->game_id ||
                    rg_gui_confirm(_("Netplay"), _("ROMs not identical. Continue?"), 1);
             break;
@@ -527,41 +426,50 @@ bool rg_netplay_start(netplay_mode_t mode)
         rg_netplay_stop();
     }
 
-    memset(&players, 0xFF, sizeof(players));
+    memset(players, 0, sizeof(players));
+    memset(remote_last_seq, 0, sizeof(remote_last_seq));
+    local_seq = 0;
     local_player = NULL;
     remote_player = NULL;
-    local_seq = 0;
-    memset(remote_last_seq, 0, sizeof(remote_last_seq));
 
-    if (mode == NETPLAY_MODE_GUEST)
+    netplay_mode = mode;
+    RG_LOGI("netplay: Starting ESP-NOW netplay. Mode: %d\n", mode);
+
+    // Both Host and Guest use STA mode for ESP-NOW and agree on the channel
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+
+    esp_now_deinit();
+    if (esp_now_init() == ESP_OK)
     {
-        RG_LOGI("netplay: Starting in guest mode.\n");
-        netplay_mode = NETPLAY_MODE_GUEST;
+        esp_now_register_recv_cb(espnow_recv_cb);
+        esp_now_register_send_cb(espnow_send_cb);
 
-        strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, 32);
-        wifi_config.sta.channel = WIFI_CHANNEL;
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-        ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
-        ESP_ERROR_CHECK(esp_wifi_start());
-        ret = esp_wifi_connect();
-    }
-    else if (mode == NETPLAY_MODE_HOST)
-    {
-        RG_LOGI("netplay: Starting in host mode.\n");
-        netplay_mode = NETPLAY_MODE_HOST;
-
-        strncpy((char *)wifi_config.ap.ssid, WIFI_SSID, 32);
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-        wifi_config.ap.channel = WIFI_CHANNEL;
-        wifi_config.ap.max_connection = MAX_PLAYERS - 1;
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-        ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
-        ret = esp_wifi_start();
+        // Add broadcast peer for discovery
+        esp_now_peer_info_t peer = {0};
+        peer.channel = WIFI_CHANNEL;
+        peer.ifidx = ESP_IF_WIFI_STA;
+        peer.encrypt = false;
+        memcpy(peer.peer_addr, broadcast_mac, 6);
+        esp_now_add_peer(&peer);
     }
     else
     {
-        RG_PANIC("netplay: Error: Unknown mode!");
+        RG_LOGE("netplay: Failed to init ESP-NOW");
+        return false;
     }
+
+    int player_id = (mode == NETPLAY_MODE_HOST) ? 0 : 1;
+    local_player = &players[player_id];
+    local_player->id = player_id;
+    local_player->version = NETPLAY_VERSION;
+    const char *rom_path = rg_system_get_app()->romPath ?: "";
+    local_player->game_id = rg_crc32(0, (const uint8_t *)rom_path, strlen(rom_path));
+    esp_read_mac(local_player->mac_addr, ESP_MAC_WIFI_STA);
+
+    set_status(NETPLAY_STATUS_HANDSHAKE);
+    ret = ESP_OK;
 
     return ret == ESP_OK;
 }
@@ -575,117 +483,149 @@ bool rg_netplay_stop(void)
 
     if (netplay_mode != NETPLAY_MODE_NONE)
     {
-        network_cleanup();
+        esp_now_deinit();
         ret = esp_wifi_stop();
         netplay_status = NETPLAY_STATUS_STOPPED;
         netplay_mode = NETPLAY_MODE_NONE;
-        xSemaphoreGive(netplay_sync);
+        if (espnow_rx_queue)
+            xQueueReset(espnow_rx_queue);
+        if (netplay_queue)
+            xQueueReset(netplay_queue);
+        if (netplay_sync)
+            xSemaphoreGive(netplay_sync);
     }
 
     return ret == ESP_OK;
 }
 
 
-void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
+void rg_netplay_async(void *data_in, void *data_out, uint8_t data_len)
 {
-    static uint32_t sync_count = 0, sync_time = 0;
+    if (netplay_status != NETPLAY_STATUS_CONNECTED || !remote_player)
+    {
+        return;
+    }
+
+    // Return the LAST received packet's data
     netplay_packet_t packet;
-
-    if (netplay_status != NETPLAY_STATUS_CONNECTED)
+    if (xQueueReceive(netplay_queue, &packet, 0) == pdPASS)
     {
-        return;
+        if (data_out)
+            memcpy(data_out, packet.data, data_len);
+        players[packet.player_id].last_contact = rg_system_timer();
     }
 
-    int64_t start_time = rg_system_timer();
-
-    memcpy(&local_player->sync_data, data_in, data_len);
-
-    if (netplay_mode == NETPLAY_MODE_HOST)
-    {
-        // Flush queue of any stale SYNC data before starting
-        xQueueReset(netplay_queue);
-
-        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_REQ, 0, (void *)data_in, data_len);
-
-        while (1)
-        {
-            if (!receive_packet(&packet, NETPLAY_SYNC_TIMEOUT_MS))
-            {
-                memset(data_out, 0xFF, data_len);
-                goto _done;
-            }
-            if (packet.cmd == NETPLAY_PACKET_SYNC_ACK)
-            {
-                memcpy(remote_player->sync_data, packet.data, packet.data_len);
-                break;
-            }
-        }
-    }
-    else
-    {
-        while (1)
-        {
-            if (!receive_packet(&packet, NETPLAY_SYNC_TIMEOUT_MS))
-            {
-                memset(data_out, 0xFF, data_len);
-                goto _done;
-            }
-            if (packet.cmd == NETPLAY_PACKET_SYNC_REQ)
-            {
-                memcpy(remote_player->sync_data, packet.data, packet.data_len);
-                break;
-            }
-        }
-        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, 0, (void *)data_in, data_len);
-    }
-
-    memcpy(data_out, remote_player->sync_data, data_len);
-
-_done:
-    sync_time += rg_system_timer() - start_time;
-
-    // Disconnect logic based on extreme inactivity
-    if (rg_system_timer() - remote_player->last_contact > (int64_t)NETPLAY_DISCONNECT_MS * 1000)
-    {
-        RG_LOGE("netplay: Remote peer timed out. Disconnecting.\n");
-        set_status(NETPLAY_STATUS_DISCONNECTED);
-        return;
-    }
-
-    if (++sync_count == 60)
-    {
-        RG_LOGI("netplay: Sync delay=%.4fms\n", (float)sync_time / sync_count / 1000);
-        sync_count = sync_time = 0;
-    }
+    // Send our current byte for the Master to pick up
+    send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, 0, data_in, data_len);
 }
 
-bool rg_netplay_check(void)
+void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len)
 {
-    if (netplay_mode != NETPLAY_MODE_GUEST || netplay_status != NETPLAY_STATUS_CONNECTED || !netplay_queue)
+    rg_netplay_sync_ex(data_in, data_out, data_len, 100);
+}
+
+bool rg_netplay_poll_sync(void *data_in, void *data_out, uint8_t data_len)
+{
+    if (netplay_status != NETPLAY_STATUS_CONNECTED || !remote_player)
         return false;
 
     netplay_packet_t packet;
 
-    // Check if we have a packet. If it's a duplicate SYNC_REQ, discard it.
-    while (xQueuePeek(netplay_queue, &packet, 0) == pdPASS)
+    // Role-agnostic: handle incoming SYNC_REQ from either side.
+    // This is the serial Slave path — we respond to whoever is the serial Master.
+    if (receive_packet(&packet, 0))
     {
         if (packet.cmd == NETPLAY_PACKET_SYNC_REQ)
         {
-            if (packet.player_id < MAX_PLAYERS && packet.arg != 0 && packet.arg == remote_last_seq[packet.player_id])
+            if (packet.arg == remote_last_seq[packet.player_id])
             {
-                // Discard the specific duplicate packet we just peeked at
-                xQueueReceive(netplay_queue, &packet, 0);
-                continue;
+                // Duplicate request — resend ACK but don't process again
+                send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
+                return false;
             }
+
+            if (data_out)
+                memcpy(data_out, packet.data, data_len);
+
+            // Respond immediately with our data
+            send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
+            remote_last_seq[packet.player_id] = packet.arg;
+
             return true;
         }
-
-        // If it's not a SYNC_REQ (e.g. RAW_DATA), and it's a duplicate, we should also discard it or let sync handle
-        // it. For check() we only care about SYNC_REQ.
-        break;
     }
+
     return false;
 }
+
+void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int timeout_ms)
+{
+    if (netplay_status != NETPLAY_STATUS_CONNECTED || !remote_player)
+    {
+        return;
+    }
+
+    netplay_packet_t packet;
+    int64_t start_time = rg_system_timer();
+    const int SYNC_TIMEOUT_MS = 15000;
+
+    // Role-agnostic: The serial Master (caller) always sends SYNC_REQ.
+    // This works regardless of whether we are netplay HOST or GUEST,
+    // because GB serial Master is determined by who sets SC=0x81.
+    uint8_t seq = ++local_seq;
+    if (seq == 0)
+        seq = ++local_seq;
+    int64_t last_send = 0;
+    bool dialog_shown = false;
+
+    while ((rg_system_timer() - start_time) / 1000 < SYNC_TIMEOUT_MS)
+    {
+        // (Re)send our SYNC_REQ every 50ms
+        if ((rg_system_timer() - last_send) / 1000 >= 50)
+        {
+            send_packet(remote_player->id, NETPLAY_PACKET_SYNC_REQ, seq, data_in, data_len);
+            last_send = rg_system_timer();
+        }
+
+        if (!dialog_shown && (rg_system_timer() - start_time) / 1000 > 2000)
+        {
+            RG_LOGI("netplay_sync_ex: waiting for peer to respond...\n");
+            dialog_shown = true;
+        }
+
+        if (receive_packet(&packet, 10))
+        {
+            if (packet.cmd == NETPLAY_PACKET_SYNC_ACK && packet.arg == seq)
+            {
+                // Got our matching ACK — exchange complete
+                if (data_out)
+                    memcpy(data_out, packet.data, data_len);
+                remote_last_seq[packet.player_id] = packet.arg;
+                return;
+            }
+            else if (packet.cmd == NETPLAY_PACKET_SYNC_REQ)
+            {
+                // Peer is also a serial Master (both sides initiated).
+                // Respond with ACK and use their data as our received byte.
+                if (packet.arg != remote_last_seq[packet.player_id])
+                {
+                    if (data_out)
+                        memcpy(data_out, packet.data, data_len);
+                    send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
+                    remote_last_seq[packet.player_id] = packet.arg;
+                    return;
+                }
+                else
+                {
+                    // Duplicate REQ — resend ACK
+                    send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
+                }
+            }
+        }
+    }
+    RG_LOGW("netplay_sync_ex: timeout!\n");
+}
+
 
 netplay_mode_t rg_netplay_mode()
 {
