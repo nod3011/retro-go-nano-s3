@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-
 #define FIRST_VISIBLE_LINE 1
 
 extern uint8_t GetBank;
