@@ -213,9 +213,9 @@ bool S9xInitDisplay(void) {
   GFX.Pitch = SNES_WIDTH * 2;
   GFX.ZPitch = SNES_WIDTH;
   GFX.Screen = currentUpdate->data;
-  GFX.SubScreen = malloc(GFX.Pitch * SNES_HEIGHT_EXTENDED);
-  GFX.ZBuffer = malloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED);
-  GFX.SubZBuffer = malloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED);
+  GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
   return GFX.Screen && GFX.SubScreen && GFX.ZBuffer && GFX.SubZBuffer;
 }
 
@@ -319,6 +319,18 @@ void app_main(void) {
 
   if (!S9xInitDisplay())
     RG_PANIC("Display init failed!");
+
+  const char *romPath = app->romPath;
+  size_t romSize =
+      0x600000; // Default to 6MB if we can't determine size (e.g. ZIP)
+
+  rg_stat_t st = rg_storage_stat(romPath);
+  if (st.exists && st.is_file && !rg_extension_match(romPath, "zip")) {
+    romSize = st.size;
+  }
+
+  Memory.ROM_AllocSize = romSize + 0x10000 + 0x200;
+  Memory.ROM = (uint8_t *)rg_alloc(Memory.ROM_AllocSize, MEM_SLOW);
 
   if (!S9xInitMemory())
     RG_PANIC("Memory init failed!");

@@ -14,19 +14,19 @@ import zlib
 DEFAULT_TARGET = os.getenv("RG_TOOL_TARGET", "odroid-go")
 DEFAULT_BAUD = os.getenv("RG_TOOL_BAUD", "1152000")
 DEFAULT_PORT = os.getenv("RG_TOOL_PORT", "COM3")
-DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core prboom-go gwenesis ws ngp snes9x")
+DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core snes9x prboom-go ngp ws")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "Retro-Go")
 PROJECT_ICON = os.getenv("PROJECT_ICON", "assets/icon.raw")
 PROJECT_APPS = {
   # Project name  Type, SubType, Size (bytes)
-  'launcher':     [0, 16, 1572864],  # 1.5 MB
+  'launcher':     [0, 16, 1310720],  # 1.25 MB
   'retro-core':   [0, 16, 2097152],  # 2.0 MB
-  'snes9x':       [0, 16, 2097152],  # 2.0 MB
+  'snes9x':       [0, 16, 1572864],  # 1.5 MB
   'prboom-go':    [0, 16, 1048576],  # 1 MB
   'gwenesis':     [0, 16, 1572864],  # 1.5 MB
   'fmsx':         [0, 16, 1048576],  # 1 MB
-  'ws':           [0, 16, 1048576],  # 1 MB
-  'ngp':          [0, 16, 1048576],  # 1 MB
+  'ws':           [0, 16, 786432],   # 768 KB
+  'ngp':          [0, 16, 786432],   # 768 KB
 }
 
 # PROJECT_APPS = {}
@@ -42,7 +42,7 @@ try:
 except:
     GIT_HASH = "unknown"
 
-PROJECT_VER = "v1.4.6+ws+ngpc+fceumm"
+PROJECT_VER = "nochii-0.95"
 FW_FORMAT = "none"
 
 TARGETS = []

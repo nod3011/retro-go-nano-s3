@@ -19,6 +19,15 @@
 			"path": "retro-core"
 		},
 		{
+			"path": "snes9x"
+		},
+		{
+			"path": "ws"
+		},
+		{
+			"path": "ngp"
+		},
+		{
 			"path": "themes"
 		},
 		{
@@ -37,7 +46,6 @@
 		"retro-go.sdk-path": "/path/to/esp-idf/frameworks/esp-idf-v4.1.2",
 		"retro-go.tools-path": "/path/to/esp-idf/tools/xtensa-esp32-elf/esp-2020r3-8.4.0/xtensa-esp32-elf",
 		*/
-
 		"C_Cpp.default.defines": [
 			"RETRO_GO",
 			"CONFIG_FREERTOS_HZ=100",
