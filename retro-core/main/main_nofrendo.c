@@ -95,13 +95,15 @@ void nofrendo_main(void) {
   };
 
   app = rg_system_reinit(32000, &handlers, NULL);
-  rg_system_set_overclock(1); // MED level is enough for Nofrendo
+  rg_system_set_overclock(0); // Disable overclock as requested
 
   // Initialize NES
   nes = nes_init(SYS_NES_NTSC, app->sampleRate, true, NULL);
   if (!nes) {
     RG_PANIC("Failed to initialize Nofrendo");
   }
+
+  rg_system_set_tick_rate(nes->refresh_rate);
 
   nes->blit_func = blit_callback;
 
@@ -199,6 +201,12 @@ void nofrendo_main(void) {
 
     // Stats
     rg_system_tick(rg_system_timer() - startTime);
+
+    // Lock FPS to 100% (60 FPS)
+    int64_t frameTime = rg_system_timer() - startTime;
+    if (frameTime < app->frameTime) {
+      rg_usleep(app->frameTime - frameTime);
+    }
   }
 
   save_sram();

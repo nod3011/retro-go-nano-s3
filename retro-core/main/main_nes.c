@@ -20,18 +20,23 @@ static rg_surface_t *currentUpdate;
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
 #endif
 
-unsigned int swapDuty = 0;
-void *GetKeyboard(void) { return NULL; }
-
 static uint8_t *nes_framebuffer = NULL;
 static uint16_t palette565[256];
 static uint32_t fceu_joystick;
+
+// Linkage stubs for FCEUMM
+unsigned int swapDuty = 0;
+void GetKeyboard(void) {}
+
+// Forward declarations for memstream (from libretro-common)
+extern void memstream_set_buffer(uint8_t *buffer, uint64_t size);
+extern uint64_t memstream_get_last_size(void);
 
 // --- G&W COMPATIBILITY
 rom_manager_t rom_mgr;
 
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
-static bool FCEUSS_Save_Fs(const char *path) {
+bool FCEUSS_Save_Fs(const char *path) {
   size_t size = 1024 * 512; // 512KB is usually enough for NES
   uint8_t *buffer = malloc(size);
   if (!buffer)
@@ -46,7 +51,7 @@ static bool FCEUSS_Save_Fs(const char *path) {
   return success;
 }
 
-static bool FCEUSS_Load_Fs(const char *path) {
+bool FCEUSS_Load_Fs(const char *path) {
   void *buffer = NULL;
   size_t size = 0;
   if (!rg_storage_read_file(path, &buffer, &size, 0))
@@ -58,7 +63,7 @@ static bool FCEUSS_Load_Fs(const char *path) {
   return true;
 }
 
-static CartInfo *get_cart_info(void) {
+CartInfo *get_cart_info(void) {
   if (iNESCart.mapper >= 0 || iNESCart.PRGRomSize > 0)
     return &iNESCart;
   if (UNIFCart.PRGRomSize > 0)
@@ -146,18 +151,17 @@ static void update_audio(int32_t *samples, size_t count) {
 }
 
 // --- FCEU CALLBACKS
-void FCEUD_PrintError(char *c) { printf("FCEU Error: %s\n", c); }
-void FCEUD_Message(char *s) { printf("FCEU Message: %s\n", s); }
+void FCEUD_PrintError(char *c) { RG_LOGE("%s\n", c); }
+void FCEUD_Message(char *s) { RG_LOGI("%s\n", s); }
 void FCEUD_DispMessage(enum retro_log_level level, unsigned duration,
                        const char *str) {
-  printf("FCEU Log [%d]: %s\n", level, str);
+  RG_LOGI("%s\n", str);
 }
 
-// Creates a 565LE color from C_RGB(255, 255, 255)
-#undef C_RGB
-#define C_RGB(r, g, b) ((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3))
 void FCEUD_SetPalette(uint8 index, uint8 r, uint8 g, uint8 b) {
-  palette565[index] = C_RGB(r, g, b);
+  // Store as 565 Big-Endian for hardware optimized blitting
+  uint16_t color = (((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+  palette565[index] = (color >> 8) | (color << 8);
 }
 
 // Game Genie Stubs
@@ -609,10 +613,10 @@ void fceumm_main(void) {
                            ? normal_scanlines
                            : NES_HEIGHT;
 
-  updates[0] =
-      rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, MEM_SLOW);
-  updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE,
-                                 MEM_SLOW); // Ensure PSRAM
+  updates[0] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_PAL565_BE,
+                                 MEM_FAST);
+  updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_PAL565_BE,
+                                 MEM_FAST);
   currentUpdate = updates[0];
 
   FSettings.soundq =
@@ -624,8 +628,6 @@ void fceumm_main(void) {
     rg_emu_load_state(app->saveSlot);
   }
 
-  int skip_frames = 0;
-
   static uint32_t joystick_old = 0;
   static bool menu_cancelled = false;
   static bool menu_pressed = false;
@@ -633,7 +635,7 @@ void fceumm_main(void) {
   static bool turbo_b_toggled = false;
   static int turbo_counter = 0;
 
-  while (true) {
+  while (!rg_system_exit_called()) {
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
     uint32_t input_buf = 0;
@@ -718,47 +720,32 @@ void fceumm_main(void) {
     fceu_joystick = input_buf;
 
     int64_t startTime = rg_system_timer();
-    bool draw_frame = (skip_frames == 0);
+
+    // Prepare surface for this frame
+    currentUpdate = updates[currentUpdate == updates[0]];
+    currentUpdate->palette = palette565;
+    currentUpdate->width = NES_WIDTH;
+    currentUpdate->height = surface_height;
+
+    // Use PALETTE offset to point XBuf to our surface
+    // FCEUMM renders to XBuf + 8 offset usually for some padding?
+    // Actually no, let's just point XBuf directly.
+    XBuf = (uint8_t *)currentUpdate->data;
 
     uint8_t *gfx = NULL;
     int32_t *sound = NULL;
     int32_t sound_samples = 0;
 
-    FCEUI_Emulate(&gfx, &sound, &sound_samples, draw_frame ? 0 : 1);
+    FCEUI_Emulate(&gfx, &sound, &sound_samples, 0);
 
-    if (draw_frame && gfx && currentUpdate && currentUpdate->data) {
-      bool slow_frame = !rg_display_sync(false);
-      currentUpdate = updates[currentUpdate == updates[0]];
-
-      // Optimized conversion loop
-      const uint8_t *restrict src = gfx;
-      uint32_t *restrict dst = (uint32_t *)currentUpdate->data;
-      int limit = (NES_WIDTH * currentUpdate->height) >> 1;
-
-      while (limit--) {
-        *dst++ = (palette565[src[1]] << 16) | palette565[src[0]];
-        src += 2;
-      }
-      rg_display_submit(currentUpdate, 0);
-
-      // Adaptive auto-frameskip logic
-      int64_t elapsed = rg_system_timer() - startTime;
-      if (slow_frame || elapsed > app->frameTime) {
-        // If we are significantly behind, skip more aggressively
-        skip_frames = (elapsed > app->frameTime * 2) ? 2 : 1;
-      }
-    } else if (skip_frames > 0) {
-      skip_frames--;
+    if (gfx) {
+      rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
+    // Audio submission provides the pacing (sync)
     update_audio(sound, sound_samples);
-    rg_system_tick(rg_system_timer() - startTime);
 
-    // Limit speed to 100%
-    int64_t frameTime = rg_system_timer() - startTime;
-    if (frameTime < app->frameTime && skip_frames == 0) {
-      rg_usleep(app->frameTime - frameTime);
-    }
+    rg_system_tick(rg_system_timer() - startTime);
   }
 
   save_sram();
