@@ -37,7 +37,7 @@ static bool pal_dirty;
  * Drawing routines
  */
 
-__attribute__((optimize("unroll-loops"))) static inline byte *
+__attribute__((optimize("unroll-loops"))) static inline byte *IRAM_ATTR
 get_patpix(int tile, int x) {
   const byte *vram = VBANKS[0];
   static byte pix[8];
@@ -59,7 +59,7 @@ get_patpix(int tile, int x) {
   return pix;
 }
 
-static inline void tilebuf(int S, int T, int WT, int *WND, int *BG) {
+static inline void IRAM_ATTR tilebuf(int S, int T, int WT, int *WND, int *BG) {
   int cnt, base;
   byte *tilemap, *attrmap;
   int *tilebuf;
@@ -143,7 +143,7 @@ static inline void tilebuf(int S, int T, int WT, int *WND, int *BG) {
   }
 }
 
-static inline void bg_scan(int U, int V, int *BG) {
+static inline void IRAM_ATTR bg_scan(int U, int V, int *BG) {
   int cnt;
   byte *src, *dest;
   int *tile;
@@ -360,7 +360,7 @@ static inline int spr_enum(gb_vs_t *VS) {
   return NS;
 }
 
-static inline void spr_scan(gb_vs_t *VS, int ns, byte *PRI) {
+static inline void IRAM_ATTR spr_scan(gb_vs_t *VS, int ns, byte *PRI) {
   byte *src, *dest, *bg, *pri;
   int i, b, x, pal;
   byte bgdup[256];
@@ -576,7 +576,7 @@ static inline void sync_palette(void) {
         sprites on the line and probably other factors. States 1, 2 and 3
         do not require precise sub-line CPU-LCDC sync, but state 0 might do.
 */
-static inline void lcd_renderline() {
+static inline void IRAM_ATTR lcd_renderline() {
   if (!host.video.enabled || !host.video.buffer)
     return;
 
@@ -645,7 +645,7 @@ static inline void lcd_renderline() {
   }
 }
 
-void gb_lcd_emulate(int cycles) {
+void IRAM_ATTR gb_lcd_emulate(int cycles) {
   CYCLES -= cycles;
 
   if (CYCLES > 0)

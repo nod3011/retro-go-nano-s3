@@ -21,111 +21,102 @@
 **
 */
 
+#include "nofrendo.h"
+#include "nes/nes.h"
+#include "palettes.h"
 #include <stdlib.h>
 #include <string.h>
-#include "nofrendo.h"
-#include "palettes.h"
-#include "nes/nes.h"
+
 
 // static bool frameskip;
 static bool running;
 
-int nofrendo_init(int system, int sample_rate, bool stereo, void *blit, void *vsync, void *input)
-{
-    nes_t *nes = nes_init(system, sample_rate, stereo, NULL);
-    if (!nes)
-    {
-        MESSAGE_ERROR("Failed to create NES instance.\n");
-        return -1;
-    }
+int nofrendo_init(int system, int sample_rate, bool stereo, void *blit,
+                  void *vsync, void *input) {
+  nes_t *nes = nes_init(system, sample_rate, stereo, NULL);
+  if (!nes) {
+    MESSAGE_ERROR("Failed to create NES instance.\n");
+    return -1;
+  }
 
-    nes->blit_func = blit;
+  nes->blit_func = blit;
 
-    return 0;
+  return 0;
 }
 
 /* Builds a 256 color 8-bit palette based on a 64-color NES palette
 ** Note that we set it up 3 times so that we flip bits on the primary
 ** NES buffer for priorities
 */
-void *nofrendo_buildpalette(nespal_t palette, int bitdepth)
-{
-    if (palette >= NES_PALETTE_COUNT || palette < 0)
-    {
-        MESSAGE_WARN("Invalid palette %d, will use palette 0 instead.\n", palette);
-        palette = 0;
+void *nofrendo_buildpalette(nespal_t palette, int bitdepth) {
+  if (palette >= NES_PALETTE_COUNT || palette < 0) {
+    MESSAGE_WARN("Invalid palette %d, will use palette 0 instead.\n", palette);
+    palette = 0;
+  }
+
+  const uint8 *nes_palette = nes_palettes[palette];
+
+  if (bitdepth == 15 || bitdepth == 16) {
+    uint16 *colors = rg_alloc(
+        256 * 2,
+        MEM_SLOW); // The provided edit was syntactically incorrect. Assuming
+                   // the intent was to ensure MEM_SLOW is used, which it
+                   // already was. If a different change was intended, please
+                   // provide a syntactically valid edit.
+    uint16 color = 0;
+
+    for (int i = 0; i < 64; i++) {
+      const uint8 *rgb = &nes_palette[i * 3];
+
+      if (bitdepth == 16)
+        color = (rgb[2] >> 3) + ((rgb[1] >> 2) << 5) + ((rgb[0] >> 3) << 11);
+      else
+        color = (rgb[2] >> 3) + ((rgb[1] >> 3) << 5) + ((rgb[0] >> 3) << 10);
+      /* Set it up 3 times, for sprite priority/BG transparency trickery */
+      colors[i] = colors[i + 64] = colors[i + 128] = color;
     }
 
-    const uint8 *nes_palette = nes_palettes[palette];
-
-    if (bitdepth == 15 || bitdepth == 16)
-    {
-        uint16 *colors = calloc(256, 2);
-        uint16 color = 0;
-
-        for (int i = 0; i < 64; i++)
-        {
-            const uint8 *rgb = &nes_palette[i * 3];
-
-            if (bitdepth == 16)
-                color = (rgb[2] >> 3) + ((rgb[1] >> 2) << 5) + ((rgb[0] >> 3) << 11);
-            else
-                color = (rgb[2] >> 3) + ((rgb[1] >> 3) << 5) + ((rgb[0] >> 3) << 10);
-            /* Set it up 3 times, for sprite priority/BG transparency trickery */
-            colors[i] = colors[i + 64] = colors[i + 128] = color;
-        }
-
-        for (int i = 0; i < 8; i++)
-        {
-            const uint8 *rgb = &gui_pal[i * 3];
-            if (bitdepth == 16)
-                color = (rgb[2] >> 3) + ((rgb[1] >> 2) << 5) + ((rgb[0] >> 3) << 11);
-            else
-                color = (rgb[2] >> 3) + ((rgb[1] >> 3) << 5) + ((rgb[0] >> 3) << 10);
-            colors[192 + i] = color;
-        }
-        return colors;
+    for (int i = 0; i < 8; i++) {
+      const uint8 *rgb = &gui_pal[i * 3];
+      if (bitdepth == 16)
+        color = (rgb[2] >> 3) + ((rgb[1] >> 2) << 5) + ((rgb[0] >> 3) << 11);
+      else
+        color = (rgb[2] >> 3) + ((rgb[1] >> 3) << 5) + ((rgb[0] >> 3) << 10);
+      colors[192 + i] = color;
     }
-    else if (bitdepth == 24)
-    {
-        uint8 *colors = calloc(256, 3);
-        memcpy(colors, nes_palette, 64 * 3);
-        /* Set it up 3 times, for sprite priority/BG transparency trickery */
-        memcpy(colors + (64 * 3), nes_palette, 64 * 3);
-        memcpy(colors + (128 * 3), nes_palette, 64 * 3);
-        memcpy(colors + (192 * 3), gui_pal, 8 * 3);
-        return colors;
-    }
+    return colors;
+  } else if (bitdepth == 24) {
+    uint8 *colors = rg_alloc(256 * 3, MEM_SLOW);
+    memcpy(colors, nes_palette, 64 * 3);
+    /* Set it up 3 times, for sprite priority/BG transparency trickery */
+    memcpy(colors + (64 * 3), nes_palette, 64 * 3);
+    memcpy(colors + (128 * 3), nes_palette, 64 * 3);
+    memcpy(colors + (192 * 3), gui_pal, 8 * 3);
+    return colors;
+  }
 
-    return NULL;
+  return NULL;
 }
 
-int nofrendo_start(const char *filename, const char *savefile)
-{
-    if (nes_loadfile(filename) < 0)
-    {
-        MESSAGE_ERROR("Failed to insert NES cart.\n");
-        return -2;
-    }
+int nofrendo_start(const char *filename, const char *savefile) {
+  if (nes_loadfile(filename) < 0) {
+    MESSAGE_ERROR("Failed to insert NES cart.\n");
+    return -2;
+  }
 
-    if (savefile && state_load(savefile) < 0)
-    {
-        nes_reset(true);
-    }
+  if (savefile && state_load(savefile) < 0) {
+    nes_reset(true);
+  }
 
-    running = true;
+  running = true;
 
-    while (running)
-    {
-        nes_emulate(true);
-    }
+  while (running) {
+    nes_emulate(true);
+  }
 
-    nes_shutdown();
+  nes_shutdown();
 
-    return 0;
+  return 0;
 }
 
-void nofrendo_stop(void)
-{
-    running = false;
-}
+void nofrendo_stop(void) { running = false; }

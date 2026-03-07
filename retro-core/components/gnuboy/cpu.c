@@ -302,7 +302,7 @@ void gb_cpu_reset(bool hard) {
 }
 
 /* cnt - time to emulate, expressed in real clock cycles */
-static inline void timer_advance(int cycles) {
+static inline void IRAM_ATTR timer_advance(int cycles) {
   cpu.div += (cycles << 2);
 
   R_DIV += (cpu.div >> 8);
@@ -326,7 +326,7 @@ static inline void timer_advance(int cycles) {
 }
 
 /* cnt - time to emulate, expressed in real clock cycles */
-static inline void serial_advance(int cycles) {
+static inline void IRAM_ATTR serial_advance(int cycles) {
   if (GB.serial > 0) {
     GB.serial -= cycles << 1;
     if (GB.serial <= 0) {
@@ -355,7 +355,7 @@ static inline void serial_advance(int cycles) {
   }
 }
 
-static inline int exec_cb(void) {
+static inline int IRAM_ATTR exec_cb(void) {
   // All instructions use 2 cycles + 1 additional cycle per HL read or write
   uint8_t op = FETCH;
   uint8_t b, hl, val;

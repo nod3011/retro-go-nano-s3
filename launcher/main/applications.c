@@ -531,6 +531,24 @@ static void show_file_info(retro_file_t *file) {
   }
 }
 
+static void application_show_core_menu(retro_file_t *file) {
+  rg_gui_option_t core_choices[] = {
+      {0, "FCEUmm", NULL, 1, NULL},
+      {1, "Nofrendo", NULL, 1, NULL},
+      RG_DIALOG_END,
+  };
+
+  int current_core =
+      (int)rg_settings_get_number(file->app->short_name, "Core", 0);
+  int sel = rg_gui_dialog("Choose Core", core_choices, current_core);
+
+  if (sel == 0 || sel == 1) {
+    rg_settings_set_number(file->app->short_name, "Core", sel);
+    rg_settings_commit();
+    rg_settings_set_number(NS_BOOT, "Core", sel);
+  }
+}
+
 void application_show_file_menu(retro_file_t *file, bool advanced) {
   char *rom_path = strdup(get_file_path(file));
   char *sram_path = rg_emu_get_path(RG_PATH_SAVE_SRAM, rom_path);
@@ -540,16 +558,22 @@ void application_show_file_menu(retro_file_t *file, bool advanced) {
   bool is_fav = bookmark_exists(BOOK_TYPE_FAVORITE, file);
   int slot = -1;
 
-  rg_gui_option_t choices[] = {
-      {0, _("Resume game"), NULL, has_save, NULL},
-      {1, _("New game"), NULL, 1, NULL},
-      RG_DIALOG_SEPARATOR,
-      {3, is_fav ? _("Del favorite") : _("Add favorite"), NULL, 1, NULL},
-      {2, _("Delete save"), NULL, has_save || has_sram, NULL},
-      RG_DIALOG_SEPARATOR,
-      {4, _("Properties"), NULL, 1, NULL},
-      RG_DIALOG_END,
-  };
+  rg_gui_option_t choices[10];
+  int count = 0;
+  choices[count++] =
+      (rg_gui_option_t){0, _("Resume game"), NULL, has_save, NULL};
+  choices[count++] = (rg_gui_option_t){1, _("New game"), NULL, 1, NULL};
+  if (strcmp(file->app->short_name, "nes") == 0) {
+    choices[count++] = (rg_gui_option_t){5, _("Choose core"), NULL, 1, NULL};
+  }
+  choices[count++] = (rg_gui_option_t)RG_DIALOG_SEPARATOR;
+  choices[count++] = (rg_gui_option_t){
+      3, is_fav ? _("Del favorite") : _("Add favorite"), NULL, 1, NULL};
+  choices[count++] =
+      (rg_gui_option_t){2, _("Delete save"), NULL, has_save || has_sram, NULL};
+  choices[count++] = (rg_gui_option_t)RG_DIALOG_SEPARATOR;
+  choices[count++] = (rg_gui_option_t){4, _("Properties"), NULL, 1, NULL};
+  choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
   int sel = rg_gui_dialog(NULL, choices, has_save ? 0 : 1);
   switch (sel) {
@@ -562,6 +586,11 @@ void application_show_file_menu(retro_file_t *file, bool advanced) {
     gui_save_config();
     application_start(file, slot);
     break;
+
+  case 5:
+    application_show_core_menu(file);
+    application_show_file_menu(file, advanced);
+    return;
 
   case 2:
     while ((slot = rg_gui_savestate_menu(_("Delete save?"), rom_path)) != -1) {

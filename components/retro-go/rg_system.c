@@ -1305,10 +1305,44 @@ char *rg_emu_get_path(rg_path_type_t pathType, const char *filename)
         if (strstr(filename, RG_BASE_PATH_ROMS) == filename)
             filename += strlen(RG_BASE_PATH_ROMS) + 1;
 
-        // TO DO: We probably should append app->name when needed...
+        // Custom logic to separate NES saves by core name
+        const char *sep = strchr(filename, '/');
+        // Check if it's an NES path (either current app is nes, or filename starts with nes/)
+        bool is_nes = (strcmp(app.configNs, "nes") == 0);
+        if (!is_nes && strncmp(filename, "nes/", 4) == 0)
+            is_nes = true;
 
-        strcat(buffer, "/");
-        strcat(buffer, filename);
+        if (is_nes && (type == RG_PATH_SAVE_STATE || type == RG_PATH_SAVE_SRAM || type == RG_PATH_SCREENSHOT))
+        {
+            const char *core_name = app.name;
+            // If we are not in the NES emulator, or name is not a core, find the default core
+            if (strcmp(app.configNs, "nes") != 0 ||
+                (strcmp(core_name, "fceumm") != 0 && strcmp(core_name, "nofrendo") != 0))
+            {
+                int core = (int)rg_settings_get_number("nes", "Core", 0);
+                core_name = (core == 1) ? "nofrendo" : "fceumm";
+            }
+            strcat(buffer, "/");
+            if (sep)
+            {
+                strncat(buffer, filename, sep - filename); // "nes"
+                strcat(buffer, "/");
+                strcat(buffer, core_name); // "fceumm" or "nofrendo"
+                strcat(buffer, sep);       // "/game.nes"
+            }
+            else
+            {
+                strcat(buffer, "nes/");
+                strcat(buffer, core_name); // "fceumm" or "nofrendo"
+                strcat(buffer, "/");
+                strcat(buffer, filename); // "game.nes"
+            }
+        }
+        else
+        {
+            strcat(buffer, "/");
+            strcat(buffer, filename);
+        }
 
         if (slot > 0)
             sprintf(buffer + strlen(buffer), "-%d", slot);

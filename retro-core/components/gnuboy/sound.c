@@ -99,7 +99,7 @@ void gb_sound_reset(bool hard) {
   R_NR52 = 0xF1;
 }
 
-void gb_sound_emulate(void) {
+void IRAM_ATTR gb_sound_emulate(void) {
   if (!snd.rate || snd.cycles < snd.rate)
     return;
 

@@ -533,7 +533,7 @@ extern void FCEU_FDSSelect(void);
 extern void FCEU_FDSSelect_previous(void);
 
 // --- MAIN
-void nes_main(void) {
+void fceumm_main(void) {
   const rg_handlers_t handlers = {
       .loadState = &load_state_handler,
       .saveState = &save_state_handler,
@@ -610,7 +610,7 @@ void nes_main(void) {
                            : NES_HEIGHT;
 
   updates[0] =
-      rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, MEM_FAST);
+      rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, MEM_SLOW);
   updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE,
                                  MEM_SLOW); // Ensure PSRAM
   currentUpdate = updates[0];
@@ -730,23 +730,22 @@ void nes_main(void) {
       bool slow_frame = !rg_display_sync(false);
       currentUpdate = updates[currentUpdate == updates[0]];
 
-      // Optimized conversion loop (32-bit writes)
+      // Optimized conversion loop
       const uint8_t *restrict src = gfx;
       uint32_t *restrict dst = (uint32_t *)currentUpdate->data;
       int limit = (NES_WIDTH * currentUpdate->height) >> 1;
 
       while (limit--) {
-        uint32_t p0 = palette565[src[0]];
-        uint32_t p1 = palette565[src[1]];
-        *dst++ = (p1 << 16) | p0;
+        *dst++ = (palette565[src[1]] << 16) | palette565[src[0]];
         src += 2;
       }
       rg_display_submit(currentUpdate, 0);
 
-      // Simple auto-frameskip logic
+      // Adaptive auto-frameskip logic
       int64_t elapsed = rg_system_timer() - startTime;
-      if (elapsed > app->frameTime + 2000 || slow_frame) {
-        skip_frames = 1;
+      if (slow_frame || elapsed > app->frameTime) {
+        // If we are significantly behind, skip more aggressively
+        skip_frames = (elapsed > app->frameTime * 2) ? 2 : 1;
       }
     } else if (skip_frames > 0) {
       skip_frames--;
@@ -755,10 +754,42 @@ void nes_main(void) {
     update_audio(sound, sound_samples);
     rg_system_tick(rg_system_timer() - startTime);
 
-    // Lock speed at 100% (Manual Frame Limiter)
+    // Limit speed to 100%
     int64_t frameTime = rg_system_timer() - startTime;
-    if (frameTime < app->frameTime) {
+    if (frameTime < app->frameTime && skip_frames == 0) {
       rg_usleep(app->frameTime - frameTime);
     }
+  }
+
+  save_sram();
+  FCEUI_CloseGame();
+}
+
+extern void nofrendo_main(void);
+
+void nes_main(void) {
+  rg_app_t *app = rg_system_get_app();
+
+  // FDS always uses FCEUMM
+  if (strcmp(app->configNs, "fds") == 0) {
+    app->name = "fceumm";
+    fceumm_main();
+    return;
+  }
+
+  // Check boot-specific core (from launcher's choose core)
+  int core = (int)rg_settings_get_number(NS_BOOT, "Core", -1);
+  if (core == -1) {
+    // Check preferred core for NES
+    core = (int)rg_settings_get_number(NS_APP, "Core",
+                                       0); // 0 = FCEUMM, 1 = Nofrendo
+  }
+
+  if (core == 1) {
+    app->name = "nofrendo";
+    nofrendo_main();
+  } else {
+    app->name = "fceumm";
+    fceumm_main();
   }
 }

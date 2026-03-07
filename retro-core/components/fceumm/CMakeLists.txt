@@ -80,5 +80,11 @@ rg_setup_compile_options(
     -Wno-unused-but-set-variable
     -Wno-unused-variable
     -O3
+    -ffast-math
+    -fno-exceptions
+    -fno-unwind-tables
+    -fno-asynchronous-unwind-tables
+    -funroll-loops
+    -fomit-frame-pointer
     -fno-strict-aliasing
 )

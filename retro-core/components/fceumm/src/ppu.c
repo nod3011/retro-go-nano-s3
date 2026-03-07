@@ -1196,7 +1196,9 @@ void FCEUPPU_Power(void) {
 #endif
 }
 
-int FCEUPPU_Loop(int skip) {
+#include <esp_attr.h>
+
+IRAM_ATTR int FCEUPPU_Loop(int skip) {
   /* Needed for Knight Rider, possibly others. */
   if (ppudead) {
     memset(XBuf, 0x80, 256 * 240);

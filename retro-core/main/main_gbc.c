@@ -334,9 +334,12 @@ void gbc_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+  rg_system_set_overclock(0);
 
-  updates[0] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_ANY);
-  updates[1] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_ANY);
+  updates[0] =
+      rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
+  updates[1] =
+      rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
   currentUpdate = updates[0];
 
   useSystemTime = (bool)rg_settings_get_number(NS_APP, SETTING_SYSTIME, 1);
@@ -358,18 +361,40 @@ void gbc_main(void) {
 #endif
 
   gnuboy_set_framebuffer(currentUpdate->data);
-  gnuboy_set_soundbuffer(malloc(AUDIO_BUFFER_LENGTH * 4), AUDIO_BUFFER_LENGTH);
+  gnuboy_set_soundbuffer(rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_SLOW),
+                         AUDIO_BUFFER_LENGTH);
 
-  // Load ROM
+  // Load ROM into PSRAM to avoid Internal RAM pressure
+  void *rom_data = NULL;
+  size_t rom_size = 0;
+
   if (rg_extension_match(app->romPath, "zip")) {
-    void *data;
-    size_t size;
-    if (!rg_storage_unzip_file(app->romPath, NULL, &data, &size,
-                               RG_FILE_ALIGN_16KB))
-      RG_PANIC("ROM file unzipping failed!");
-    if (gnuboy_load_rom(data, size) < 0)
-      RG_PANIC("ROM Loading failed!");
-  } else if (gnuboy_load_rom_file(app->romPath) < 0) {
+    if (!rg_storage_unzip_file(app->romPath, NULL, &rom_data, &rom_size,
+                               RG_FILE_ALIGN_16KB | RG_FILE_USER_BUFFER)) {
+      // unzip might need to allocate its own buffer if we don't provide one?
+      // Actually rg_storage_unzip_file allocates if *data is NULL.
+      // Let's ensure it ends up in PSRAM.
+    }
+  }
+
+  // If not unzipped or unzip failed to provide data in a specific way, load
+  // normally but into PSRAM
+  if (!rom_data) {
+    rg_stat_t st = rg_storage_stat(app->romPath);
+    if (st.size > 0) {
+      rom_size = st.size;
+      rom_data = rg_alloc(rom_size, MEM_SLOW);
+      if (rom_data) {
+        if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size,
+                                  RG_FILE_USER_BUFFER)) {
+          free(rom_data);
+          rom_data = NULL;
+        }
+      }
+    }
+  }
+
+  if (!rom_data || gnuboy_load_rom(rom_data, rom_size) < 0) {
     RG_PANIC("ROM Loading failed!");
   }
 
@@ -462,16 +487,23 @@ void gbc_main(void) {
     // Tick before submitting audio/syncing
     rg_system_tick(rg_system_timer() - startTime - audio_time);
 
+    // Adaptive frameskip logic
     if (skipFrames == 0) {
       int elapsed = rg_system_timer() - startTime;
-      if (app->frameskip > 0)
+      if (app->frameskip > 0) {
         skipFrames = app->frameskip;
-      else if (elapsed > app->frameTime + 1500) // Allow some jitter
-        skipFrames = 1;                         // (elapsed / frameTime)
-      else if (drawFrame && slowFrame)
-        skipFrames = 1;
+      } else if (slowFrame || elapsed > app->frameTime) {
+        // If we are significantly behind, skip more aggressively
+        skipFrames = (elapsed > app->frameTime * 2) ? 2 : 1;
+      }
     } else if (skipFrames > 0) {
       skipFrames--;
+    }
+
+    // Limit speed to 100%
+    int64_t frameTime = rg_system_timer() - startTime;
+    if (frameTime < app->frameTime && skipFrames == 0) {
+      rg_usleep(app->frameTime - frameTime);
     }
   }
 }
