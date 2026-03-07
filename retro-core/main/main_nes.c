@@ -192,7 +192,7 @@ static bool reset_handler(bool hard) {
 }
 
 // --- CHEATS
-static void apply_cheat_code(const char *code, const char *name) {
+static void apply_cheat_code(const char *code, const char *name, int status) {
   if (!code || strlen(code) < 6)
     return;
 
@@ -215,6 +215,16 @@ static void apply_cheat_code(const char *code, const char *name) {
   snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
   FCEUI_AddCheat(full_desc, a, v, comp,
                  1); // Always use type 1 (Sub) for GG/PAR
+
+  // Set initial status
+  // We identify the cheat by its index, which is the last one added.
+  int total = 0;
+  while (FCEUI_GetCheat(total, NULL, NULL, NULL, NULL, NULL, NULL))
+    total++;
+
+  if (total > 0) {
+    FCEUI_SetCheat(total - 1, NULL, -1, -1, -1, status, 1);
+  }
 }
 
 static void load_cheats(void) {
@@ -235,19 +245,25 @@ static void load_cheats(void) {
 
   FCEU_ResetCheats();
 
-  char *line = strtok((char *)buffer, "\n");
+  char *line = strtok((char *)buffer, "\r\n");
   while (line) {
-    char *name = line;
-    char *code = strchr(line, '|');
-    if (code) {
-      *code++ = 0;
-      // Clean up potential carriage return
-      char *cr = strchr(code, '\r');
-      if (cr)
-        *cr = 0;
-      apply_cheat_code(code, name);
+    char *sep1 = strchr(line, '|');
+    if (sep1) {
+      *sep1 = 0;
+      char *name = line;
+      char *code_part = sep1 + 1;
+      int status = 1; // Default to ON
+
+      char *sep2 = strchr(code_part, '|');
+      if (sep2) {
+        *sep2 = 0;
+        char *status_str = sep2 + 1;
+        if (strcmp(status_str, "OFF") == 0)
+          status = 0;
+      }
+      apply_cheat_code(code_part, name, status);
     }
-    line = strtok(NULL, "\n");
+    line = strtok(NULL, "\r\n");
   }
 
   free(buffer);
@@ -280,6 +296,7 @@ static void save_cheats(void) {
 
     if (full_name) {
       strcat(buffer, full_name);
+      strcat(buffer, s ? "|ON" : "|OFF");
       strcat(buffer, "\n");
     }
   }
@@ -316,14 +333,13 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
 
   if (FCEUI_GetCheat(index, &name, &a, &v, &comp, &s, &t)) {
     FCEUI_SetCheat(index, NULL, -1, -1, -1, !s, t);
-    save_cheats();
     return RG_DIALOG_UPDATE;
   }
   return RG_DIALOG_VOID;
 }
 
 static void handle_cheat_menu(void) {
-  static rg_gui_option_t choices[34];
+  static rg_gui_option_t choices[32];
   static char choices_names[32][64];
 
   while (true) {
@@ -357,34 +373,151 @@ static void handle_cheat_menu(void) {
       count++;
     }
 
-    choices[count++] = (rg_gui_option_t){-100, _("Add new cheat..."), NULL,
-                                         RG_DIALOG_FLAG_NORMAL, NULL};
+    if (count == 0) {
+      rg_gui_alert("Cheats",
+                   "No cheats active. Use 'Load Cheats' or 'Add Cheats'.");
+      break;
+    }
+
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog("Cheats", choices, last_cheat_sel);
+    intptr_t sel_arg = rg_gui_dialog("Cheats Menu", choices, last_cheat_sel);
+
+    if (sel_arg == RG_DIALOG_CANCELLED)
+      break;
+  }
+}
+
+static void handle_add_cheat_menu(void) {
+  char *code = rg_gui_input_str("Add Cheat", "Enter Code (GG/PAR)", "");
+  if (code) {
+    char *name = rg_gui_input_str("Add Cheat", "Enter Description", "");
+    if (name) {
+      apply_cheat_code(code, name, 1);
+      rg_gui_alert("Add Cheat", "Cheat added successfully.");
+      free(name);
+    }
+    free(code);
+  }
+}
+
+static void handle_delete_cheat_menu(void) {
+  static rg_gui_option_t choices[32];
+  static char choices_names[32][64];
+
+  while (true) {
+    int count = 0;
+    for (int i = 0; i < 30; i++) {
+      uint32 a;
+      uint8 v;
+      int s, t, comp;
+      char *full_name = NULL;
+      if (!FCEUI_GetCheat(i, &full_name, &a, &v, &comp, &s, &t))
+        break;
+
+      char *sep = strchr(full_name, '|');
+      if (sep) {
+        size_t len = sep - full_name;
+        if (len > 60)
+          len = 60;
+        strncpy(choices_names[count], full_name, len);
+        choices_names[count][len] = 0;
+      } else {
+        strncpy(choices_names[count], full_name, 63);
+        choices_names[count][63] = 0;
+      }
+      char *display_name = choices_names[count];
+
+      choices[count].flags = RG_DIALOG_FLAG_NORMAL;
+      choices[count].label = display_name;
+      choices[count].value = NULL;
+      choices[count].arg = (intptr_t)i;
+      count++;
+    }
+
+    if (count == 0) {
+      rg_gui_alert("Delete Cheats", "No cheats to delete.");
+      break;
+    }
+
+    choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
+
+    intptr_t sel_arg = rg_gui_dialog("Select Cheat to Delete", choices, 0);
 
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
 
-    if (sel_arg == -100) { // Add New Cheat
-      char *code = rg_gui_input_str("Add Cheat", "Enter Code (GG/PAR)", "");
-      if (code) {
-        char *name = rg_gui_input_str("Add Cheat", "Enter Description", "");
-        if (name) {
-          apply_cheat_code(code, name);
-          save_cheats();
-          free(name);
-        }
-        free(code);
-      }
+    if (sel_arg >= 0 && sel_arg < 30) {
+      FCEUI_DelCheat((uint32)sel_arg);
+      // Stay in the menu to delete more or show updated list
     }
   }
 }
 
+static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt,
+                                            rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    load_cheats();
+    rg_gui_alert("Load Cheats", "Cheats loaded from SD Card.");
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt,
+                                            rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    save_cheats();
+    rg_gui_alert("Save Cheats", "Cheats saved to SD Card.");
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
+                                           rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    handle_cheat_menu();
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_add_cheat_menu_cb(rg_gui_option_t *opt,
+                                               rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    handle_add_cheat_menu();
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_delete_cheat_menu_cb(rg_gui_option_t *opt,
+                                                  rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    handle_delete_cheat_menu();
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
 // --- GUI CALLBACKS
 static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t){.label = "Cheats",
-                              .update_cb = (void *)handle_cheat_menu};
+  *dest++ = (rg_gui_option_t){.label = "Load Cheats",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = handle_load_cheats_cb};
+  *dest++ = (rg_gui_option_t){.label = "Save Cheats",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = handle_save_cheats_cb};
+  *dest++ = (rg_gui_option_t){.label = "Cheats Menu",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = handle_cheat_menu_cb};
+  *dest++ = (rg_gui_option_t){.label = "Add Cheats",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = handle_add_cheat_menu_cb};
+  *dest++ = (rg_gui_option_t){.label = "Delete Cheats",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = handle_delete_cheat_menu_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
