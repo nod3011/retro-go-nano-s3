@@ -37,24 +37,17 @@
 #include "fceu.h"
 #include "filter.h"
 
-
 static uint32 wlookup1[32];
 static uint32 wlookup2[203];
 
-#ifndef TARGET_GNW
-int32 Wave[2048 + 512];
-int32 WaveHi[40000] RG_ATTR_EXT_RAM;
-int32 WaveFinal[2048 + 512];
-#else
-int32 Wave[1000];
-int32 WaveFinal[1000];
-#endif
+#define WAVE_ARRAY_SIZE (2048 + 512)
+#define WAVEHI_ARRAY_SIZE 40000
 
-#ifndef TARGET_GNW
+int32 *Wave = NULL;
+int32 *WaveHi = NULL;
+int32 *WaveFinal = NULL;
+
 EXPSOUND GameExpSound = {0, 0, 0, 0, 0, 0};
-#else
-EXPSOUND GameExpSound = {0, 0, 0};
-#endif
 static uint8 TriCount = 0;
 static uint8 TriMode = 0;
 
@@ -541,7 +534,6 @@ void FASTAPASS(1) FCEU_SoundCPUHook(int cycles) {
   }
 }
 
-#ifndef TARGET_GNW
 void RDoPCM(void) {
   uint32 V;
 
@@ -620,7 +612,6 @@ static INLINE void RDoSQ(int x) {
 static void RDoSQ1(void) { RDoSQ(0); }
 
 static void RDoSQ2(void) { RDoSQ(1); }
-#endif
 
 static void RDoSQLQ(void) {
   int32 start, end;
@@ -731,7 +722,6 @@ static void RDoSQLQ(void) {
   }
 }
 
-#ifndef TARGET_GNW
 static void RDoTriangle(void) {
   int32 V;
   int32 tcout = (tristep & 0xF);
@@ -771,7 +761,6 @@ static void RDoTriangle(void) {
 
   ChannelBC[2] = SOUNDTS;
 }
-#endif
 
 static void RDoTriangleNoisePCMLQ(void) {
   int32 V;
@@ -911,7 +900,6 @@ static void RDoTriangleNoisePCMLQ(void) {
   }
 }
 
-#ifndef TARGET_GNW
 static void RDoNoise(void) {
   uint32 V;
   int32 outo;
@@ -976,7 +964,6 @@ static void RDoNoise(void) {
   }
   ChannelBC[3] = SOUNDTS;
 }
-#endif
 
 DECLFW(Write_IRQFM) {
   V = (V & 0xC0) >> 6;
@@ -1045,7 +1032,7 @@ int FlushEmulateSound(void) {
     end = NeoFilterSound(WaveHi, WaveFinal, SOUNDTS, &left);
 
     memmove(WaveHi, WaveHi + SOUNDTS - left, left * sizeof(uint32));
-    memset(WaveHi + left, 0, sizeof(WaveHi) - left * sizeof(uint32));
+    memset(WaveHi + left, 0, (WAVEHI_ARRAY_SIZE - left) * sizeof(uint32));
 
     if (GameExpSound.HiSync)
       GameExpSound.HiSync(left);
@@ -1148,10 +1135,8 @@ void FCEUSND_Power(void) {
   memset(PSG, 0x00, sizeof(PSG));
   FCEUSND_Reset();
 
-  memset(Wave, 0, sizeof(Wave));
-#ifndef TARGET_GNW
-  memset(WaveHi, 0, sizeof(WaveHi));
-#endif
+  memset(Wave, 0, WAVE_ARRAY_SIZE * sizeof(int32));
+  memset(WaveHi, 0, WAVEHI_ARRAY_SIZE * sizeof(int32));
   memset(&EnvUnits, 0, sizeof(EnvUnits));
 
   for (x = 0; x < 5; x++)
@@ -1164,6 +1149,13 @@ void FCEUSND_Power(void) {
 
 void SetSoundVariables(void) {
   int x;
+
+  if (!Wave)
+    Wave = rg_alloc(WAVE_ARRAY_SIZE * sizeof(int32), MEM_ANY);
+  if (!WaveHi)
+    WaveHi = rg_alloc(WAVEHI_ARRAY_SIZE * sizeof(int32), MEM_SLOW);
+  if (!WaveFinal)
+    WaveFinal = rg_alloc(WAVE_ARRAY_SIZE * sizeof(int32), MEM_ANY);
 
   fhinc = PAL ? 16626 : 14915; /* *2 CPU clock rate */
   fhinc *= 24;
@@ -1187,16 +1179,13 @@ void SetSoundVariables(void) {
 #endif
         wlookup2[x] >>= 4;
     }
-#ifndef TARGET_GNW
     if (FSettings.soundq >= 1) {
       DoNoise = RDoNoise;
       DoTriangle = RDoTriangle;
       DoPCM = RDoPCM;
       DoSQ1 = RDoSQ1;
       DoSQ2 = RDoSQ2;
-    } else
-#endif
-    {
+    } else {
       DoNoise = DoTriangle = DoPCM = DoSQ1 = DoSQ2 = Dummyfunc;
       DoSQ1 = RDoSQLQ;
       DoSQ2 = RDoSQLQ;

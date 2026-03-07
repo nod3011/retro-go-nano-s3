@@ -80,4 +80,5 @@ rg_setup_compile_options(
     -Wno-unused-but-set-variable
     -Wno-unused-variable
     -O3
+    -fno-strict-aliasing
 )

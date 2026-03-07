@@ -125,7 +125,7 @@ static bool save_sram(void) {
 }
 
 static void update_audio(int32_t *samples, size_t count) {
-  if (count == 0 || !samples)
+  if (count <= 0 || !samples)
     return;
 
   static rg_audio_frame_t audio_buf[2048];
@@ -133,9 +133,13 @@ static void update_audio(int32_t *samples, size_t count) {
     count = 2048;
 
   for (size_t i = 0; i < count; i++) {
-    int16_t s = (int16_t)(samples[i]);
-    audio_buf[i].left = s;
-    audio_buf[i].right = s;
+    int32_t s = samples[i] * 4; // Increased to 4x boost
+    if (s > 32767)
+      s = 32767;
+    else if (s < -32768)
+      s = -32768;
+    audio_buf[i].left = (int16_t)s;
+    audio_buf[i].right = (int16_t)s;
   }
 
   rg_audio_submit(audio_buf, count);
@@ -540,13 +544,14 @@ void nes_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(0);
+  rg_system_set_overclock(2);
 
   if (!nes_framebuffer) {
-    // NES_WIDTH * 312 = 79,872 bytes. Fits in Internal RAM (MEM_FAST).
-    nes_framebuffer = rg_alloc(NES_WIDTH * 312, MEM_FAST);
+    // NES_WIDTH * 312 = 79,872 bytes.
+    // Move to PSRAM (MEM_SLOW) to free up Internal RAM.
+    nes_framebuffer = rg_alloc(NES_WIDTH * 312, MEM_SLOW);
     if (!nes_framebuffer) {
-      RG_PANIC("Failed to allocate NES framebuffer in MEM_FAST");
+      RG_PANIC("Failed to allocate NES framebuffer in MEM_SLOW");
     }
   }
   XBuf = nes_framebuffer;
@@ -555,10 +560,27 @@ void nes_main(void) {
     RG_PANIC("FCEUI_Initialize failed");
   }
 
+  // Load ROM into PSRAM to avoid Internal RAM pressure (especially for large
+  // ROMs)
   void *rom_data = NULL;
   size_t rom_size = 0;
-  if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size, 0)) {
-    RG_PANIC("Failed to read ROM");
+
+  // First, get the file size
+  rg_stat_t st = rg_storage_stat(app->romPath);
+  if (st.size > 0) {
+    rom_size = st.size;
+    rom_data = rg_alloc(rom_size, MEM_SLOW); // Allocate in PSRAM
+    if (rom_data) {
+      if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size,
+                                RG_FILE_USER_BUFFER)) {
+        free(rom_data);
+        rom_data = NULL;
+      }
+    }
+  }
+
+  if (!rom_data) {
+    RG_PANIC("Failed to load ROM into PSRAM");
   }
 
   if (!FCEUI_LoadGame(app->romPath, rom_data, rom_size, NULL)) {
@@ -587,11 +609,14 @@ void nes_main(void) {
                            ? normal_scanlines
                            : NES_HEIGHT;
 
-  updates[0] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE,
-                                 0); // Default to PSRAM
-  updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, 0);
+  updates[0] =
+      rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE, MEM_FAST);
+  updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_565_LE,
+                                 MEM_SLOW); // Ensure PSRAM
   currentUpdate = updates[0];
 
+  FSettings.soundq =
+      0; // Use LQ sound path for TARGET_GNW compatibility (FlushEmulateSound)
   FCEUI_Sound(app->sampleRate);
   FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
 
@@ -599,7 +624,6 @@ void nes_main(void) {
     rg_emu_load_state(app->saveSlot);
   }
 
-  int64_t last_sram_save = rg_system_timer();
   int skip_frames = 0;
 
   static uint32_t joystick_old = 0;
@@ -707,14 +731,15 @@ void nes_main(void) {
       currentUpdate = updates[currentUpdate == updates[0]];
 
       // Optimized conversion loop (32-bit writes)
-      const uint8_t *src = gfx;
-      uint32_t *dst = (uint32_t *)currentUpdate->data;
-      int limit = (NES_WIDTH * currentUpdate->height) / 2;
+      const uint8_t *restrict src = gfx;
+      uint32_t *restrict dst = (uint32_t *)currentUpdate->data;
+      int limit = (NES_WIDTH * currentUpdate->height) >> 1;
 
       while (limit--) {
-        uint32_t p0 = palette565[*src++];
-        uint32_t p1 = palette565[*src++];
+        uint32_t p0 = palette565[src[0]];
+        uint32_t p1 = palette565[src[1]];
         *dst++ = (p1 << 16) | p0;
+        src += 2;
       }
       rg_display_submit(currentUpdate, 0);
 
@@ -730,10 +755,10 @@ void nes_main(void) {
     update_audio(sound, sound_samples);
     rg_system_tick(rg_system_timer() - startTime);
 
-    // Auto-save SRAM every 30 seconds
-    if (rg_system_timer() - last_sram_save > 30000000) { // 30s
-      save_sram();
-      last_sram_save = rg_system_timer();
+    // Lock speed at 100% (Manual Frame Limiter)
+    int64_t frameTime = rg_system_timer() - startTime;
+    if (frameTime < app->frameTime) {
+      rg_usleep(app->frameTime - frameTime);
     }
   }
 }

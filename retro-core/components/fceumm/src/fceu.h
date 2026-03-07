@@ -5,7 +5,12 @@
 #include <stddef.h>
 
 #ifndef RG_ATTR_EXT_RAM
+#ifdef ESP_PLATFORM
+#include <esp_attr.h>
+#define RG_ATTR_EXT_RAM EXT_RAM_BSS_ATTR
+#else
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
+#endif
 #endif
 
 extern int fceuindbg;
@@ -118,9 +123,7 @@ typedef struct {
   int UsrFirstSLine[2];
   int UsrLastSLine[2];
   uint32 SndRate;
-#ifndef TARGET_GNW
   int soundq;
-#endif
   int lowpass;
 } FCEUS;
 

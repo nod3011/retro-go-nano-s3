@@ -15,7 +15,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
  */
 
 #ifndef _FCEU_SOUND_H
@@ -23,22 +23,14 @@
 #include "fceu.h"
 
 typedef struct {
-	void (*Fill)(int Count);	/* Low quality ext sound. */
+  void (*Fill)(int Count); /* Low quality ext sound. */
 
-#ifndef TARGET_GNW
-	/* NeoFill is for sound devices that are emulated in a more
-		high-level manner(VRC7) in HQ mode.  Interestingly,
-		this device has slightly better sound quality(updated more
-		often) in lq mode than in high-quality mode.  Maybe that
-		should be fixed. :)
-	*/
-	void (*NeoFill)(int32 *Wave, int Count);
-	void (*HiFill)(void);
-	void (*HiSync)(int32 ts);
-#endif
+  void (*NeoFill)(int32 *Wave, int Count);
+  void (*HiFill)(void);
+  void (*HiSync)(int32 ts);
 
-	void (*RChange)(void);
-	void (*Kill)(void);
+  void (*RChange)(void);
+  void (*Kill)(void);
 } EXPSOUND;
 
 extern EXPSOUND GameExpSound;
@@ -49,14 +41,12 @@ void SetSoundVariables(void);
 
 int GetSoundBuffer(int32 **W);
 int FlushEmulateSound(void);
-#ifndef TARGET_GNW
-extern int32 Wave[2048 + 512];
-extern int32 WaveFinal[2048 + 512];
-extern int32 WaveHi[];
-#else
-extern int32 Wave[1000];
-extern int32 WaveFinal[1000];
-#endif
+extern int32 *Wave;
+extern int32 *WaveFinal;
+extern int32 *WaveHi;
+
+#define WAVE_ARRAY_SIZE (2048 + 512)
+#define WAVEHI_ARRAY_SIZE 40000
 extern uint32 soundtsinc;
 
 extern uint32 soundtsoffs;
