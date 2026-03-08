@@ -558,7 +558,7 @@ extern void FCEU_FDSSelect(void);
 extern void FCEU_FDSSelect_previous(void);
 
 // --- MAIN
-void fceumm_main(void) {
+void nes_main(void) {
   const rg_handlers_t handlers = {
       .loadState = &load_state_handler,
       .saveState = &save_state_handler,
@@ -799,33 +799,4 @@ void fceumm_main(void) {
 
   save_sram();
   FCEUI_CloseGame();
-}
-
-extern void nofrendo_main(void);
-
-void nes_main(void) {
-  rg_app_t *app = rg_system_get_app();
-
-  // FDS always uses FCEUMM
-  if (strcmp(app->configNs, "fds") == 0) {
-    app->name = "fceumm";
-    fceumm_main();
-    return;
-  }
-
-  // Check boot-specific core (from launcher's choose core)
-  int core = (int)rg_settings_get_number(NS_BOOT, "Core", -1);
-  if (core == -1) {
-    // Check preferred core for NES
-    core = (int)rg_settings_get_number(NS_APP, "Core",
-                                       0); // 0 = FCEUMM, 1 = Nofrendo
-  }
-
-  if (core == 1) {
-    app->name = "nofrendo";
-    nofrendo_main();
-  } else {
-    app->name = "fceumm";
-    fceumm_main();
-  }
 }
