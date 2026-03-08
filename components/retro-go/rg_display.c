@@ -143,14 +143,6 @@ static inline void write_update(const rg_surface_t *update)
         if (lines_to_copy < 1)
             break;
 
-        // The vertical filter requires a block to start and end with unscaled lines
-        if (filter_y)
-        {
-            while (lines_to_copy > 1 &&
-                   (LINE_IS_REPEATED(y + lines_to_copy - 1) || LINE_IS_REPEATED(y + lines_to_copy)))
-                --lines_to_copy;
-        }
-
         uint16_t *line_buffer = lcd_get_buffer(LCD_BUFFER_LENGTH);
         uint16_t *line_buffer_ptr = line_buffer;
 
@@ -260,7 +252,8 @@ static inline void write_update(const rg_surface_t *update)
         counters.fullFrames++;
     else
         counters.partFrames++;
-    counters.busyTime += rg_system_timer() - time_start;
+    int64_t frame_time = rg_system_timer() - time_start;
+    counters.busyTime += frame_time;
 }
 
 static void update_viewport_scaling(void)

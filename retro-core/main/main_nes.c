@@ -724,8 +724,9 @@ void fceumm_main(void) {
     // Prepare surface for this frame
     currentUpdate = updates[currentUpdate == updates[0]];
     currentUpdate->palette = palette565;
-    currentUpdate->width = NES_WIDTH;
+    currentUpdate->width = 240;
     currentUpdate->height = surface_height;
+    currentUpdate->offset = 8;
 
     // Use PALETTE offset to point XBuf to our surface
     // FCEUMM renders to XBuf + 8 offset usually for some padding?
@@ -745,7 +746,14 @@ void fceumm_main(void) {
     // Audio submission provides the pacing (sync)
     update_audio(sound, sound_samples);
 
-    rg_system_tick(rg_system_timer() - startTime);
+    // Explicitly lock to 60 FPS if audio sync isn't enough
+    int64_t frameTime = rg_system_timer() - startTime;
+    int64_t targetTime = 1000000 / 60;
+    if (frameTime < targetTime) {
+      rg_task_delay((targetTime - frameTime) / 1000);
+    }
+
+    rg_system_tick(frameTime);
   }
 
   save_sram();

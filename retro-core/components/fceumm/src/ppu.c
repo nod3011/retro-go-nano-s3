@@ -61,9 +61,9 @@
 
 #define Pal (PALRAM)
 
-static void FetchSpriteData(void);
-static void FASTAPASS(1) RefreshLine(int lastpixel);
-static void RefreshSprites(void);
+static void IRAM_ATTR FetchSpriteData(void);
+static void IRAM_ATTR RefreshLine(int lastpixel);
+static void IRAM_ATTR RefreshSprites(void);
 static void CopySprites(uint8 *target);
 
 static void Fixit1(void);
@@ -387,7 +387,7 @@ static void ResetRL(uint8 *target) {
 
 static uint8 sprlinebuf[256 + 8];
 
-void FCEUPPU_LineUpdate(void) {
+void IRAM_ATTR FCEUPPU_LineUpdate(void) {
 #ifdef FCEUDEF_DEBUGGER
   if (!fceuindbg)
 #endif
@@ -449,7 +449,7 @@ static void CheckSpriteHit(int p) {
 static int spork = 0;
 
 /* lasttile is really "second to last tile." */
-static void FASTAPASS(1) RefreshLine(int lastpixel) {
+static void IRAM_ATTR RefreshLine(int lastpixel) {
   static uint32 pshift[2];
   static uint32 atlatch;
   uint32 smorkus = RefreshAddr;
@@ -675,7 +675,7 @@ static void Fixit1(void) {
 }
 
 void MMC5_hb(int); /* Ugh ugh ugh. */
-static void DoLine(void) {
+static void IRAM_ATTR DoLine(void) {
   int x;
   uint8 *target = NULL;
 #ifndef TARGET_GNW
@@ -784,7 +784,7 @@ typedef struct {
 void FCEUI_DisableSpriteLimitation(int a) { maxsprites = a ? 64 : 8; }
 
 static uint8 numsprites, SpriteBlurp;
-static void FetchSpriteData(void) {
+static void IRAM_ATTR FetchSpriteData(void) {
   uint8 ns, sb;
   SPR *spr;
   uint8 H;
@@ -923,7 +923,7 @@ static void FetchSpriteData(void) {
   SpriteBlurp = sb;
 }
 
-static void RefreshSprites(void) {
+static void IRAM_ATTR RefreshSprites(void) {
   int n;
   SPRB *spr;
 
