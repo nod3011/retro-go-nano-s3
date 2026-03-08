@@ -149,6 +149,7 @@ static inline void write_update(const rg_surface_t *update)
         uint32_t checksum = 0xFFFFFFFF;
         bool need_update = !partial_update;
 
+
         for (int i = 0; i < lines_to_copy; ++i)
         {
             if (i > 0 && LINE_IS_REPEATED(y))
@@ -512,7 +513,7 @@ void rg_display_submit(const rg_surface_t *update, uint32_t flags)
 bool rg_display_sync(bool block)
 {
     while (block && rg_task_messages_waiting(display_task_queue))
-        continue; // We should probably yield?
+        rg_task_delay(1);
     return !rg_task_messages_waiting(display_task_queue);
 }
 

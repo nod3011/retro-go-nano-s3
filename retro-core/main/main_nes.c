@@ -13,8 +13,9 @@
 
 // --- GLOBALS
 static rg_app_t *app;
-static rg_surface_t *updates[2];
+static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
+static int currentBufferIndex = 0;
 
 #ifndef RG_ATTR_EXT_RAM
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
@@ -548,7 +549,7 @@ void fceumm_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(2);
+  rg_system_set_overclock(1);
 
   if (!nes_framebuffer) {
     // NES_WIDTH * 312 = 79,872 bytes.
@@ -614,10 +615,13 @@ void fceumm_main(void) {
                            : NES_HEIGHT;
 
   updates[0] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_PAL565_BE,
-                                 MEM_FAST);
+                                 MEM_SLOW);
   updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_PAL565_BE,
-                                 MEM_FAST);
-  currentUpdate = updates[0];
+                                 MEM_SLOW);
+  updates[2] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_PAL565_BE,
+                                 MEM_SLOW);
+  currentBufferIndex = 0;
+  currentUpdate = updates[currentBufferIndex];
 
   FSettings.soundq =
       0; // Use LQ sound path for TARGET_GNW compatibility (FlushEmulateSound)
@@ -722,8 +726,11 @@ void fceumm_main(void) {
     int64_t startTime = rg_system_timer();
 
     // Prepare surface for this frame
-    currentUpdate = updates[currentUpdate == updates[0]];
-    currentUpdate->palette = palette565;
+    currentBufferIndex = (currentBufferIndex + 1) % 3;
+    currentUpdate = updates[currentBufferIndex];
+    // Copy palette to avoid race conditions with display task
+    memcpy(currentUpdate->palette, palette565, 512);
+    // currentUpdate->palette = palette565; // REMOVED: causes ghosting
     currentUpdate->width = 240;
     currentUpdate->height = surface_height;
     currentUpdate->offset = 8;
