@@ -82,19 +82,23 @@ static void blit_callback(uint8 *vidbuf) {
 }
 
 static void update_palette(nespal_t palette_type) {
+  RG_LOGI("Updating palette to type %d\n", palette_type);
   uint16_t *pal = nofrendo_buildpalette(palette_type, 16);
-  if (!pal)
+  if (!pal) {
+    RG_LOGE("Failed to build palette %d\n", palette_type);
     return;
+  }
 
   for (int i = 0; i < 256; i++) {
     uint16_t color = (pal[i] >> 8) | (pal[i] << 8);
-    if (updates[0] && updates[0]->palette)
-      updates[0]->palette[i] = color;
-    if (updates[1] && updates[1]->palette)
-      updates[1]->palette[i] = color;
-    if (updates[2] && updates[2]->palette)
-      updates[2]->palette[i] = color;
+    for (int j = 0; j < 3; j++) {
+      if (updates[j] && updates[j]->palette) {
+        updates[j]->palette[i] = color;
+      }
+    }
   }
+  RG_LOGI("Palette updated. Color[0] = 0x%04X (native: 0x%04X)\n",
+          updates[0]->palette[0], pal[0]);
   free(pal);
 }
 
@@ -102,25 +106,28 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
                                            rg_gui_event_t event) {
   const char *names[] = {"Nofrendo", "Composite", "Classic",
                          "NTSC",     "PVM",       "Smooth"};
+  const char *config_ns = app ? app->configNs : NS_APP;
   int palette =
-      (int)rg_settings_get_number(NS_APP, SETTING_PALETTE, NES_PALETTE_NTSC);
+      (int)rg_settings_get_number(config_ns, SETTING_PALETTE, NES_PALETTE_NTSC);
 
-  // Robust bounds check
   if (palette < 0 || palette >= NES_PALETTE_COUNT) {
     palette = NES_PALETTE_NTSC;
-    rg_settings_set_number(NS_APP, SETTING_PALETTE, palette);
+    rg_settings_set_number(config_ns, SETTING_PALETTE, palette);
   }
 
   if (event == RG_DIALOG_INIT) {
-    // Just sync the display text
-  } else if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    RG_LOGI("Palette init: %d (%s)\n", palette, names[palette]);
+  } else if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT ||
+             event == RG_DIALOG_ENTER || event == RG_DIALOG_SELECT) {
     if (event == RG_DIALOG_PREV)
       palette = (palette + NES_PALETTE_COUNT - 1) % NES_PALETTE_COUNT;
     else
       palette = (palette + 1) % NES_PALETTE_COUNT;
 
-    rg_settings_set_number(NS_APP, SETTING_PALETTE, palette);
+    RG_LOGI("Palette selecting: %d (%s)\n", palette, names[palette]);
+    rg_settings_set_number(config_ns, SETTING_PALETTE, palette);
     update_palette((nespal_t)palette);
+    return RG_DIALOG_UPDATE;
   }
 
   if (option && option->value) {
