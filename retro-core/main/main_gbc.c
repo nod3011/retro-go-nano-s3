@@ -422,25 +422,52 @@ void gbc_main(void) {
 
   // Ready!
 
-  uint32_t joystick_old = -1;
-  uint32_t joystick = 0;
+  static uint32_t joystick_old = 0;
+  static bool menu_cancelled = false;
+  static bool menu_pressed = false;
+  static bool turbo_a_toggled = false;
+  static bool turbo_b_toggled = false;
+  static int turbo_counter = 0;
 
   while (true) {
-    joystick = rg_input_read_gamepad();
+    uint32_t joystick = rg_input_read_gamepad();
+    uint32_t joystick_down = joystick & ~joystick_old;
+    turbo_counter++;
 
-    if (joystick & (RG_KEY_MENU | RG_KEY_OPTION)) {
-      if (joystick & RG_KEY_MENU) {
-        if (gnuboy_sram_dirty()) // save in case the user quits
-          gnuboy_save_sram(sramFile, false);
-        rg_netplay_send_pause(true);
-        rg_gui_game_menu();
-        rg_netplay_send_pause(false);
-      } else {
-        rg_netplay_send_pause(true);
-        rg_gui_options_menu();
-        rg_netplay_send_pause(false);
+    if (joystick & RG_KEY_MENU) {
+      if (joystick_down & RG_KEY_A) {
+        turbo_a_toggled = !turbo_a_toggled;
+        RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
       }
-    } else if (joystick != joystick_old) {
+      if (joystick_down & RG_KEY_B) {
+        turbo_b_toggled = !turbo_b_toggled;
+        RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
+      }
+      if (joystick & ~RG_KEY_MENU) {
+        menu_cancelled = true;
+      }
+      menu_pressed = true;
+    } else {
+      if (joystick_old & RG_KEY_MENU) {
+        if (!menu_cancelled) {
+          if (gnuboy_sram_dirty())
+            gnuboy_save_sram(sramFile, false);
+          rg_netplay_send_pause(true);
+          rg_gui_game_menu();
+          rg_netplay_send_pause(false);
+        }
+        menu_cancelled = false;
+      }
+      menu_pressed = false;
+    }
+
+    if (joystick & RG_KEY_OPTION) {
+      rg_netplay_send_pause(true);
+      rg_gui_options_menu();
+      rg_netplay_send_pause(false);
+    }
+
+    if (!menu_pressed) {
       int pad = 0;
       if (joystick & RG_KEY_UP)
         pad |= GB_PAD_UP;
@@ -454,14 +481,17 @@ void gbc_main(void) {
         pad |= GB_PAD_SELECT;
       if (joystick & RG_KEY_START)
         pad |= GB_PAD_START;
-      if (joystick & RG_KEY_A)
-        pad |= GB_PAD_A;
-      if (joystick & RG_KEY_B)
-        pad |= GB_PAD_B;
-      gnuboy_set_pad(
-          pad); // That call is somewhat costly, that's why we try to avoid it
-      joystick_old = joystick;
+      if (joystick & RG_KEY_A) {
+        if (!turbo_a_toggled || (turbo_counter & 4))
+          pad |= GB_PAD_A;
+      }
+      if (joystick & RG_KEY_B) {
+        if (!turbo_b_toggled || (turbo_counter & 4))
+          pad |= GB_PAD_B;
+      }
+      gnuboy_set_pad(pad);
     }
+    joystick_old = joystick;
 
     int64_t startTime = rg_system_timer();
     bool drawFrame = !skipFrames;

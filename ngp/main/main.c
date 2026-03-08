@@ -80,6 +80,11 @@ static rg_surface_t *updates[2];
 static rg_surface_t *update;
 int m_bIsActive = 1;
 
+// Turbo logic state
+static bool turbo_a_toggled = false;
+static bool turbo_b_toggled = false;
+static int turbo_counter = 0;
+
 static void set_defaults_after_boot(void) {
   // Color/mono based on ROM
   uint8_t console_type = tlcsMemReadB(0x00200023);
@@ -268,7 +273,7 @@ void app_main() {
       .event = event_handler,
   };
   rg_system_init(22050, &handlers, event_handler);
-  rg_system_set_overclock(-1);
+  rg_system_set_overclock(0);
   app = rg_system_get_app();
 
   // Load ROM
@@ -364,30 +369,47 @@ void app_main() {
     rg_emu_load_state(app->saveSlot);
   }
 
-  bool menuCancelled = false;
-  bool menuPressed = false;
+  static uint32_t joystick_old = 0;
+  bool menu_cancelled = false;
+  bool menu_pressed = false;
   int64_t sram_save_timer = 0;
 
   while (m_bIsActive) {
     uint32_t joystick = rg_input_read_gamepad();
+    uint32_t joystick_down = joystick & ~joystick_old;
+    turbo_counter++;
 
-    if (menuPressed && !(joystick & RG_KEY_MENU)) {
-      if (!menuCancelled) {
-        rg_task_delay(50);
-        rg_gui_game_menu();
+    if (joystick & RG_KEY_MENU) {
+      if (joystick_down & RG_KEY_A) {
+        turbo_a_toggled = !turbo_a_toggled;
+        RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
       }
-      menuCancelled = false;
-    } else if (joystick & RG_KEY_OPTION) {
+      if (joystick_down & RG_KEY_B) {
+        turbo_b_toggled = !turbo_b_toggled;
+        RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
+      }
+      if (joystick & ~RG_KEY_MENU) {
+        menu_cancelled = true;
+      }
+      menu_pressed = true;
+    } else {
+      if (joystick_old & RG_KEY_MENU) {
+        if (!menu_cancelled) {
+          rg_task_delay(50);
+          rg_gui_game_menu();
+        }
+        menu_cancelled = false;
+      }
+      menu_pressed = false;
+    }
+
+    if (joystick & RG_KEY_OPTION) {
       rg_gui_options_menu();
     }
 
-    menuPressed = joystick & RG_KEY_MENU;
-
-    if (menuPressed && joystick & ~RG_KEY_MENU) {
-      menuCancelled = true;
+    if (!menu_pressed) {
+      poll_input();
     }
-
-    poll_input();
 
     tlcs_execute(5700000 / 60);
 
@@ -402,6 +424,7 @@ void app_main() {
       writeSaveGameFile();
       sram_save_timer = rg_system_timer() + 2 * 1000 * 1000;
     }
+    joystick_old = joystick;
   }
 
   rg_system_exit();
