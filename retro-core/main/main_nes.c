@@ -585,7 +585,7 @@ extern void FCEU_FDSEject(void);
 extern void FCEU_FDSSelect(void);
 extern void FCEU_FDSSelect_previous(void);
 
-// --- MAIN
+// --- FCEUMM MAIN
 void fceumm_main(void) {
   const rg_handlers_t handlers = {
       .loadState = &load_state_handler,

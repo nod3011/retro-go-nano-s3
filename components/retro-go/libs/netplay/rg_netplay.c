@@ -43,7 +43,6 @@ static netplay_player_t *local_player;
 static netplay_player_t *remote_player; // This only works in 2 player mode
 
 static esp_netif_t *netif_sta;
-static esp_netif_t *netif_ap;
 
 static QueueHandle_t espnow_rx_queue = NULL;
 static QueueHandle_t netplay_queue = NULL;
@@ -97,7 +96,6 @@ static inline bool receive_packet(netplay_packet_t *packet, int timeout_ms)
     if (!netplay_queue)
         return false;
 
-    int64_t start_time = rg_system_timer();
     TickType_t wait_ticks = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
 
     while (1)
