@@ -127,7 +127,7 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
     RG_LOGI("Palette selecting: %d (%s)\n", palette, names[palette]);
     rg_settings_set_number(config_ns, SETTING_PALETTE, palette);
     update_palette((nespal_t)palette);
-    return RG_DIALOG_UPDATE;
+    return RG_DIALOG_REDRAW;
   }
 
   if (option && option->value) {
@@ -140,6 +140,7 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
 
 static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){.label = "Color Palette",
+                              .value = "-",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = palette_selection_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
