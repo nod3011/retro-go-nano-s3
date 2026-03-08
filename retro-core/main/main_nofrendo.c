@@ -10,11 +10,14 @@
 // --- GLOBALS
 static rg_app_t *app;
 static nes_t *nes;
-static rg_surface_t *updates[2];
+static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
-static uint16_t *nes_palette_16 = NULL;
+static int currentBufferIndex = 0;
 static uint8_t *nofrendo_vidbuf = NULL;
 static bool nofrendo_running = false;
+static bool slowFrame = false;
+
+static const char *SETTING_SPRITELIMIT = "spritelimit";
 
 #define NES_WIDTH 256
 #define NES_HEIGHT 240
@@ -69,13 +72,32 @@ static bool reset_handler(bool hard) {
 
 // --- RENDERING
 static void blit_callback(uint8 *vidbuf) {
-  // If we follow the original logic, NOFRENDO renders directly to our surface
-  // buffer. We just need to submit it.
+  slowFrame = vidbuf && !rg_display_sync(false);
+
   currentUpdate->width = NES_SCREEN_WIDTH;
   currentUpdate->height = NES_SCREEN_HEIGHT;
-  currentUpdate->offset = NES_SCREEN_OVERDRAW; // Skip horizontal overdraw
+  currentUpdate->offset = NES_SCREEN_OVERDRAW;
 
   rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
+}
+
+static rg_gui_event_t sprite_limit_cb(rg_gui_option_t *option,
+                                      rg_gui_event_t event) {
+  bool spritelimit = ppu_getopt(PPU_LIMIT_SPRITES);
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    spritelimit = !spritelimit;
+    rg_settings_set_number(NS_APP, SETTING_SPRITELIMIT, spritelimit);
+    ppu_setopt(PPU_LIMIT_SPRITES, spritelimit);
+  }
+  strcpy(option->value, spritelimit ? "On" : "Off");
+  return RG_DIALOG_VOID;
+}
+
+static void options_handler(rg_gui_option_t *dest) {
+  *dest++ = (rg_gui_option_t){.label = "Sprite Limit",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = sprite_limit_cb};
+  *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
 // --- AUDIO
@@ -92,10 +114,11 @@ void nofrendo_main(void) {
       .reset = &reset_handler,
       .event = &event_handler,
       .screenshot = &screenshot_handler,
+      .options = &options_handler,
   };
 
   app = rg_system_reinit(32000, &handlers, NULL);
-  rg_system_set_overclock(0); // Disable overclock as requested
+  rg_system_set_overclock(1);
 
   // Initialize NES
   nes = nes_init(SYS_NES_NTSC, app->sampleRate, true, NULL);
@@ -110,10 +133,13 @@ void nofrendo_main(void) {
   // Surfaces: Use MEM_FAST for internal RAM.
   // Note: NES_SCREEN_PITCH is width + total overdraw
   updates[0] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT,
-                                 RG_PIXEL_PAL565_BE, MEM_FAST);
+                                 RG_PIXEL_PAL565_BE, MEM_SLOW);
   updates[1] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT,
-                                 RG_PIXEL_PAL565_BE, MEM_FAST);
-  currentUpdate = updates[0];
+                                 RG_PIXEL_PAL565_BE, MEM_SLOW);
+  updates[2] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT,
+                                 RG_PIXEL_PAL565_BE, MEM_SLOW);
+  currentBufferIndex = 0;
+  currentUpdate = updates[currentBufferIndex];
 
   // Configure Nofrendo to render directly into our first buffer
   nes_setvidbuf(currentUpdate->data);
@@ -126,6 +152,7 @@ void nofrendo_main(void) {
       uint16_t color = (pal[i] >> 8) | (pal[i] << 8);
       updates[0]->palette[i] = color;
       updates[1]->palette[i] = color;
+      updates[2]->palette[i] = color;
     }
     free(pal);
   }
@@ -167,45 +194,56 @@ void nofrendo_main(void) {
         rg_gui_options_menu();
     }
 
-    int input = 0;
+    int buttons = 0;
     if (joystick & RG_KEY_START)
-      input |= (1 << 3);
+      buttons |= NES_PAD_START;
     if (joystick & RG_KEY_SELECT)
-      input |= (1 << 2);
+      buttons |= NES_PAD_SELECT;
     if (joystick & RG_KEY_A)
-      input |= (1 << 0);
+      buttons |= NES_PAD_A;
     if (joystick & RG_KEY_B)
-      input |= (1 << 1);
+      buttons |= NES_PAD_B;
     if (joystick & RG_KEY_UP)
-      input |= (1 << 4);
+      buttons |= NES_PAD_UP;
     if (joystick & RG_KEY_DOWN)
-      input |= (1 << 5);
+      buttons |= NES_PAD_DOWN;
     if (joystick & RG_KEY_LEFT)
-      input |= (1 << 6);
+      buttons |= NES_PAD_LEFT;
     if (joystick & RG_KEY_RIGHT)
-      input |= (1 << 7);
+      buttons |= NES_PAD_RIGHT;
 
-    input_update(0, input);
+    input_update(0, buttons);
 
     int64_t startTime = rg_system_timer();
+    static int skipFrames = 0;
+
+    bool drawFrame = !skipFrames;
 
     // Switch buffers and set target for next frame
-    currentUpdate = updates[currentUpdate == updates[0]];
-    nes_setvidbuf(currentUpdate->data);
+    if (drawFrame) {
+      currentBufferIndex = (currentBufferIndex + 1) % 3;
+      currentUpdate = updates[currentBufferIndex];
+      nes_setvidbuf(currentUpdate->data);
+    }
 
     // Emulate one frame
-    nes_emulate(true);
+    nes_emulate(drawFrame);
+
+    // Tick before submitting audio/syncing
+    rg_system_tick(rg_system_timer() - startTime);
 
     // Audio submission provides the pacing (sync)
     update_audio();
 
-    // Stats
-    rg_system_tick(rg_system_timer() - startTime);
-
-    // Lock FPS to 100% (60 FPS)
-    int64_t frameTime = rg_system_timer() - startTime;
-    if (frameTime < app->frameTime) {
-      rg_usleep(app->frameTime - frameTime);
+    if (skipFrames == 0) {
+      int64_t elapsed = rg_system_timer() - startTime;
+      if (elapsed > app->frameTime + 1500) { // Slight jitter allowed
+        skipFrames = 1;
+      } else if (drawFrame && slowFrame) {
+        skipFrames = 1;
+      }
+    } else {
+      skipFrames--;
     }
   }
 

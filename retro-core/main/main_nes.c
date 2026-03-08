@@ -13,8 +13,12 @@
 
 // --- GLOBALS
 static rg_app_t *app;
-static rg_surface_t *updates[2];
+static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
+static int currentBufferIndex = 0;
+static bool slowFrame = false;
+
+static const char *SETTING_SPRITELIMIT = "spritelimit";
 
 #ifndef RG_ATTR_EXT_RAM
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
@@ -355,6 +359,20 @@ static void save_cheats(void) {
   free(path);
 }
 
+static rg_gui_event_t sprite_limit_cb(rg_gui_option_t *option,
+                                      rg_gui_event_t event) {
+  extern void FCEUI_DisableSpriteLimitation(int a);
+  int spritelimit = (int)rg_settings_get_number(NS_APP, SETTING_SPRITELIMIT, 0);
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    spritelimit = !spritelimit;
+    rg_settings_set_number(NS_APP, SETTING_SPRITELIMIT, spritelimit);
+    FCEUI_DisableSpriteLimitation(spritelimit);
+  }
+  strcpy(option->value, spritelimit ? "Off (64)" : "On (8)");
+  return RG_DIALOG_VOID;
+}
+
 static int last_cheat_sel = 0;
 
 static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
@@ -562,6 +580,9 @@ static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){.label = "Delete Cheats",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = handle_delete_cheat_menu_cb};
+  *dest++ = (rg_gui_option_t){.label = "Sprite Limit",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = sprite_limit_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -657,11 +678,19 @@ void fceumm_main(void) {
                            ? normal_scanlines
                            : NES_HEIGHT;
 
-  updates[0] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_PAL565_BE,
-                                 MEM_FAST);
-  updates[1] = rg_surface_create(NES_WIDTH, surface_height, RG_PIXEL_PAL565_BE,
-                                 MEM_FAST);
-  currentUpdate = updates[0];
+  // Use 256 lines to avoid out-of-bounds writes from FCEUMM's PPU (which can
+  // write to line 240) and to accommodate PAL games safely. NES_WIDTH (256) is
+  // standard for this core.
+  updates[0] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_SLOW);
+  updates[1] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_SLOW);
+  updates[2] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_SLOW);
+  currentBufferIndex = 0;
+  currentUpdate = updates[currentBufferIndex];
+
+  // Initialize external options
+  extern void FCEUI_DisableSpriteLimitation(int a);
+  FCEUI_DisableSpriteLimitation(
+      (int)rg_settings_get_number(NS_APP, SETTING_SPRITELIMIT, 0));
 
   FSettings.soundq =
       0; // Use LQ sound path for TARGET_GNW compatibility (FlushEmulateSound)
@@ -793,23 +822,32 @@ void fceumm_main(void) {
       nextFrameTime += framesToSkip * frameDuration;
     }
 
-    // Prepare surface for this frame
-    currentUpdate = updates[currentUpdate == updates[0]];
-    currentUpdate->palette = palette565;
-    currentUpdate->width = 240;
-    currentUpdate->height = surface_height;
-    currentUpdate->offset = 8;
-    XBuf = (uint8_t *)currentUpdate->data;
+    bool drawFrame = (framesToSkip == 0);
+
+    // Switch buffers and set target for next frame
+    if (drawFrame) {
+      currentBufferIndex = (currentBufferIndex + 1) % 3;
+      currentUpdate = updates[currentBufferIndex];
+      // Copy palette to avoid race conditions with display task
+      memcpy(currentUpdate->palette, palette565, 512);
+
+      currentUpdate->width = NES_WIDTH;
+      currentUpdate->height = surface_height;
+      currentUpdate->offset = 0;
+
+      XBuf = (uint8_t *)currentUpdate->data;
+    }
 
     uint8_t *gfx = NULL;
     int32_t *sound = NULL;
     int32_t sound_samples = 0;
 
-    // Emulate frame with adaptive skip
-    FCEUI_Emulate(&gfx, &sound, &sound_samples, framesToSkip);
+    // FCEUMM handles internal skipping if we pass the flag
+    FCEUI_Emulate(&gfx, &sound, &sound_samples, drawFrame ? 0 : 1);
     framesToSkip = 0;
 
-    if (gfx) {
+    if (drawFrame && gfx) {
+      slowFrame = !rg_display_sync(false);
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 

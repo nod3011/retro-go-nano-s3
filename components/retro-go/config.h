@@ -51,12 +51,11 @@
 #endif
 
 #ifndef RG_PROJECT_CREDITS
-#define RG_PROJECT_CREDITS \
-    "Retro-Go: ducalex\n"
-    // TODO: Decide which additional credits should be included here?
-    // Maybe the main author for each emulator? Or should that credit be only when seeing `about` inside said app?
-    // What about libraries and fonts (lodepng, etc)?
-    // What about targets/ports? Should we have a RG_TARGET_AUTHOR to append here?
+#define RG_PROJECT_CREDITS "Retro-Go: ducalex\n"
+// TODO: Decide which additional credits should be included here?
+// Maybe the main author for each emulator? Or should that credit be only when seeing `about` inside said app?
+// What about libraries and fonts (lodepng, etc)?
+// What about targets/ports? Should we have a RG_TARGET_AUTHOR to append here?
 #endif
 
 #ifndef RG_PROJECT_APP
