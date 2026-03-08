@@ -13,20 +13,21 @@
 #include <driver/i2s.h>
 
 #ifdef RG_GPIO_SND_AMP_ENABLE_INVERT
-#define MUTE_ENABLE 1
+#define MUTE_ENABLE  1
 #define MUTE_DISABLE 0
 #else
-#define MUTE_ENABLE 0
+#define MUTE_ENABLE  0
 #define MUTE_DISABLE 1
 #endif
 
 // We can safely assume that no application will submit more than 640 audio frames per call to
 // driver_submit (32000/50). Using a single large buffer risks blocking the call needlessly because
 // some apps submit more than once per cycle or there could be occasional jitter (early submission).
-#define DMA_BUFFER_COUNT 4
-#define DMA_BUFFER_LEN 180
+#define DMA_BUFFER_COUNT 8
+#define DMA_BUFFER_LEN   180
 
-static struct {
+static struct
+{
     const char *last_error;
     int device;
     int volume;
@@ -40,62 +41,64 @@ static bool driver_init(int device, int sample_rate)
 
     if (state.device == 0)
     {
-    #if RG_AUDIO_USE_INT_DAC
-        esp_err_t ret = i2s_driver_install(I2S_NUM_0, &(i2s_config_t){
-            .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN,
-            .sample_rate = sample_rate,
-            .bits_per_sample = 16,
-            .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
-            .communication_format = I2S_COMM_FORMAT_STAND_MSB,
-            .intr_alloc_flags = 0, // ESP_INTR_FLAG_LEVEL1
-            .dma_buf_count = DMA_BUFFER_COUNT,
-            .dma_buf_len = DMA_BUFFER_LEN,
-        }, 0, NULL);
+#if RG_AUDIO_USE_INT_DAC
+        esp_err_t ret = i2s_driver_install(I2S_NUM_0,
+                                           &(i2s_config_t){
+                                               .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN,
+                                               .sample_rate = sample_rate,
+                                               .bits_per_sample = 16,
+                                               .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+                                               .communication_format = I2S_COMM_FORMAT_STAND_MSB,
+                                               .intr_alloc_flags = 0, // ESP_INTR_FLAG_LEVEL1
+                                               .dma_buf_count = DMA_BUFFER_COUNT,
+                                               .dma_buf_len = DMA_BUFFER_LEN,
+                                           },
+                                           0, NULL);
         if (ret == ESP_OK)
             ret = i2s_set_dac_mode(RG_AUDIO_USE_INT_DAC);
         if (ret != ESP_OK)
             state.last_error = esp_err_to_name(ret);
-    #else
+#else
         state.last_error = "This device does not support internal DAC mode!";
-    #endif
+#endif
     }
     else if (state.device == 1)
     {
-    #if RG_AUDIO_USE_EXT_DAC
-        esp_err_t ret = i2s_driver_install(I2S_NUM_0, &(i2s_config_t){
-            .mode = I2S_MODE_MASTER | I2S_MODE_TX,
-            .sample_rate = sample_rate,
-            .bits_per_sample = 16,
-            .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
-            .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-            .intr_alloc_flags = 0, // ESP_INTR_FLAG_LEVEL1
-            .dma_buf_count = DMA_BUFFER_COUNT,
-            .dma_buf_len = DMA_BUFFER_LEN,
-        #if CONFIG_IDF_TARGET_ESP32
-            .use_apll = true, // External DAC may care about accuracy
-        #endif
-        }, 0, NULL);
+#if RG_AUDIO_USE_EXT_DAC
+        esp_err_t ret = i2s_driver_install(I2S_NUM_0,
+                                           &(i2s_config_t){
+                                               .mode = I2S_MODE_MASTER | I2S_MODE_TX,
+                                               .sample_rate = sample_rate,
+                                               .bits_per_sample = 16,
+                                               .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+                                               .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+                                               .intr_alloc_flags = 0, // ESP_INTR_FLAG_LEVEL1
+                                               .dma_buf_count = DMA_BUFFER_COUNT,
+                                               .dma_buf_len = DMA_BUFFER_LEN,
+#if CONFIG_IDF_TARGET_ESP32
+                                               .use_apll = true, // External DAC may care about accuracy
+#endif
+                                           },
+                                           0, NULL);
         if (ret == ESP_OK)
         {
-            ret = i2s_set_pin(I2S_NUM_0, &(i2s_pin_config_t) {
-                .mck_io_num = GPIO_NUM_NC,
-                .bck_io_num = RG_GPIO_SND_I2S_BCK,
-                .ws_io_num = RG_GPIO_SND_I2S_WS,
-                .data_out_num = RG_GPIO_SND_I2S_DATA,
-                .data_in_num = GPIO_NUM_NC
-            });
+            ret = i2s_set_pin(I2S_NUM_0, &(i2s_pin_config_t){.mck_io_num = GPIO_NUM_NC,
+                                                             .bck_io_num = RG_GPIO_SND_I2S_BCK,
+                                                             .ws_io_num = RG_GPIO_SND_I2S_WS,
+                                                             .data_out_num = RG_GPIO_SND_I2S_DATA,
+                                                             .data_in_num = GPIO_NUM_NC});
         }
         if (ret != ESP_OK)
             state.last_error = esp_err_to_name(ret);
-    #else
+#else
         state.last_error = "This device does not support external DAC mode!";
-    #endif
+#endif
     }
-    #ifdef RG_GPIO_SND_AMP_ENABLE
-        gpio_reset_pin(RG_GPIO_SND_AMP_ENABLE);
-        gpio_set_level(RG_GPIO_SND_AMP_ENABLE, MUTE_ENABLE);
-        gpio_set_direction(RG_GPIO_SND_AMP_ENABLE, GPIO_MODE_OUTPUT);
-    #endif
+#ifdef RG_GPIO_SND_AMP_ENABLE
+    gpio_reset_pin(RG_GPIO_SND_AMP_ENABLE);
+    gpio_set_level(RG_GPIO_SND_AMP_ENABLE, MUTE_ENABLE);
+    gpio_set_direction(RG_GPIO_SND_AMP_ENABLE, GPIO_MODE_OUTPUT);
+#endif
     return state.last_error == NULL;
 }
 
@@ -109,21 +112,21 @@ static bool driver_deinit(void)
     i2s_driver_uninstall(I2S_NUM_0);
     if (state.device == 0)
     {
-    #if RG_AUDIO_USE_INT_DAC
+#if RG_AUDIO_USE_INT_DAC
         i2s_set_dac_mode(I2S_DAC_CHANNEL_DISABLE);
-    #endif
+#endif
     }
     else if (state.device == 1)
     {
-    #if RG_AUDIO_USE_EXT_DAC
+#if RG_AUDIO_USE_EXT_DAC
         gpio_reset_pin(RG_GPIO_SND_I2S_BCK);
         gpio_reset_pin(RG_GPIO_SND_I2S_DATA);
         gpio_reset_pin(RG_GPIO_SND_I2S_WS);
-    #endif
+#endif
     }
-    #ifdef RG_GPIO_SND_AMP_ENABLE
+#ifdef RG_GPIO_SND_AMP_ENABLE
     gpio_reset_pin(RG_GPIO_SND_AMP_ENABLE);
-    #endif
+#endif
     return true;
 }
 
@@ -141,13 +144,13 @@ static bool driver_submit(const rg_audio_frame_t *frames, size_t count)
 
         if (use_internal_dac)
         {
-        #if RG_AUDIO_USE_INT_DAC == 1
+#if RG_AUDIO_USE_INT_DAC == 1
             left = ((left + right) >> 1) + 0x8000; // the internal DAC expects unsigned data
             right = 0;
-        #elif RG_AUDIO_USE_INT_DAC == 2
+#elif RG_AUDIO_USE_INT_DAC == 2
             left = 0;
             right = ((left + right) >> 1) + 0x8000; // the internal DAC expects unsigned data
-        #elif RG_AUDIO_USE_INT_DAC == 3
+#elif RG_AUDIO_USE_INT_DAC == 3
             // In two channel mode we use left and right as a differential mono output to increase resolution.
             int sample = (left + right) >> 1;
             if (sample > 0x7F00)
@@ -165,7 +168,7 @@ static bool driver_submit(const rg_audio_frame_t *frames, size_t count)
                 left = 0x8000;
                 right = -0x8000 + sample;
             }
-        #endif
+#endif
         }
 
         // Clipping   (not necessary, we have (int16 * vol) and volume is never more than 1.0)
@@ -190,9 +193,9 @@ static bool driver_submit(const rg_audio_frame_t *frames, size_t count)
 static bool driver_set_mute(bool mute)
 {
     i2s_zero_dma_buffer(I2S_NUM_0);
-    #ifdef RG_GPIO_SND_AMP_ENABLE
+#ifdef RG_GPIO_SND_AMP_ENABLE
     gpio_set_level(RG_GPIO_SND_AMP_ENABLE, mute ? MUTE_ENABLE : MUTE_DISABLE);
-    #endif
+#endif
     state.muted = mute;
     return true;
 }
