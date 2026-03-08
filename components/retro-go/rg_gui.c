@@ -1604,22 +1604,40 @@ static rg_gui_event_t custom_zoom_cb(rg_gui_option_t *option, rg_gui_event_t eve
 
 static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event)
 {
-    // if (event == RG_DIALOG_ENTER)
-    // {
-    //     const rg_gui_option_t options[] = {
-    //         {0, _("CPU"), "-", RG_DIALOG_FLAG_NORMAL, &overclock_update_cb},
-    //         {1, _("LCD"), "-", RG_DIALOG_FLAG_NORMAL, &overclock_update_cb},
-    //         {2, _("SD"),  "-", RG_DIALOG_FLAG_NORMAL, &overclock_update_cb},
-    //         RG_DIALOG_END,
-    //     };
-    //     rg_gui_dialog(option->label, options, 0);
-    // }
+    int level = rg_system_get_overclock();
+    int min = 0, max = 4;
+
     if (event == RG_DIALOG_PREV)
-        rg_system_set_overclock(rg_system_get_overclock() - 1);
+    {
+        if (--level < min)
+            level = max;
+        rg_system_set_overclock(level);
+    }
     else if (event == RG_DIALOG_NEXT)
-        rg_system_set_overclock(rg_system_get_overclock() + 1);
+    {
+        if (++level > max)
+            level = min;
+        rg_system_set_overclock(level);
+    }
+
     if (event == RG_DIALOG_INIT || event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
-        sprintf(option->value, "%d (%dMhz)", rg_system_get_overclock(), rg_system_get_cpu_speed());
+    {
+        int speed = rg_system_get_cpu_speed();
+        int cur_level = rg_system_get_overclock();
+        // Snap to nominal values for cleaner UI
+        if (cur_level == 0)
+            speed = 222;
+        else if (cur_level == 1)
+            speed = 240;
+        else if (cur_level == 2)
+            speed = 260;
+        else if (cur_level == 3)
+            speed = 280;
+        else if (cur_level == 4)
+            speed = 300;
+        sprintf(option->value, "%d (%dMhz)", cur_level, speed);
+    }
+
     return RG_DIALOG_VOID;
 }
 
@@ -2254,7 +2272,19 @@ void rg_gui_debug_menu(void)
     snprintf(block_free, 20, "%d+%d", stats.freeBlockInt, stats.freeBlockExt);
     snprintf(app_name, 32, "%s", rg_system_get_app()->name);
     snprintf(uptime, 20, "%ds", stats.uptime);
-    snprintf(overclock, 20, "%d (%dMhz)", rg_system_get_overclock(), rg_system_get_cpu_speed());
+    int cpu_speed = rg_system_get_cpu_speed();
+    int cur_level = rg_system_get_overclock();
+    if (cur_level == 0)
+        cpu_speed = 222;
+    else if (cur_level == 1)
+        cpu_speed = 240;
+    else if (cur_level == 2)
+        cpu_speed = 260;
+    else if (cur_level == 3)
+        cpu_speed = 280;
+    else if (cur_level == 4)
+        cpu_speed = 300;
+    snprintf(overclock, 20, "%d (%dMhz)", cur_level, cpu_speed);
 
     rg_battery_t battery;
     if (rg_input_read_battery_raw(&battery))

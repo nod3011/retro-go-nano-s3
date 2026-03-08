@@ -325,7 +325,6 @@ static void save_cheats(void) {
 }
 
 static int last_cheat_sel = 0;
-
 static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
                                       rg_gui_event_t event) {
   if (!opt)
@@ -586,8 +585,8 @@ extern void FCEU_FDSEject(void);
 extern void FCEU_FDSSelect(void);
 extern void FCEU_FDSSelect_previous(void);
 
-// --- MAIN
-void nes_main(void) {
+// --- FCEUMM MAIN
+void fceumm_main(void) {
   const rg_handlers_t handlers = {
       .loadState = &load_state_handler,
       .saveState = &save_state_handler,
@@ -681,8 +680,8 @@ void nes_main(void) {
   FCEUI_Sound(app->sampleRate);
   FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
 
-  update_palette((nespal_t)rg_settings_get_number(
-      app ? app->configNs : "fceumm", SETTING_PALETTE, 0));
+  update_palette(
+      (nespal_t)rg_settings_get_number(app->configNs, SETTING_PALETTE, 0));
 
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
@@ -696,6 +695,7 @@ void nes_main(void) {
   static int turbo_counter = 0;
 
   while (!rg_system_exit_called()) {
+
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
     uint32_t input_buf = 0;
@@ -830,4 +830,33 @@ void nes_main(void) {
 
   save_sram();
   FCEUI_CloseGame();
+}
+
+extern void nofrendo_main(void);
+
+void nes_main(void) {
+  app = rg_system_get_app();
+
+  // FDS always uses FCEUMM
+  if (strcmp(app->configNs, "fds") == 0) {
+    app->name = "fceumm";
+    fceumm_main();
+    return;
+  }
+
+  // Check boot-specific core (from launcher's choose core)
+  int core = (int)rg_settings_get_number(NS_BOOT, "Core", -1);
+  if (core == -1) {
+    // Check preferred core for NES
+    core = (int)rg_settings_get_number(NS_APP, "Core",
+                                       0); // 0 = FCEUMM, 1 = Nofrendo
+  }
+
+  if (core == 1) {
+    app->name = "nofrendo";
+    nofrendo_main();
+  } else {
+    app->name = "fceumm";
+    fceumm_main();
+  }
 }

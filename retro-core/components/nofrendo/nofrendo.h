@@ -28,18 +28,10 @@
 // #include "config.h"
 #include "nes/nes.h"
 
-typedef enum
-{
-    NES_PALETTE_NOFRENDO = 0,
-    NES_PALETTE_COMPOSITE,
-    NES_PALETTE_NESCLASSIC,
-    NES_PALETTE_NTSC,
-    NES_PALETTE_PVM,
-    NES_PALETTE_SMOOTH,
-    NES_PALETTE_COUNT,
-} nespal_t;
+#include "../../main/nes_palettes.h"
 
-int nofrendo_init(int system, int sample_rate, bool stereo, void *blit, void *vsync, void *input);
+int nofrendo_init(int system, int sample_rate, bool stereo, void *blit,
+                  void *vsync, void *input);
 int nofrendo_start(const char *filename, const char *savefile);
 void nofrendo_stop(void);
 void nofrendo_pause(bool pause);

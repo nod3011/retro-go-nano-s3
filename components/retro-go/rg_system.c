@@ -1218,8 +1218,8 @@ void rg_system_set_overclock(int level)
 #define I2C_BBPLL_HOSTID     1
 #define I2C_BBPLL_OC_DIV_7_0 3
 #define OC
-#define OC_MAX_LEVEL       8
-#define OC_MIN_LEVEL       -8
+#define OC_MAX_LEVEL       4
+#define OC_MIN_LEVEL       0
 #define OC_DIV7_MULTIPLIER 1
 #endif
     if (level < OC_MIN_LEVEL || level > OC_MAX_LEVEL)
@@ -1230,9 +1230,7 @@ void rg_system_set_overclock(int level)
     static int original_div7_0 = -1;
     if (original_div7_0 == -1)
         original_div7_0 = rom_i2c_readReg(I2C_BBPLL, I2C_BBPLL_HOSTID, I2C_BBPLL_OC_DIV_7_0);
-    uint8_t div7_0 = original_div7_0 - (level * OC_DIV7_MULTIPLIER);
-    if (div7_0 < 2)
-        div7_0 = 2; // S3 safe minimum
+    uint8_t div7_0 = original_div7_0 - (level - 1);
     rom_i2c_writeReg(I2C_BBPLL, I2C_BBPLL_HOSTID, I2C_BBPLL_OC_DIV_7_0, div7_0);
     rg_task_delay(20);
 

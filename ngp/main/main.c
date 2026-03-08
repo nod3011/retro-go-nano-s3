@@ -80,6 +80,11 @@ static rg_surface_t *updates[2];
 static rg_surface_t *update;
 int m_bIsActive = 1;
 
+// Turbo logic state
+static bool turbo_a_toggled = false;
+static bool turbo_b_toggled = false;
+static int turbo_counter = 0;
+
 static void set_defaults_after_boot(void) {
   // Color/mono based on ROM
   uint8_t console_type = tlcsMemReadB(0x00200023);
@@ -143,8 +148,7 @@ static void map_vdp_tables_full() {
 // Input states
 // We need to map inputs somewhere but let's implement the loop first
 
-static void poll_input(void) {
-  uint32_t state = rg_input_read_gamepad();
+static void poll_input(uint32_t state) {
   int joy = 0;
 
   if (state & RG_KEY_UP)
@@ -155,10 +159,16 @@ static void poll_input(void) {
     joy |= (1 << 2);
   if (state & RG_KEY_RIGHT)
     joy |= (1 << 3);
-  if (state & RG_KEY_A)
-    joy |= (1 << 4);
-  if (state & RG_KEY_B)
-    joy |= (1 << 5);
+
+  if (state & RG_KEY_A) {
+    if (!turbo_a_toggled || (turbo_counter & 4))
+      joy |= (1 << 4);
+  }
+  if (state & RG_KEY_B) {
+    if (!turbo_b_toggled || (turbo_counter & 4))
+      joy |= (1 << 5);
+  }
+
   if (state & (RG_KEY_START | RG_KEY_SELECT | RG_KEY_OPTION))
     joy |= (1 << 6);
 
@@ -268,6 +278,7 @@ void app_main() {
       .event = event_handler,
   };
   rg_system_init(22050, &handlers, event_handler);
+  rg_system_set_overclock(0);
   app = rg_system_get_app();
 
   // Load ROM
@@ -363,30 +374,45 @@ void app_main() {
     rg_emu_load_state(app->saveSlot);
   }
 
-  bool menuCancelled = false;
-  bool menuPressed = false;
+  static uint32_t joystick_old = 0;
+  static bool menu_cancelled = false;
+  static bool menu_pressed = false;
   int64_t sram_save_timer = 0;
 
   while (m_bIsActive) {
     uint32_t joystick = rg_input_read_gamepad();
+    uint32_t joystick_down = joystick & ~joystick_old;
+    turbo_counter++;
 
-    if (menuPressed && !(joystick & RG_KEY_MENU)) {
-      if (!menuCancelled) {
-        rg_task_delay(50);
-        rg_gui_game_menu();
+    if (joystick & RG_KEY_MENU) {
+      if (joystick_down & RG_KEY_A) {
+        turbo_a_toggled = !turbo_a_toggled;
+        RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
       }
-      menuCancelled = false;
-    } else if (joystick & RG_KEY_OPTION) {
+      if (joystick_down & RG_KEY_B) {
+        turbo_b_toggled = !turbo_b_toggled;
+        RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
+      }
+      if (joystick & ~RG_KEY_MENU) {
+        menu_cancelled = true;
+      }
+      menu_pressed = true;
+    } else {
+      if (joystick_old & RG_KEY_MENU) {
+        if (!menu_cancelled) {
+          rg_task_delay(50);
+          rg_gui_game_menu();
+        }
+        menu_cancelled = false;
+      }
+      menu_pressed = false;
+    }
+
+    if (joystick & RG_KEY_OPTION) {
       rg_gui_options_menu();
     }
 
-    menuPressed = joystick & RG_KEY_MENU;
-
-    if (menuPressed && joystick & ~RG_KEY_MENU) {
-      menuCancelled = true;
-    }
-
-    poll_input();
+    poll_input(menu_pressed ? 0 : joystick);
 
     tlcs_execute(5700000 / 60);
 
@@ -401,6 +427,7 @@ void app_main() {
       writeSaveGameFile();
       sram_save_timer = rg_system_timer() + 2 * 1000 * 1000;
     }
+    joystick_old = joystick;
   }
 
   rg_system_exit();
