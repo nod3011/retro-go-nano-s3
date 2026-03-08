@@ -1604,22 +1604,25 @@ static rg_gui_event_t custom_zoom_cb(rg_gui_option_t *option, rg_gui_event_t eve
 
 static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event)
 {
-    // if (event == RG_DIALOG_ENTER)
-    // {
-    //     const rg_gui_option_t options[] = {
-    //         {0, _("CPU"), "-", RG_DIALOG_FLAG_NORMAL, &overclock_update_cb},
-    //         {1, _("LCD"), "-", RG_DIALOG_FLAG_NORMAL, &overclock_update_cb},
-    //         {2, _("SD"),  "-", RG_DIALOG_FLAG_NORMAL, &overclock_update_cb},
-    //         RG_DIALOG_END,
-    //     };
-    //     rg_gui_dialog(option->label, options, 0);
-    // }
+    int level = rg_system_get_overclock();
+    int min = -1, max = 3;
+
     if (event == RG_DIALOG_PREV)
-        rg_system_set_overclock(rg_system_get_overclock() - 1);
+    {
+        if (--level < min)
+            level = max;
+        rg_system_set_overclock(level);
+    }
     else if (event == RG_DIALOG_NEXT)
-        rg_system_set_overclock(rg_system_get_overclock() + 1);
+    {
+        if (++level > max)
+            level = min;
+        rg_system_set_overclock(level);
+    }
+
     if (event == RG_DIALOG_INIT || event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
         sprintf(option->value, "%d (%dMhz)", rg_system_get_overclock(), rg_system_get_cpu_speed());
+
     return RG_DIALOG_VOID;
 }
 

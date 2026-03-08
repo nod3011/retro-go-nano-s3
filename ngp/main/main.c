@@ -268,6 +268,7 @@ void app_main() {
       .event = event_handler,
   };
   rg_system_init(22050, &handlers, event_handler);
+  rg_system_set_overclock(-1);
   app = rg_system_get_app();
 
   // Load ROM
