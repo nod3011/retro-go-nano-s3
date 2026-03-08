@@ -83,15 +83,19 @@ static void blit_callback(uint8 *vidbuf) {
 
 static void update_palette(nespal_t palette_type) {
   uint16_t *pal = nofrendo_buildpalette(palette_type, 16);
-  if (pal) {
-    for (int i = 0; i < 256; i++) {
-      uint16_t color = (pal[i] >> 8) | (pal[i] << 8);
+  if (!pal)
+    return;
+
+  for (int i = 0; i < 256; i++) {
+    uint16_t color = (pal[i] >> 8) | (pal[i] << 8);
+    if (updates[0] && updates[0]->palette)
       updates[0]->palette[i] = color;
+    if (updates[1] && updates[1]->palette)
       updates[1]->palette[i] = color;
+    if (updates[2] && updates[2]->palette)
       updates[2]->palette[i] = color;
-    }
-    free(pal);
   }
+  free(pal);
 }
 
 static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
@@ -101,7 +105,15 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
   int palette =
       (int)rg_settings_get_number(NS_APP, SETTING_PALETTE, NES_PALETTE_NTSC);
 
-  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+  // Robust bounds check
+  if (palette < 0 || palette >= NES_PALETTE_COUNT) {
+    palette = NES_PALETTE_NTSC;
+    rg_settings_set_number(NS_APP, SETTING_PALETTE, palette);
+  }
+
+  if (event == RG_DIALOG_INIT) {
+    // Just sync the display text
+  } else if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
     if (event == RG_DIALOG_PREV)
       palette = (palette + NES_PALETTE_COUNT - 1) % NES_PALETTE_COUNT;
     else
@@ -110,7 +122,12 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
     rg_settings_set_number(NS_APP, SETTING_PALETTE, palette);
     update_palette((nespal_t)palette);
   }
-  strcpy(option->value, names[palette]);
+
+  if (option && option->value) {
+    strncpy(option->value, names[palette], 15);
+    option->value[15] = 0;
+  }
+
   return RG_DIALOG_VOID;
 }
 
