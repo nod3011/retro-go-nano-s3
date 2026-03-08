@@ -1605,7 +1605,7 @@ static rg_gui_event_t custom_zoom_cb(rg_gui_option_t *option, rg_gui_event_t eve
 static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event)
 {
     int level = rg_system_get_overclock();
-    int min = -1, max = 3;
+    int min = 0, max = 4;
 
     if (event == RG_DIALOG_PREV)
     {
