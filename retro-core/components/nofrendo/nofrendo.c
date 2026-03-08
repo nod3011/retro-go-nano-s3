@@ -22,11 +22,10 @@
 */
 
 #include "nofrendo.h"
+#include "../../main/nes_palettes.h"
 #include "nes/nes.h"
-#include "palettes.h"
 #include <stdlib.h>
 #include <string.h>
-
 
 // static bool frameskip;
 static bool running;

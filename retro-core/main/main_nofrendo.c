@@ -5,6 +5,7 @@
 
 #include "nes/nes.h"
 #include "nes/state.h"
+#include "nes_palettes.h"
 #include "nofrendo.h"
 
 // --- GLOBALS
@@ -126,6 +127,7 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
 
     RG_LOGI("Palette selecting: %d (%s)\n", palette, names[palette]);
     rg_settings_set_number(config_ns, SETTING_PALETTE, palette);
+    rg_settings_commit();
     update_palette((nespal_t)palette);
     return RG_DIALOG_REDRAW;
   }
@@ -164,7 +166,7 @@ void nofrendo_main(void) {
   };
 
   app = rg_system_reinit(32000, &handlers, NULL);
-  rg_system_set_overclock(1);
+  rg_system_set_overclock(0);
 
   // Initialize NES
   nes = nes_init(SYS_NES_NTSC, app->sampleRate, true, NULL);
