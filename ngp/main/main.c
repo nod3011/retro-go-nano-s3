@@ -160,9 +160,9 @@ static void poll_input(void) {
     joy |= (1 << 2);
   if (state & RG_KEY_RIGHT)
     joy |= (1 << 3);
-  if (state & RG_KEY_A)
+  if ((state & RG_KEY_A) || (turbo_a_toggled && (turbo_counter & 4)))
     joy |= (1 << 4);
-  if (state & RG_KEY_B)
+  if ((state & RG_KEY_B) || (turbo_b_toggled && (turbo_counter & 4)))
     joy |= (1 << 5);
   if (state & (RG_KEY_START | RG_KEY_SELECT | RG_KEY_OPTION))
     joy |= (1 << 6);
