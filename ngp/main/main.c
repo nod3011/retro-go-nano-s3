@@ -148,8 +148,7 @@ static void map_vdp_tables_full() {
 // Input states
 // We need to map inputs somewhere but let's implement the loop first
 
-static void poll_input(void) {
-  uint32_t state = rg_input_read_gamepad();
+static void poll_input(uint32_t state) {
   int joy = 0;
 
   if (state & RG_KEY_UP)
@@ -160,10 +159,16 @@ static void poll_input(void) {
     joy |= (1 << 2);
   if (state & RG_KEY_RIGHT)
     joy |= (1 << 3);
-  if ((state & RG_KEY_A) || (turbo_a_toggled && (turbo_counter & 4)))
-    joy |= (1 << 4);
-  if ((state & RG_KEY_B) || (turbo_b_toggled && (turbo_counter & 4)))
-    joy |= (1 << 5);
+
+  if (state & RG_KEY_A) {
+    if (!turbo_a_toggled || (turbo_counter & 4))
+      joy |= (1 << 4);
+  }
+  if (state & RG_KEY_B) {
+    if (!turbo_b_toggled || (turbo_counter & 4))
+      joy |= (1 << 5);
+  }
+
   if (state & (RG_KEY_START | RG_KEY_SELECT | RG_KEY_OPTION))
     joy |= (1 << 6);
 
@@ -407,9 +412,7 @@ void app_main() {
       rg_gui_options_menu();
     }
 
-    if (!menu_pressed) {
-      poll_input();
-    }
+    poll_input(menu_pressed ? 0 : joystick);
 
     tlcs_execute(5700000 / 60);
 
