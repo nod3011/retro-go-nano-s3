@@ -61,9 +61,9 @@
 
 #define Pal (PALRAM)
 
-static void IRAM_ATTR FetchSpriteData(void);
-static void IRAM_ATTR RefreshLine(int lastpixel);
-static void IRAM_ATTR RefreshSprites(void);
+static void FetchSpriteData(void);
+static void RefreshLine(int lastpixel);
+static void RefreshSprites(void);
 static void CopySprites(uint8 *target);
 
 static void Fixit1(void);

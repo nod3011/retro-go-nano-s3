@@ -1,5 +1,6 @@
 #include "cheat.h"
 #include "fceu.h"
+#include "nes_palettes.h"
 #include "rom_manager.h"
 #include "shared.h"
 #include <fceumm.h>
@@ -7,6 +8,8 @@
 #include <stdlib.h>
 #include <streams/memory_stream.h>
 #include <string.h>
+
+static const char *SETTING_PALETTE = "palette";
 
 #define NES_WIDTH 256
 #define NES_HEIGHT 240
@@ -17,8 +20,6 @@ static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static bool slowFrame = false;
-
-static const char *SETTING_SPRITELIMIT = "spritelimit";
 
 #ifndef RG_ATTR_EXT_RAM
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
@@ -323,24 +324,13 @@ static void save_cheats(void) {
   free(path);
 }
 
-static rg_gui_event_t sprite_limit_cb(rg_gui_option_t *option,
-                                      rg_gui_event_t event) {
-  extern void FCEUI_DisableSpriteLimitation(int a);
-  int spritelimit = (int)rg_settings_get_number(NS_APP, SETTING_SPRITELIMIT, 0);
-
-  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
-    spritelimit = !spritelimit;
-    rg_settings_set_number(NS_APP, SETTING_SPRITELIMIT, spritelimit);
-    FCEUI_DisableSpriteLimitation(spritelimit);
-  }
-  strcpy(option->value, spritelimit ? "Off (64)" : "On (8)");
-  return RG_DIALOG_VOID;
-}
-
 static int last_cheat_sel = 0;
 
 static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
                                       rg_gui_event_t event) {
+  if (!opt)
+    return RG_DIALOG_VOID;
+
   int index = (int)opt->arg;
   uint32 a;
   uint8 v;
@@ -348,7 +338,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
   char *name = NULL;
 
   if (event == RG_DIALOG_INIT || event == RG_DIALOG_UPDATE) {
-    if (FCEUI_GetCheat(index, &name, &a, &v, &comp, &s, &t)) {
+    if (opt->value && FCEUI_GetCheat(index, &name, &a, &v, &comp, &s, &t)) {
       strcpy(opt->value, s ? "ON" : "OFF");
     }
     return RG_DIALOG_VOID;
@@ -527,6 +517,44 @@ static rg_gui_event_t handle_delete_cheat_menu_cb(rg_gui_option_t *opt,
   return RG_DIALOG_VOID;
 }
 
+static void update_palette(nespal_t type) {
+  if (type < 0 || type >= NES_PALETTE_COUNT)
+    type = 0;
+
+  // FCEUMM expects 64 RGB triplets (192 bytes)
+  FCEUI_SetPaletteArray((uint8_t *)nes_palettes[type]);
+}
+
+static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
+                                           rg_gui_event_t event) {
+  const char *names[] = {"Nofrendo", "Composite", "Classic",
+                         "NTSC",     "PVM",       "Smooth"};
+  const char *config_ns = app ? app->configNs : "fceumm";
+  int palette = rg_settings_get_number(config_ns, SETTING_PALETTE, 0);
+
+  if (event == RG_DIALOG_INIT) {
+    //
+  } else if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT ||
+             event == RG_DIALOG_ENTER || event == RG_DIALOG_SELECT) {
+    if (event == RG_DIALOG_PREV)
+      palette = (palette + NES_PALETTE_COUNT - 1) % NES_PALETTE_COUNT;
+    else
+      palette = (palette + 1) % NES_PALETTE_COUNT;
+
+    rg_settings_set_number(config_ns, SETTING_PALETTE, palette);
+    rg_settings_commit();
+    update_palette((nespal_t)palette);
+    return RG_DIALOG_REDRAW;
+  }
+
+  if (option && option->value) {
+    strncpy(option->value, names[palette], 15);
+    option->value[15] = 0;
+  }
+
+  return RG_DIALOG_VOID;
+}
+
 // --- GUI CALLBACKS
 static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){.label = "Load Cheats",
@@ -544,9 +572,10 @@ static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){.label = "Delete Cheats",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = handle_delete_cheat_menu_cb};
-  *dest++ = (rg_gui_option_t){.label = "Sprite Limit",
+  *dest++ = (rg_gui_option_t){.label = "Color Palette",
+                              .value = "-",
                               .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = sprite_limit_cb};
+                              .update_cb = palette_selection_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -569,7 +598,7 @@ void nes_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(1);
+  rg_system_set_overclock(0);
 
   if (!nes_framebuffer) {
     // NES_WIDTH * 312 = 79,872 bytes.
@@ -645,13 +674,15 @@ void nes_main(void) {
 
   // Initialize external options
   extern void FCEUI_DisableSpriteLimitation(int a);
-  FCEUI_DisableSpriteLimitation(
-      (int)rg_settings_get_number(NS_APP, SETTING_SPRITELIMIT, 0));
+  FCEUI_DisableSpriteLimitation(1); // Always disable by default
 
   FSettings.soundq =
       0; // Use LQ sound path for TARGET_GNW compatibility (FlushEmulateSound)
   FCEUI_Sound(app->sampleRate);
   FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
+
+  update_palette((nespal_t)rg_settings_get_number(
+      app ? app->configNs : "fceumm", SETTING_PALETTE, 0));
 
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
