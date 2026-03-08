@@ -135,6 +135,16 @@ static bool save_sram(void) {
 
 static RingbufHandle_t audio_ring_buffer = NULL;
 
+static void reset_audio_buffer(void) {
+  if (audio_ring_buffer) {
+    size_t size;
+    void *item;
+    while ((item = xRingbufferReceive(audio_ring_buffer, &size, 0))) {
+      vRingbufferReturnItem(audio_ring_buffer, item);
+    }
+  }
+}
+
 static void audio_pacer_task(void *arg) {
   static rg_audio_frame_t silence_buf[256] = {0};
   while (1) {
@@ -145,8 +155,9 @@ static void audio_pacer_task(void *arg) {
       rg_audio_submit(frames, size / sizeof(rg_audio_frame_t));
       vRingbufferReturnItem(audio_ring_buffer, (void *)frames);
     } else {
-      // Lag detected: submit silence to avoid buzzing
+      // Lag detected or paused: submit silence to stay in sync with DAC
       rg_audio_submit(silence_buf, 256);
+      vTaskDelay(pdMS_TO_TICKS(5));
     }
   }
 }
@@ -170,7 +181,7 @@ static void update_audio(int32_t *samples, size_t count) {
       audio_buf[i].right = (int16_t)s;
     }
     xRingbufferSend(audio_ring_buffer, audio_buf,
-                    chunk_size * sizeof(rg_audio_frame_t), pdMS_TO_TICKS(50));
+                    chunk_size * sizeof(rg_audio_frame_t), pdMS_TO_TICKS(100));
     count -= chunk_size;
   }
 }
@@ -573,7 +584,7 @@ void fceumm_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(2);
+  rg_system_set_overclock(1);
 
   if (!nes_framebuffer) {
     // NES_WIDTH * 312 = 79,872 bytes.
@@ -727,6 +738,7 @@ void fceumm_main(void) {
       if (joystick_old & RG_KEY_MENU) {
         if (!menu_cancelled) {
           save_sram();
+          reset_audio_buffer();
           rg_gui_game_menu();
           // Reset timing after menu
           nextFrameTime = rg_system_timer();
@@ -762,6 +774,7 @@ void fceumm_main(void) {
 
     if (joystick & RG_KEY_OPTION) {
       save_sram();
+      reset_audio_buffer();
       rg_gui_options_menu();
       // Reset timing after menu
       nextFrameTime = rg_system_timer();
@@ -769,6 +782,16 @@ void fceumm_main(void) {
 
     joystick_old = joystick;
     fceu_joystick = input_buf;
+
+    // --- ADAPTIVE SYNC & FRAME SKIP ---
+    int64_t now = rg_system_timer();
+    int32_t lag_frames = (now - nextFrameTime) / frameDuration;
+
+    if (lag_frames > 0) {
+      // If we are lagging, skip up to 3 frames to catch up
+      framesToSkip = (lag_frames > 3) ? 3 : lag_frames;
+      nextFrameTime += framesToSkip * frameDuration;
+    }
 
     // Prepare surface for this frame
     currentUpdate = updates[currentUpdate == updates[0]];
@@ -795,9 +818,12 @@ void fceumm_main(void) {
 
     // Pacing lock
     nextFrameTime += frameDuration;
-    int64_t now = rg_system_timer();
+    now = rg_system_timer();
     if (now < nextFrameTime) {
       rg_task_delay((nextFrameTime - now) / 1000);
+    } else if (now > nextFrameTime + (frameDuration * 2)) {
+      // If we are still significantly behind, resync the clock
+      nextFrameTime = now;
     }
 
     rg_system_tick(rg_system_timer() - frameStartTime);
