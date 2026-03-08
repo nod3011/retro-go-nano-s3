@@ -370,8 +370,8 @@ void app_main() {
   }
 
   static uint32_t joystick_old = 0;
-  bool menu_cancelled = false;
-  bool menu_pressed = false;
+  static bool menu_cancelled = false;
+  static bool menu_pressed = false;
   int64_t sram_save_timer = 0;
 
   while (m_bIsActive) {
