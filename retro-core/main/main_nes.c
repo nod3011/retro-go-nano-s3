@@ -133,61 +133,25 @@ static bool save_sram(void) {
   return false;
 }
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/ringbuf.h>
-#include <freertos/task.h>
-
-static RingbufHandle_t audio_ring_buffer = NULL;
-
-static void reset_audio_buffer(void) {
-  if (audio_ring_buffer) {
-    size_t size;
-    void *item;
-    while ((item = xRingbufferReceive(audio_ring_buffer, &size, 0))) {
-      vRingbufferReturnItem(audio_ring_buffer, item);
-    }
-  }
-}
-
-static void audio_pacer_task(void *arg) {
-  static rg_audio_frame_t silence_buf[256] = {0};
-  while (1) {
-    size_t size = 0;
-    rg_audio_frame_t *frames = (rg_audio_frame_t *)xRingbufferReceive(
-        audio_ring_buffer, &size, pdMS_TO_TICKS(10));
-    if (frames) {
-      rg_audio_submit(frames, size / sizeof(rg_audio_frame_t));
-      vRingbufferReturnItem(audio_ring_buffer, (void *)frames);
-    } else {
-      // Lag detected or paused: submit silence to stay in sync with DAC
-      rg_audio_submit(silence_buf, 256);
-      vTaskDelay(pdMS_TO_TICKS(5));
-    }
-  }
-}
-
 static void update_audio(int32_t *samples, size_t count) {
-  if (count <= 0 || !samples || !audio_ring_buffer)
+  if (count <= 0 || !samples)
     return;
 
-  rg_audio_frame_t audio_buf[256];
-  size_t chunks = (count + 255) / 256;
+  static rg_audio_frame_t audio_buf[2048];
+  if (count > 2048)
+    count = 2048;
 
-  for (size_t c = 0; c < chunks; c++) {
-    size_t chunk_size = (count > 256) ? 256 : count;
-    for (size_t i = 0; i < chunk_size; i++) {
-      int32_t s = samples[c * 256 + i] * 4;
-      if (s > 32767)
-        s = 32767;
-      else if (s < -32768)
-        s = -32768;
-      audio_buf[i].left = (int16_t)s;
-      audio_buf[i].right = (int16_t)s;
-    }
-    xRingbufferSend(audio_ring_buffer, audio_buf,
-                    chunk_size * sizeof(rg_audio_frame_t), pdMS_TO_TICKS(100));
-    count -= chunk_size;
+  for (size_t i = 0; i < count; i++) {
+    int32_t s = samples[i] * 4; // Increased to 4x boost
+    if (s > 32767)
+      s = 32767;
+    else if (s < -32768)
+      s = -32768;
+    audio_buf[i].left = (int16_t)s;
+    audio_buf[i].right = (int16_t)s;
   }
+
+  rg_audio_submit(audio_buf, count);
 }
 
 // --- FCEU CALLBACKS
@@ -651,14 +615,6 @@ void fceumm_main(void) {
   load_sram();
   load_cheats();
 
-  if (!audio_ring_buffer) {
-    audio_ring_buffer = xRingbufferCreate(16384, RINGBUF_TYPE_NOSPLIT);
-    if (audio_ring_buffer) {
-      xTaskCreatePinnedToCore(audio_pacer_task, "audio_task", 3072, NULL, 5,
-                              NULL, 1);
-    }
-  }
-
   char *sram_path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
   if (sram_path) {
     rg_storage_mkdir(rg_dirname(sram_path));
@@ -708,20 +664,7 @@ void fceumm_main(void) {
   static bool turbo_b_toggled = false;
   static int turbo_counter = 0;
 
-  const int64_t frameDuration = 1000000 / (is_pal ? 50 : 60);
-  int64_t nextFrameTime = rg_system_timer();
-  int framesToSkip = 0;
-
   while (!rg_system_exit_called()) {
-    int64_t frameStartTime = rg_system_timer();
-
-    // Handle time debt for adaptive frame skipping
-    if (frameStartTime > nextFrameTime + (frameDuration * 2)) {
-      // We are more than 2 frames behind, skip rendering to catch up
-      framesToSkip = 1;
-      // Don't let nextFrameTime fall too far behind current time
-      nextFrameTime = frameStartTime;
-    }
 
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
@@ -767,10 +710,7 @@ void fceumm_main(void) {
       if (joystick_old & RG_KEY_MENU) {
         if (!menu_cancelled) {
           save_sram();
-          reset_audio_buffer();
           rg_gui_game_menu();
-          // Reset timing after menu
-          nextFrameTime = rg_system_timer();
         }
         menu_cancelled = false;
       }
@@ -803,26 +743,16 @@ void fceumm_main(void) {
 
     if (joystick & RG_KEY_OPTION) {
       save_sram();
-      reset_audio_buffer();
       rg_gui_options_menu();
-      // Reset timing after menu
-      nextFrameTime = rg_system_timer();
     }
 
     joystick_old = joystick;
     fceu_joystick = input_buf;
 
-    // --- ADAPTIVE SYNC & FRAME SKIP ---
-    int64_t now = rg_system_timer();
-    int32_t lag_frames = (now - nextFrameTime) / frameDuration;
+    int64_t startTime = rg_system_timer();
 
-    if (lag_frames > 0) {
-      // If we are lagging, skip up to 3 frames to catch up
-      framesToSkip = (lag_frames > 3) ? 3 : lag_frames;
-      nextFrameTime += framesToSkip * frameDuration;
-    }
-
-    bool drawFrame = (framesToSkip == 0);
+    static int skipFrames = 0;
+    bool drawFrame = !skipFrames;
 
     // Switch buffers and set target for next frame
     if (drawFrame) {
@@ -844,27 +774,28 @@ void fceumm_main(void) {
 
     // FCEUMM handles internal skipping if we pass the flag
     FCEUI_Emulate(&gfx, &sound, &sound_samples, drawFrame ? 0 : 1);
-    framesToSkip = 0;
 
     if (drawFrame && gfx) {
       slowFrame = !rg_display_sync(false);
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
-    // Audio submission provides additional pacing
+    // Audio submission provides the pacing (sync)
     update_audio(sound, sound_samples);
 
-    // Pacing lock
-    nextFrameTime += frameDuration;
-    now = rg_system_timer();
-    if (now < nextFrameTime) {
-      rg_task_delay((nextFrameTime - now) / 1000);
-    } else if (now > nextFrameTime + (frameDuration * 2)) {
-      // If we are still significantly behind, resync the clock
-      nextFrameTime = now;
+    // Dynamic frame skipping logic
+    if (skipFrames == 0) {
+      int64_t elapsed = rg_system_timer() - startTime;
+      if (elapsed > app->frameTime + 1000) { // Slight jitter allowed
+        skipFrames = 1;
+      } else if (drawFrame && slowFrame) {
+        skipFrames = 1;
+      }
+    } else {
+      skipFrames--;
     }
 
-    rg_system_tick(rg_system_timer() - frameStartTime);
+    rg_system_tick(rg_system_timer() - startTime);
   }
 
   save_sram();
