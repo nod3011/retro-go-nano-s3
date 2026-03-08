@@ -17,7 +17,7 @@ static uint8_t *nofrendo_vidbuf = NULL;
 static bool nofrendo_running = false;
 static bool slowFrame = false;
 
-static const char *SETTING_SPRITELIMIT = "spritelimit";
+static const char *SETTING_PALETTE = "palette";
 
 #define NES_WIDTH 256
 #define NES_HEIGHT 240
@@ -81,22 +81,43 @@ static void blit_callback(uint8 *vidbuf) {
   rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
 }
 
-static rg_gui_event_t sprite_limit_cb(rg_gui_option_t *option,
-                                      rg_gui_event_t event) {
-  bool spritelimit = ppu_getopt(PPU_LIMIT_SPRITES);
-  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
-    spritelimit = !spritelimit;
-    rg_settings_set_number(NS_APP, SETTING_SPRITELIMIT, spritelimit);
-    ppu_setopt(PPU_LIMIT_SPRITES, spritelimit);
+static void update_palette(nespal_t palette_type) {
+  uint16_t *pal = nofrendo_buildpalette(palette_type, 16);
+  if (pal) {
+    for (int i = 0; i < 256; i++) {
+      uint16_t color = (pal[i] >> 8) | (pal[i] << 8);
+      updates[0]->palette[i] = color;
+      updates[1]->palette[i] = color;
+      updates[2]->palette[i] = color;
+    }
+    free(pal);
   }
-  strcpy(option->value, spritelimit ? "On" : "Off");
+}
+
+static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
+                                           rg_gui_event_t event) {
+  const char *names[] = {"Nofrendo", "Composite", "Classic",
+                         "NTSC",     "PVM",       "Smooth"};
+  int palette =
+      (int)rg_settings_get_number(NS_APP, SETTING_PALETTE, NES_PALETTE_NTSC);
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    if (event == RG_DIALOG_PREV)
+      palette = (palette + NES_PALETTE_COUNT - 1) % NES_PALETTE_COUNT;
+    else
+      palette = (palette + 1) % NES_PALETTE_COUNT;
+
+    rg_settings_set_number(NS_APP, SETTING_PALETTE, palette);
+    update_palette((nespal_t)palette);
+  }
+  strcpy(option->value, names[palette]);
   return RG_DIALOG_VOID;
 }
 
 static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t){.label = "Sprite Limit",
+  *dest++ = (rg_gui_option_t){.label = "Color Palette",
                               .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = sprite_limit_cb};
+                              .update_cb = palette_selection_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -145,17 +166,9 @@ void nofrendo_main(void) {
   nes_setvidbuf(currentUpdate->data);
 
   // Build palette
-  uint16_t *pal = nofrendo_buildpalette(NES_PALETTE_NTSC, 16);
-  if (pal) {
-    for (int i = 0; i < 256; i++) {
-      // Original good build used BE (Big Endian) for palette colors in surface
-      uint16_t color = (pal[i] >> 8) | (pal[i] << 8);
-      updates[0]->palette[i] = color;
-      updates[1]->palette[i] = color;
-      updates[2]->palette[i] = color;
-    }
-    free(pal);
-  }
+  int palette =
+      (int)rg_settings_get_number(NS_APP, SETTING_PALETTE, NES_PALETTE_NTSC);
+  update_palette((nespal_t)palette);
 
   // Clear display
   rg_display_clear(C_BLACK);
