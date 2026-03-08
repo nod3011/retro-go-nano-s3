@@ -129,25 +129,50 @@ static bool save_sram(void) {
   return false;
 }
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/ringbuf.h>
+#include <freertos/task.h>
+
+static RingbufHandle_t audio_ring_buffer = NULL;
+
+static void audio_pacer_task(void *arg) {
+  static rg_audio_frame_t silence_buf[256] = {0};
+  while (1) {
+    size_t size = 0;
+    rg_audio_frame_t *frames = (rg_audio_frame_t *)xRingbufferReceive(
+        audio_ring_buffer, &size, pdMS_TO_TICKS(10));
+    if (frames) {
+      rg_audio_submit(frames, size / sizeof(rg_audio_frame_t));
+      vRingbufferReturnItem(audio_ring_buffer, (void *)frames);
+    } else {
+      // Lag detected: submit silence to avoid buzzing
+      rg_audio_submit(silence_buf, 256);
+    }
+  }
+}
+
 static void update_audio(int32_t *samples, size_t count) {
-  if (count <= 0 || !samples)
+  if (count <= 0 || !samples || !audio_ring_buffer)
     return;
 
-  static rg_audio_frame_t audio_buf[2048];
-  if (count > 2048)
-    count = 2048;
+  rg_audio_frame_t audio_buf[256];
+  size_t chunks = (count + 255) / 256;
 
-  for (size_t i = 0; i < count; i++) {
-    int32_t s = samples[i] * 4; // Increased to 4x boost
-    if (s > 32767)
-      s = 32767;
-    else if (s < -32768)
-      s = -32768;
-    audio_buf[i].left = (int16_t)s;
-    audio_buf[i].right = (int16_t)s;
+  for (size_t c = 0; c < chunks; c++) {
+    size_t chunk_size = (count > 256) ? 256 : count;
+    for (size_t i = 0; i < chunk_size; i++) {
+      int32_t s = samples[c * 256 + i] * 4;
+      if (s > 32767)
+        s = 32767;
+      else if (s < -32768)
+        s = -32768;
+      audio_buf[i].left = (int16_t)s;
+      audio_buf[i].right = (int16_t)s;
+    }
+    xRingbufferSend(audio_ring_buffer, audio_buf,
+                    chunk_size * sizeof(rg_audio_frame_t), pdMS_TO_TICKS(50));
+    count -= chunk_size;
   }
-
-  rg_audio_submit(audio_buf, count);
 }
 
 // --- FCEU CALLBACKS
@@ -594,6 +619,14 @@ void fceumm_main(void) {
   load_sram();
   load_cheats();
 
+  if (!audio_ring_buffer) {
+    audio_ring_buffer = xRingbufferCreate(16384, RINGBUF_TYPE_NOSPLIT);
+    if (audio_ring_buffer) {
+      xTaskCreatePinnedToCore(audio_pacer_task, "audio_task", 3072, NULL, 5,
+                              NULL, 1);
+    }
+  }
+
   char *sram_path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
   if (sram_path) {
     rg_storage_mkdir(rg_dirname(sram_path));
@@ -635,7 +668,21 @@ void fceumm_main(void) {
   static bool turbo_b_toggled = false;
   static int turbo_counter = 0;
 
+  const int64_t frameDuration = 1000000 / (is_pal ? 50 : 60);
+  int64_t nextFrameTime = rg_system_timer();
+  int framesToSkip = 0;
+
   while (!rg_system_exit_called()) {
+    int64_t frameStartTime = rg_system_timer();
+
+    // Handle time debt for adaptive frame skipping
+    if (frameStartTime > nextFrameTime + (frameDuration * 2)) {
+      // We are more than 2 frames behind, skip rendering to catch up
+      framesToSkip = 1;
+      // Don't let nextFrameTime fall too far behind current time
+      nextFrameTime = frameStartTime;
+    }
+
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
     uint32_t input_buf = 0;
@@ -681,6 +728,8 @@ void fceumm_main(void) {
         if (!menu_cancelled) {
           save_sram();
           rg_gui_game_menu();
+          // Reset timing after menu
+          nextFrameTime = rg_system_timer();
         }
         menu_cancelled = false;
       }
@@ -714,12 +763,12 @@ void fceumm_main(void) {
     if (joystick & RG_KEY_OPTION) {
       save_sram();
       rg_gui_options_menu();
+      // Reset timing after menu
+      nextFrameTime = rg_system_timer();
     }
 
     joystick_old = joystick;
     fceu_joystick = input_buf;
-
-    int64_t startTime = rg_system_timer();
 
     // Prepare surface for this frame
     currentUpdate = updates[currentUpdate == updates[0]];
@@ -727,33 +776,31 @@ void fceumm_main(void) {
     currentUpdate->width = 240;
     currentUpdate->height = surface_height;
     currentUpdate->offset = 8;
-
-    // Use PALETTE offset to point XBuf to our surface
-    // FCEUMM renders to XBuf + 8 offset usually for some padding?
-    // Actually no, let's just point XBuf directly.
     XBuf = (uint8_t *)currentUpdate->data;
 
     uint8_t *gfx = NULL;
     int32_t *sound = NULL;
     int32_t sound_samples = 0;
 
-    FCEUI_Emulate(&gfx, &sound, &sound_samples, 0);
+    // Emulate frame with adaptive skip
+    FCEUI_Emulate(&gfx, &sound, &sound_samples, framesToSkip);
+    framesToSkip = 0;
 
     if (gfx) {
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
-    // Audio submission provides the pacing (sync)
+    // Audio submission provides additional pacing
     update_audio(sound, sound_samples);
 
-    // Explicitly lock to 60 FPS if audio sync isn't enough
-    int64_t frameTime = rg_system_timer() - startTime;
-    int64_t targetTime = 1000000 / 60;
-    if (frameTime < targetTime) {
-      rg_task_delay((targetTime - frameTime) / 1000);
+    // Pacing lock
+    nextFrameTime += frameDuration;
+    int64_t now = rg_system_timer();
+    if (now < nextFrameTime) {
+      rg_task_delay((nextFrameTime - now) / 1000);
     }
 
-    rg_system_tick(frameTime);
+    rg_system_tick(rg_system_timer() - frameStartTime);
   }
 
   save_sram();
