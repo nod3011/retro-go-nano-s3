@@ -12,7 +12,6 @@
 #include <stdio.h>
 #include <string.h>
 
-
 typedef struct {
   uint16_t magic;
   uint8_t type;
@@ -27,51 +26,45 @@ static bool update_file_validator(const char *path) {
   return rg_extension_match(path, "img fw");
 }
 
-static void update_partition(FILE *f, const esp_partition_t *dest,
-                             uint32_t src_offset, uint32_t src_size) {
-  if (src_size == 0)
+static void flash_raw(FILE *f, uint32_t dest_offset, uint32_t src_offset,
+                      uint32_t size, const char *label) {
+  if (size == 0)
     return;
 
-  RG_LOGI("Updating partition '%s' (0x%x bytes) from offset 0x%x", dest->label,
-          src_size, src_offset);
-  rg_gui_draw_message("Erasing %s...", dest->label);
+  RG_LOGI("Flashing '%s' to 0x%x (0x%x bytes)", label, dest_offset, size);
+  rg_gui_draw_message(_("Flashing %s..."), label);
 
-  // We only erase the size needed, or the whole partition?
-  // Usually it's better to erase the whole partition if it's an app.
-  if (esp_partition_erase_range(dest, 0, dest->size) != ESP_OK) {
-    RG_LOGE("Erase failed for %s", dest->label);
+  esp_flash_t *flash = esp_flash_default_chip;
+  uint32_t aligned_size = (size + 4095) & ~4095;
+
+  if (esp_flash_erase_region(flash, dest_offset, aligned_size) != ESP_OK) {
+    RG_LOGE("Erase failed for %s", label);
     return;
   }
-
-  rg_gui_draw_message("Writing %s...", dest->label);
 
   uint8_t *buffer = malloc(4096);
   uint32_t written = 0;
   fseek(f, src_offset, SEEK_SET);
 
-  while (written < src_size) {
-    uint32_t to_read =
-        (src_size - written) > 4096 ? 4096 : (src_size - written);
+  while (written < size) {
+    uint32_t to_read = (size - written) > 4096 ? 4096 : (size - written);
     if (fread(buffer, 1, to_read, f) != to_read)
       break;
 
-    if (esp_partition_write(dest, written, buffer, to_read) != ESP_OK) {
-      RG_LOGE("Write failed for %s at offset 0x%x", dest->label, written);
+    if (esp_flash_write(flash, buffer, dest_offset + written, to_read) !=
+        ESP_OK) {
+      RG_LOGE("Write failed for %s at 0x%x", label, dest_offset + written);
       break;
     }
-
     written += to_read;
-    // rg_gui_draw_message("Writing %s: %d%%", dest->label, (int)(written * 100
-    // / src_size));
   }
-
   free(buffer);
 }
 
 static void do_update(const char *path) {
   FILE *f = fopen(path, "rb");
   if (!f) {
-    rg_gui_alert("Update failed", "Could not open file.");
+    rg_gui_alert(_("Update failed"), _("Could not open file."));
     return;
   }
 
@@ -79,7 +72,7 @@ static void do_update(const char *path) {
   size_t file_size = ftell(f);
 
   if (file_size < 0x10000) {
-    rg_gui_alert("Update failed", "File too small.");
+    rg_gui_alert(_("Update failed"), _("File too small."));
     fclose(f);
     return;
   }
@@ -90,19 +83,20 @@ static void do_update(const char *path) {
   fread(footer, 1, 256, f);
 
   if (memcmp(footer, "RG_IMG_0", 8) != 0) {
-    if (!rg_gui_confirm("Warning", "Invalid footer. Proceed anyway?", false)) {
+    if (!rg_gui_confirm(_("Warning"), _("Invalid footer. Proceed anyway?"),
+                        false)) {
       fclose(f);
       return;
     }
   }
 
-  if (!rg_gui_confirm("Confirm", "Flash firmware now?\nDevice will reboot.",
-                      true)) {
+  if (!rg_gui_confirm(_("Confirm"),
+                      _("Flash firmware now?\nDevice will reboot."), true)) {
     fclose(f);
     return;
   }
 
-  // Read partition table from .img at 0x8000
+  // 1. Read the new partition entries for iteration
   fseek(f, 0x8000, SEEK_SET);
   rg_partition_info_t info[32]; // Max 32 partitions
   int count = fread(info, sizeof(rg_partition_info_t), 32, f);
@@ -113,22 +107,20 @@ static void do_update(const char *path) {
     part_count++;
   }
 
-  rg_gui_draw_message("Cleaning up...");
+  rg_gui_draw_message(_("Cleaning up..."));
 
-  // Erase obsolete APP partitions
+  // 2. Erase obsolete APP partitions (using current table)
   esp_partition_iterator_t it = esp_partition_find(
       ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
   while (it != NULL) {
     const esp_partition_t *p = esp_partition_get(it);
     bool found = false;
-
     for (int i = 0; i < part_count; i++) {
       if (strncmp(p->label, info[i].label, 16) == 0) {
         found = true;
         break;
       }
     }
-
     if (!found && strcmp(p->label, "updater") != 0) {
       RG_LOGI("Erasing obsolete partition '%s'", p->label);
       esp_partition_erase_range(p, 0, p->size);
@@ -137,62 +129,34 @@ static void do_update(const char *path) {
   }
   esp_partition_iterator_release(it);
 
-  // Flash new partition table
-  rg_gui_draw_message("Updating table...");
-  // This is a bit hacky, we usually can't "find" the partition table itself as
-  // a partition. But we can write to 0x8000 directly using esp_flash.
-  // However, esp-idf might have a better way or we use the raw flash write.
-  // For now, let's assume we can write to 0x8000 if we have a handle or just
-  // skip the table update if it's too risky, but the user asked for it.
-  // Actually, let's use the same logic as update_partition but for the table
-  // area.
-
-  // To write the partition table, we need to bypass the partition system or
-  // use the bootloader's expectations.
-  // On ESP32, the partition table is at 0x8000.
-  // We can use esp_flash_write to write to raw offsets.
-  esp_flash_t *flash = esp_flash_default_chip;
-  esp_flash_erase_region(flash, 0x8000, 0x1000);
-  esp_flash_write(flash, info, 0x8000,
-                  sizeof(rg_partition_info_t) * part_count);
-
-  rg_gui_draw_message("Starting update...");
-
+  // 3. Flash internal apps and components using offsets from new table
   for (int i = 0; i < part_count; i++) {
     char label[17];
     memcpy(label, info[i].label, 16);
     label[16] = 0;
 
-    // Skip dangerous or unnecessary partitions
+    // Skip system partitions and updater
     if (strcmp(label, "nvs") == 0 || strcmp(label, "otadata") == 0 ||
-        strcmp(label, "phy_init") == 0)
+        strcmp(label, "phy_init") == 0 || strcmp(label, "updater") == 0)
       continue;
 
-    // Skip current application (updater)
-    if (strcmp(label, "updater") == 0)
-      continue;
-
-    const esp_partition_t *dest =
-        esp_partition_find_first(info[i].type, info[i].subtype, label);
-
-    // If we just updated the table in flash, the OS might still have the old
-    // table in memory. But esp_partition_find_first reads from flash?
-    // No, it usually uses a cached table.
-    // However, if we know the offset and size from 'info[i]', we can still
-    // find the partition by name or create a temporary one.
-
-    if (dest) {
-      update_partition(f, dest, info[i].offset, info[i].size);
-    } else {
-      // If it's a new partition not in the old table, we might need to
-      // handle it. But the updater's current dest logic relies on the OS.
-      RG_LOGW("Partition '%s' not found on device, skipping.", label);
-    }
+    // We use the offset/size from the .img's table entry to write to raw flash
+    flash_raw(f, info[i].offset, info[i].offset, info[i].size, label);
   }
+
+  // 4. Finally, synchronize the partition table area (0x8000 - 0x8C00)
+  rg_gui_draw_message(_("Updating table..."));
+  uint8_t table_buffer[4096];
+  memset(table_buffer, 0xFF, 4096);
+  fseek(f, 0x8000, SEEK_SET);
+  fread(table_buffer, 1, 3072, f); // Read entries + MD5
+
+  esp_flash_erase_region(esp_flash_default_chip, 0x8000, 0x1000);
+  esp_flash_write(esp_flash_default_chip, table_buffer, 0x8000, 4096);
 
   fclose(f);
 
-  rg_gui_alert("Success", "Update complete! Rebooting...");
+  rg_gui_alert(_("Success"), _("Update complete! Rebooting..."));
   rg_system_restart();
 }
 
