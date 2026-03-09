@@ -3,12 +3,16 @@
 #include <esp_flash.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <malloc.h>
 #include <rg_system.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+
 typedef struct {
   uint16_t magic;
   uint8_t type;
@@ -194,10 +198,17 @@ static void do_update(const char *path) {
 
 void app_main(void) {
   rg_app_t *app = rg_system_init(11025, NULL, NULL);
+  bool launcher_missing = !rg_system_have_app(RG_APP_LAUNCHER);
 
-  RG_LOGI("Updater started. BootArgs: %s", app->bootArgs ?: "None");
+  RG_LOGI("Updater started. BootArgs: %s, Launcher missing: %d",
+          app->bootArgs ?: "None", launcher_missing);
 
-  if (app->bootArgs && strlen(app->bootArgs) > 0) {
+  if (launcher_missing) {
+    rg_gui_draw_message(_("Launcher not found!\nEntering recovery..."));
+    vTaskDelay(pdMS_TO_TICKS(2000));
+  }
+
+  if (!launcher_missing && app->bootArgs && strlen(app->bootArgs) > 0) {
     do_update(app->bootArgs);
   } else {
     char path[RG_PATH_MAX] = RG_STORAGE_ROOT "/nano-s3/firmware";
@@ -215,6 +226,12 @@ void app_main(void) {
       do_update(selected);
       free(selected);
     }
+  }
+
+  if (!rg_system_have_app(RG_APP_LAUNCHER)) {
+    rg_gui_alert(_("Flash Failed"),
+                 _("Launcher is still missing.\nPlease try again."));
+    rg_system_restart();
   }
 
   rg_system_switch_app(RG_APP_LAUNCHER, NULL, NULL, 0);
