@@ -1,5 +1,3 @@
-#include <ctype.h>
-#include <errno.h>
 #include <rg_system.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,7 +46,7 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg) {
     retro_file_t *new_buf =
         realloc(app->files, new_capacity * sizeof(retro_file_t));
     if (!new_buf) {
-      RG_LOGW("Ran out of memory, file scanning stopped at %d entries ...",
+      RG_LOGW("Ran out of memory, file scanning stopped at %zu entries ...",
               app->files_count);
       return RG_SCANDIR_STOP;
     }
@@ -60,7 +58,7 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg) {
                                 strlen(entry->basename) + 1);
   if (!name) {
     RG_LOGW(
-        "Ran out of memory for names, file scanning stopped at %d entries ...",
+        "Ran out of memory for names, file scanning stopped at %zu entries ...",
         app->files_count);
     return RG_SCANDIR_STOP;
   }
@@ -508,7 +506,8 @@ static void show_file_info(retro_file_t *file) {
   while (true) // We loop in case we need to update the CRC
   {
     if (file->checksum)
-      sprintf(filecrc, "%08X (%d)", (int)file->checksum, file->app->crc_offset);
+      sprintf(filecrc, "%08X (%zu)", (int)file->checksum,
+              file->app->crc_offset);
 
     switch (rg_gui_dialog(_("File properties"), options, -1)) {
     case 3:

@@ -14,17 +14,17 @@ import zlib
 DEFAULT_TARGET = os.getenv("RG_TOOL_TARGET", "odroid-go")
 DEFAULT_BAUD = os.getenv("RG_TOOL_BAUD", "1152000")
 DEFAULT_PORT = os.getenv("RG_TOOL_PORT", "COM3")
-DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core snes9x prboom-go ngp ws")
+DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core snes9x prboom-go ngp ws updater")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "Retro-Go")
 PROJECT_ICON = os.getenv("PROJECT_ICON", "assets/icon.raw")
 PROJECT_APPS = {
   # Project name  Type, SubType, Size (bytes)
-  'launcher':     [0, 16, 1310720],  # 1.25 MB
+  'launcher':     [0, 16, 1572864],  # 1.5 MB
   'retro-core':   [0, 16, 2097152],  # 2.0 MB
-  'snes9x':       [0, 16, 1572864],  # 1.5 MB
+  'snes9x':       [0, 16, 1048576],  # 1.0 MB
   'prboom-go':    [0, 16, 1048576],  # 1 MB
-  'gwenesis':     [0, 16, 1572864],  # 1.5 MB
-  'fmsx':         [0, 16, 1048576],  # 1 MB
+  'gwenesis':     [0, 16, 1572864],  # 1.5 MB (Reserved)
+  'fmsx':         [0, 16, 1048576],  # 1 MB (Reserved)
   'ws':           [0, 16, 786432],   # 768 KB
   'ngp':          [0, 16, 786432],   # 768 KB
   'updater':      [0, 16, 524288],   # 512 KB
@@ -211,8 +211,17 @@ os.putenv("IDF_TARGET", IDF_TARGET)
 PROJECT_VER += "+" + args.target
 
 command = args.command
-apps = DEFAULT_APPS.split() if "all" in args.apps else args.apps
-apps = [app for app in PROJECT_APPS.keys() if app in apps] # Ensure ordering and uniqueness
+
+# Handle apps argument
+apps = args.apps
+if isinstance(apps, str):
+    apps = [apps]
+
+if "all" in apps:
+    apps = DEFAULT_APPS.split()
+
+# Ensure unique and maintain order from PROJECT_APPS
+apps = [app for app in PROJECT_APPS.keys() if app in apps]
 
 try:
     if command in ["clean", "release"]:
