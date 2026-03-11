@@ -31,9 +31,19 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg) {
     return RG_SCANDIR_SKIP;
 
   if (entry->is_file) {
-    if (rg_extension_match(entry->basename, app->extensions))
+    if (rg_extension_match(entry->basename, app->extensions)) {
+      if (strcmp(app->short_name, "quake") == 0) {
+        const char *bn = entry->basename;
+        if ((bn[0] == 'P' || bn[0] == 'p') && (bn[1] == 'A' || bn[1] == 'a') &&
+            (bn[2] == 'K' || bn[2] == 'k') && isdigit((unsigned char)bn[3])) {
+          return RG_SCANDIR_CONTINUE;
+        }
+      }
       type = RETRO_TYPE_FILE;
+    }
   } else if (entry->is_dir) {
+    if (strcmp(app->short_name, "quake") == 0)
+      return RG_SCANDIR_CONTINUE;
     RG_LOGI("Found subdirectory '%s'", entry->path);
     type = RETRO_TYPE_FOLDER;
   }
@@ -128,6 +138,27 @@ static void application_start(retro_file_t *file, int load_state) {
   char *part = strdup(file->app->partition);
   char *name = strdup(file->app->short_name);
   char *path = strdup(get_file_path(file));
+  if (strcmp(file->app->short_name, "quake") == 0 &&
+      rg_extension_match(file->name, "quake")) {
+    FILE *fp = fopen(path, "r");
+    if (fp) {
+      char line[RG_PATH_MAX];
+      if (fgets(line, sizeof(line), fp)) {
+        char *nl = strchr(line, '\r');
+        if (nl)
+          *nl = 0;
+        nl = strchr(line, '\n');
+        if (nl)
+          *nl = 0;
+        if (line[0]) {
+          free(path);
+          path = malloc(512);
+          snprintf(path, 512, "%s/%s", file->folder, line);
+        }
+      }
+      fclose(fp);
+    }
+  }
   int flags = (gui.startup_mode ? RG_BOOT_ONCE : 0);
   if (load_state != -1) {
     flags |= RG_BOOT_RESUME;
@@ -670,6 +701,7 @@ void applications_init(void) {
   application("Sega Master System", "sms", "sms sg zip", "retro-core", 0);
   application("Atari Lynx", "lnx", "lnx zip", "retro-core", 64);
   application("DOOM", "doom", "wad zip", "prboom-go", 0);
+  application("Quake", "quake", "quake pak", "quake-go", 0);
 
   application("Nintendo Game & Watch", "gw", "gw", "retro-core", 0);
   // application("Sega Master System", "sms", "sms sg zip", "retro-core", 0);

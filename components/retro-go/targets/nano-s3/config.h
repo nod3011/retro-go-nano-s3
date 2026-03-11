@@ -97,6 +97,6 @@
 
 
 // Updater
-#define RG_UPDATER_ENABLE            1
+#define RG_UPDATER_ENABLE            0
 #define RG_UPDATER_APPLICATION       "updater"
 #define RG_UPDATER_DOWNLOAD_LOCATION RG_STORAGE_ROOT "/nano-s3/firmware"

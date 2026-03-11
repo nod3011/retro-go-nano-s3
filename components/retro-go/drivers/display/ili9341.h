@@ -162,14 +162,13 @@ static void lcd_set_backlight(float percent)
 
 static void lcd_set_window(int left, int top, int width, int height)
 {
-    int right = left + width - 1;
-    int bottom = top + height - 1;
-
 #if defined(RG_SCREEN_ST7789_240X240)
     // ST7789 240x240 panels (RAM 240x320, X offset 80px)
     left += 80;
-    right += 80;
 #endif
+
+    int right = left + width - 1;
+    int bottom = top + height - 1;
 
     int max_width = display.screen.real_width;
 #if defined(RG_SCREEN_ST7789_240X240)
@@ -178,7 +177,11 @@ static void lcd_set_window(int left, int top, int width, int height)
 
     if (left < 0 || top < 0 || right >= max_width || bottom >= display.screen.real_height)
     {
-        RG_LOGW("Bad lcd window (x0=%d, y0=%d, x1=%d, y1=%d)\n", left, top, right, bottom);
+        RG_LOGW("Bad lcd window (x0=%d, y0=%d, x1=%d, y1=%d). Clipping...\n", left, top, right, bottom);
+        left = RG_MAX(0, left);
+        top = RG_MAX(0, top);
+        right = RG_MIN(max_width - 1, right);
+        bottom = RG_MIN(display.screen.real_height - 1, bottom);
     }
 
     ILI9341_CMD(0x2A, left >> 8, left & 0xff, right >> 8, right & 0xff);
