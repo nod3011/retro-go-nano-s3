@@ -14,7 +14,7 @@ import zlib
 DEFAULT_TARGET = os.getenv("RG_TOOL_TARGET", "odroid-go")
 DEFAULT_BAUD = os.getenv("RG_TOOL_BAUD", "1152000")
 DEFAULT_PORT = os.getenv("RG_TOOL_PORT", "COM3")
-DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core snes9x prboom-go ngp ws quake-go")
+DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core snes9x prboom-go ngp quake-go")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "Retro-Go")
 PROJECT_ICON = os.getenv("PROJECT_ICON", "assets/icon.raw")
 PROJECT_APPS = {
@@ -27,7 +27,7 @@ PROJECT_APPS = {
   'fmsx':         [0, 16, 1048576],  # 1 MB (Reserved)
   'ws':           [0, 16, 786432],   # 768 KB
   'ngp':          [0, 16, 786432],   # 768 KB
-  'quake-go':     [0, 16, 1048576],  # 1 MB
+  'quake-go':     [0, 16, 2097152],  # 2 MB (Quake needs more space)
 }
 
 # PROJECT_APPS = {}
