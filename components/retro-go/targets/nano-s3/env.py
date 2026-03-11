@@ -6,4 +6,4 @@ IDF_TARGET = "esp32s3"
 # .fw file format, if supported by the device
 FW_FORMAT = "esplay"
 # Default apps to build when none is specified (comment to build all)
-DEFAULT_APPS = "launcher retro-core snes9x prboom-go ngp ws updater"
+#DEFAULT_APPS = "launcher retro-core snes9x prboom-go ngp ws updater"

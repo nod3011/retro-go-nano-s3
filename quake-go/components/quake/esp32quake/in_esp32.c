@@ -60,8 +60,19 @@ void IN_Commands(void)
             }
         }
 
-        // 3. System / Menu Buttons
-        if (changed & RG_KEY_MENU) Key_Event(K_ESCAPE, (gamepad & RG_KEY_MENU) != 0);
+        // System / Menu Buttons
+        if (changed & RG_KEY_MENU) {
+            bool down = (gamepad & RG_KEY_MENU) != 0;
+            if (down && (gamepad & RG_KEY_START)) {
+                rg_gui_game_menu();
+            } else {
+                Key_Event(K_ESCAPE, down);
+            }
+        }
+
+        if (changed & RG_KEY_OPTION) {
+            if (gamepad & RG_KEY_OPTION) rg_gui_options_menu();
+        }
 
         if (changed & RG_KEY_SELECT) {
             if (gamepad & RG_KEY_SELECT) Cbuf_AddText("impulse 10\n");
@@ -93,12 +104,12 @@ void IN_Commands(void)
         }
 
         // Swim / Run
-        if (changed & (RG_KEY_X | RG_KEY_OPTION)) Key_Event('c', (gamepad & (RG_KEY_X | RG_KEY_OPTION)) != 0);
+        if (changed & RG_KEY_X) Key_Event('c', (gamepad & RG_KEY_X) != 0);
         if (changed & RG_KEY_Y) Key_Event(K_SHIFT, (gamepad & RG_KEY_Y) != 0);
     }
     prev_gamepad = gamepad;
     
-    if ((gamepad & RG_KEY_START) && (gamepad & RG_KEY_SELECT)) rg_gui_game_menu();
+    // 
 }
 
 void IN_Move(usercmd_t *cmd)
