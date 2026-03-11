@@ -11,16 +11,8 @@
 // - 160x120: Half-res (Required for original ESP32 level loading)
 // - 120x90: Ultra-low (Maximum stability for original ESP32)
 // Note: High resolutions consume PSRAM window space (Z-buffer + Surfaces).
-#if defined(CONFIG_IDF_TARGET_ESP32P4)
-#define BASEWIDTH 320
+#define BASEWIDTH  320
 #define BASEHEIGHT 240
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
-#define BASEWIDTH 320
-#define BASEHEIGHT 240
-#else // Original ESP32
-#define BASEWIDTH 160
-#define BASEHEIGHT 120
-#endif
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
 static DRAM_ATTR int16_t zbuffer[BASEWIDTH * BASEHEIGHT] __attribute__((aligned(16)));
@@ -33,8 +25,7 @@ static EXT_RAM_BSS_ATTR int16_t zbuffer[BASEWIDTH * BASEHEIGHT] __attribute__((a
 #define SURFCACHE_SIZE (640 * 1024)
 static EXT_RAM_BSS_ATTR uint8_t surfcache[SURFCACHE_SIZE] __attribute__((aligned(16)));
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-#define SURFCACHE_SIZE (512 * 1024)
-// 512KB surfcache is required for S3 (128KB causes texture eviction glitches)
+#define SURFCACHE_SIZE (128 * 1024)
 static EXT_RAM_BSS_ATTR uint8_t surfcache[SURFCACHE_SIZE] __attribute__((aligned(16)));
 #else
 #define SURFCACHE_SIZE (32 * 1024)
