@@ -452,9 +452,13 @@ void gbc_main(void) {
         if (!menu_cancelled) {
           if (gnuboy_sram_dirty())
             gnuboy_save_sram(sramFile, false);
+#ifdef RG_ENABLE_NETPLAY
           rg_netplay_send_pause(true);
+#endif
           rg_gui_game_menu();
+#ifdef RG_ENABLE_NETPLAY
           rg_netplay_send_pause(false);
+#endif
         }
         menu_cancelled = false;
       }
@@ -462,9 +466,13 @@ void gbc_main(void) {
     }
 
     if (joystick & RG_KEY_OPTION) {
+#ifdef RG_ENABLE_NETPLAY
       rg_netplay_send_pause(true);
+#endif
       rg_gui_options_menu();
+#ifdef RG_ENABLE_NETPLAY
       rg_netplay_send_pause(false);
+#endif
     }
 
     if (!menu_pressed) {
