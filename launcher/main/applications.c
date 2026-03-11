@@ -671,6 +671,7 @@ void applications_init(void) {
   application("Sega Master System", "sms", "sms sg zip", "retro-core", 0);
   application("Atari Lynx", "lnx", "lnx zip", "retro-core", 64);
   application("DOOM", "doom", "wad zip", "prboom-go", 0);
+  application("Quake", "quake", "pak", "quake-go", 0);
 
   application("Nintendo Game & Watch", "gw", "gw", "retro-core", 0);
   // application("Sega Master System", "sms", "sms sg zip", "retro-core", 0);

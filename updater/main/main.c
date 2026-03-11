@@ -9,7 +9,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <zlib.h>
 
 
 typedef struct {
@@ -20,7 +19,7 @@ typedef struct {
   uint32_t size;
   char label[16];
   uint32_t flags;
-} __attribute__((packed)) esp_partition_info_t;
+} __attribute__((packed)) rg_update_partition_info_t;
 
 static void update_partition(FILE *f, const esp_partition_t *dest,
                              uint32_t src_offset, uint32_t src_size) {
@@ -99,8 +98,8 @@ static void do_update(const char *path) {
 
   // Read partition table from .img at 0x8000
   fseek(f, 0x8000, SEEK_SET);
-  esp_partition_info_t info[32]; // Max 32 partitions
-  int count = fread(info, sizeof(esp_partition_info_t), 32, f);
+  rg_update_partition_info_t info[32]; // Max 32 partitions
+  int count = fread(info, sizeof(rg_update_partition_info_t), 32, f);
 
   rg_gui_draw_message("Starting update...");
 
@@ -146,8 +145,10 @@ void app_main(void) {
   } else {
     char path[RG_PATH_MAX] = RG_STORAGE_ROOT "/nano-s3/firmware";
     char selected[RG_PATH_MAX] = {0};
-
-    if (rg_gui_file_browser(path, selected, "img fw")) {
+    char *filename = rg_gui_file_picker("Select Update", path, NULL, true, true);
+    if (filename) {
+      strncpy(selected, filename, sizeof(selected) - 1);
+      free(filename);
       do_update(selected);
     }
   }
