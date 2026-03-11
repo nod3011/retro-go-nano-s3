@@ -12,6 +12,10 @@
 #include "esp_vfs_fat.h"
 
 #include "rg_system.h"
+#include "rg_network.h"
+#ifdef RG_ENABLE_NETPLAY
+#include "rg_netplay.h"
+#endif
 #include "quake_main.h"
 
 static const char TAG[] = "main";
@@ -68,6 +72,18 @@ void app_main(void)
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
     rg_system_set_overclock(1); // Level 1 is usually enough for S3
 #endif
+
+    // Disable WiFi and Netplay to save memory and improve stability
+#ifdef RG_ENABLE_NETWORKING
+    rg_network_wifi_stop();
+#endif
+#ifdef RG_ENABLE_NETPLAY
+    rg_netplay_stop();
+#endif
+
+    rg_stats_t stats = rg_system_get_stats();
+    ESP_LOGI(TAG, "Memory: Internal free %d KB, External free %d KB", 
+             stats.freeMemoryInt / 1024, stats.freeMemoryExt / 1024);
 
     rg_storage_mkdir(RG_BASE_PATH_CONFIG "/quake");
     rg_storage_mkdir(RG_BASE_PATH_SAVES "/quake");
