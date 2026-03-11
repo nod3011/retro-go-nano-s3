@@ -472,15 +472,20 @@ void esp32_quake_main(int argc, char **argv, const char *basedir, const char *pa
 #if defined(CONFIG_IDF_TARGET_ESP32P4)
     parms.memsize = 8192*1024; // 8MB Hunk for P4
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    parms.memsize = 6500*1024; // 6.35MB Hunk (Optimized for 8MB PSRAM)
+    parms.memsize = 6500*1024; // 6.35MB Hunk for S3 (original working value)
 #else
     parms.memsize = 3481*1024; // 3.4MB Hunk for original ESP32 (4MB limit)
 #endif
     parms.membase = heap_caps_malloc(parms.memsize, MALLOC_CAP_SPIRAM);
     parms.basedir = (char*)basedir;
 
-    if (parms.membase == NULL)
+    if (parms.membase == NULL) {
+        RG_LOGE("Failed to allocate %d bytes for Quake hunk in SPIRAM!", parms.memsize);
+        rg_stats_t stats = rg_system_get_stats();
+        RG_LOGE("Free SPIRAM: %d KB, Free Internal: %d KB", 
+                stats.freeMemoryExt / 1024, stats.freeMemoryInt / 1024);
         Sys_Error("membase allocation failed\n");
+    }
 
     COM_InitArgv(argc, argv);
 
