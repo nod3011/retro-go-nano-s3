@@ -14,99 +14,10 @@
 #include "bookmarks.h"
 #include "browser.h"
 #include "gui.h"
-#include "updater.h"
 #include "webui.h"
 
 static rg_app_t *app;
 
-typedef struct {
-  uint16_t magic;
-  uint8_t type;
-  uint8_t subtype;
-  uint32_t offset;
-  uint32_t size;
-  char label[16];
-  uint32_t flags;
-} __attribute__((packed)) rg_partition_info_t;
-
-static void update_updater_from_img(const char *path) {
-  FILE *f = fopen(path, "rb");
-  if (!f) {
-    rg_gui_alert(_("Update failed"), _("Could not open file."));
-    return;
-  }
-
-  const esp_partition_t *dest = esp_partition_find_first(
-      ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, "updater");
-  if (!dest) {
-    rg_gui_alert(_("Update failed"), _("Updater partition not found."));
-    fclose(f);
-    return;
-  }
-
-  // Read partition table from .img at 0x8000
-  fseek(f, 0x8000, SEEK_SET);
-  rg_partition_info_t info[32];
-  int count = fread(info, sizeof(rg_partition_info_t), 32, f);
-  uint32_t src_offset = 0, src_size = 0;
-
-  for (int i = 0; i < count; i++) {
-    if (info[i].magic != 0x50AA)
-      break;
-    if (strcmp(info[i].label, "updater") == 0) {
-      src_offset = info[i].offset;
-      src_size = info[i].size;
-      break;
-    }
-  }
-
-  if (src_size == 0) {
-    rg_gui_alert(_("Update failed"), _("Updater not found in image."));
-    fclose(f);
-    return;
-  }
-
-  if (!rg_gui_confirm(_("Flash Updater?"),
-                      _("This will overwrite the system updater.\nProceed?"),
-                      true)) {
-    fclose(f);
-    return;
-  }
-
-  rg_gui_draw_message(_("Updating Updater..."));
-  if (esp_partition_erase_range(dest, 0, dest->size) != ESP_OK) {
-    rg_gui_alert(_("Error"), _("Erase failed!"));
-    fclose(f);
-    return;
-  }
-
-  uint8_t *buffer = malloc(4096);
-  uint32_t written = 0;
-  fseek(f, src_offset, SEEK_SET);
-  while (written < src_size) {
-    uint32_t to_read =
-        (src_size - written) > 4096 ? 4096 : (src_size - written);
-    fread(buffer, 1, to_read, f);
-    esp_partition_write(dest, written, buffer, to_read);
-    written += to_read;
-  }
-  free(buffer);
-  fclose(f);
-
-  rg_storage_delete(path);
-
-  rg_gui_alert(_("Success"), _("Updater patched! Rebooting..."));
-  rg_system_restart();
-}
-
-static rg_gui_event_t self_update_cb(rg_gui_option_t *option,
-                                     rg_gui_event_t event) {
-  if (event == RG_DIALOG_ENTER) {
-    update_updater_from_img(RG_STORAGE_ROOT "/update.img");
-    return RG_DIALOG_REDRAW;
-  }
-  return RG_DIALOG_VOID;
-}
 
 #define SETTING_WEBUI "HTTPFileServer"
 
@@ -235,19 +146,6 @@ static rg_gui_event_t startup_app_cb(rg_gui_option_t *option,
 }
 
 #ifdef RG_ENABLE_NETWORKING
-static rg_gui_event_t updater_cb(rg_gui_option_t *option,
-                                 rg_gui_event_t event) {
-  if (rg_network_get_info().state != RG_NETWORK_CONNECTED) {
-    option->flags = RG_DIALOG_FLAG_DISABLED;
-    return RG_DIALOG_VOID;
-  }
-  if (event == RG_DIALOG_ENTER) {
-    updater_show_dialog();
-    return RG_DIALOG_REDRAW;
-  }
-  return RG_DIALOG_VOID;
-}
-
 static rg_gui_event_t webui_switch_cb(rg_gui_option_t *option,
                                       rg_gui_event_t event) {
   bool enabled = rg_settings_get_number(NS_APP, SETTING_WEBUI, 0);
@@ -506,10 +404,6 @@ static void about_handler(rg_gui_option_t *dest) {
                               RG_DIALOG_FLAG_NORMAL, &prebuild_cache_cb};
   *dest++ = (rg_gui_option_t){0, _("Local update"), NULL, RG_DIALOG_FLAG_NORMAL,
                               &local_update_cb};
-  if (rg_storage_exists(RG_STORAGE_ROOT "/update.img")) {
-    *dest++ = (rg_gui_option_t){0, _("Update System Components"), NULL,
-                                RG_DIALOG_FLAG_NORMAL, &self_update_cb};
-  }
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
