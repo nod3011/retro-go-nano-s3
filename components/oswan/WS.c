@@ -5,6 +5,8 @@ $Rev: 71 $
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 // #include "entry.h"
 #include "WS.h"
@@ -17,7 +19,8 @@ $Rev: 71 $
 #include "cpu/necintrf.h"
 
 extern void ws_graphics_paint(void); // SDL drawing of screen
-#include <rg_system.h>
+#include "rg_system.h"
+#include "rg_utils.h"
 extern void init_ModRM_tables(void);
 
 #define IPeriod 32                // HBlank/8 (256/8)
@@ -58,17 +61,20 @@ static WORD DefColor[] = {MONO(0xF), MONO(0xE), MONO(0xD), MONO(0xC),
                           MONO(0x7), MONO(0x6), MONO(0x5), MONO(0x4),
                           MONO(0x3), MONO(0x2), MONO(0x1), MONO(0x0)};
 
+int SCREEN_WIDTH = 240;
+int SCREEN_HEIGHT = 144;
+
 void WsAllocateBuffers(void) {
   // ROMMap RAMMap IO - 256 BYTES
-  ROMMap = (BYTE **)malloc(0x100u * sizeof(BYTE *));
-  RAMMap = (BYTE **)malloc(0x100u * sizeof(BYTE *));
-  IO = (BYTE *)malloc(0x100u);
+  ROMMap = (BYTE **)rg_alloc(0x100u * sizeof(BYTE *), MEM_ANY);
+  RAMMap = (BYTE **)rg_alloc(0x100u * sizeof(BYTE *), MEM_ANY);
+  IO = (BYTE *)rg_alloc(0x100u, MEM_FAST);
   memset(ROMMap, 0, 0x100u * sizeof(BYTE *));
   memset(RAMMap, 0, 0x100u * sizeof(BYTE *));
   memset(IO, 0, 0x100u);
 
-  // 64 KB IRAM
-  IRAM = (BYTE *)malloc(0x10000u);
+  // 64 KB IRAM - Must be in FAST RAM for performance (WSC games use it heavily)
+  IRAM = (BYTE *)rg_alloc(0x10000u, MEM_FAST);
   memset(IRAM, 0, 0x10000u);
 }
 
@@ -787,7 +793,7 @@ static int Joyz = 0x0000;
         } \
     }
 
-int WsRun(void) {
+int WsRun(bool drawFrame) {
   static int period = IPeriod * 2;
   int cycle;
 
@@ -813,13 +819,7 @@ int WsRun(void) {
         }
 
         if (LCDSLP & 0x01) {
-            if (RSTRL == 0) {
-                SkipCnt--;
-                if (SkipCnt < 0) {
-                    SkipCnt = 4;
-                }
-            }
-            if (TblSkip[FrameSkip][SkipCnt]) {
+            if (drawFrame) {
                 if (RSTRL < 144) {
                     RefreshLine(RSTRL);
                 }

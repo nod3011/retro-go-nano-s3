@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-set(COMPONENTS "main retro-go fceumm gnuboy pce-go gw-emulator handy smsplus nofrendo")
+set(COMPONENTS "main retro-go fceumm pce-go gw-emulator handy smsplus nofrendo")
 if(NOT DEFINED RG_ENABLE_NETWORKING)
     set(RG_ENABLE_NETWORKING 0)
 endif()

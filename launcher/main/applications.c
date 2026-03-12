@@ -691,11 +691,11 @@ void applications_init(void) {
   application("Nintendo Entertainment System", "nes", "nes fc zip",
               "retro-core", 16);
   application("Famicom Disk System", "fds", "fds zip", "retro-core", 16);
-  application("Nintendo Gameboy", "gb", "gb gbc zip", "retro-core", 0);
-  application("Nintendo Gameboy Color", "gbc", "gbc gb zip", "retro-core", 0);
+  application("Nintendo Gameboy", "gb", "gb gbc zip", "gnuboy", 0);
+  application("Nintendo Gameboy Color", "gbc", "gbc gb zip", "gnuboy", 0);
   application("Sega Game Gear", "gg", "gg zip", "retro-core", 0);
   application("Neo Geo Pocket", "ngp", "ngc zip", "ngp", 0);
-  application("WonderSwan", "ws", "ws wsc zip", "ws", 0);
+  application("WonderSwan", "ws", "ws wsc zip", "oswan", 0);
   application("NEC PC Engine", "pce", "pce zip", "retro-core", 0);
   application("Sega Mega Drive", "md", "md gen bin zip", "gwenesis", 0);
   application("Super Nintendo", "snes", "smc sfc zip", "snes9x", 0);

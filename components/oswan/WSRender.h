@@ -23,6 +23,7 @@ extern int Layer[3];
 extern int Segment[11];
 
 void AllocateBuffers(void);
+void WsSetVidBuf(void *ptr);
 void SetPalette(int addr);
 void RefreshLine(int Line);
 void RenderSegment(void);

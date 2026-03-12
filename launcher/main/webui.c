@@ -221,6 +221,7 @@ void webui_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
+    config.core_id = 0;
 
     esp_err_t err = httpd_start(&server, &config);
     if (err != ESP_OK)

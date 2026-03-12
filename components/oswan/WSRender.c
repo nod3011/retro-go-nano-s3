@@ -4,11 +4,14 @@ $Rev: 71 $
 */
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 
 
 #include "WS.h"
 #include "WSRender.h"
 #include "WSSegment.h"
+#include "rg_system.h"
+#include "rg_utils.h"
 
 #if defined(ESP32) || defined(ESP_PLATFORM)
 #include <esp_attr.h>
@@ -49,20 +52,26 @@ int Segment[11];
 WORD *SegmentBuffer = NULL;
 #endif
 
+void WsSetVidBuf(void *ptr) {
+  FrameBuffer = (WORD *)ptr;
+}
+
 void AllocateBuffers(void) {
   // SprTMap : 1024 bytes to prevent overflow if SPRCNT > 128
-  SprTMap = (BYTE *)malloc(1024 * sizeof(BYTE));
+  SprTMap = (BYTE *)rg_alloc(1024 * sizeof(BYTE), MEM_FAST);
   memset(SprTMap, 0, 1024 * sizeof(BYTE));
 
-  // FrameBuffer : LINE_SIZE * LCD_MAIN_H WORDs + padding to prevent underflow
-  FrameBuffer_real =
-      (WORD *)malloc((LINE_SIZE * LCD_MAIN_H + 8) * sizeof(WORD));
-  memset(FrameBuffer_real, 0, (LINE_SIZE * LCD_MAIN_H + 8) * sizeof(WORD));
-  FrameBuffer = FrameBuffer_real + 8;
+  if (!FrameBuffer) {
+    // FrameBuffer is usually provided by main.c, but fallback just in case.
+    FrameBuffer_real =
+        (WORD *)rg_alloc((LINE_SIZE * LCD_MAIN_H + 8) * sizeof(WORD), MEM_FAST);
+    memset(FrameBuffer_real, 0, (LINE_SIZE * LCD_MAIN_H + 8) * sizeof(WORD));
+    FrameBuffer = FrameBuffer_real + 8;
+  }
 
 #ifdef WS_USE_SEGMENT_BUFFER
   // SegmentBuffer : (LCD_MAIN_H * 4) * (8 * 4) WORDs
-  SegmentBuffer = (WORD *)malloc((LCD_MAIN_H * 4) * (8 * 4) * sizeof(WORD));
+  SegmentBuffer = (WORD *)rg_alloc((LCD_MAIN_H * 4) * (8 * 4) * sizeof(WORD), MEM_FAST);
   memset(SegmentBuffer, 0, (LCD_MAIN_H * 4) * (8 * 4) * sizeof(WORD));
 #endif
 }
@@ -201,86 +210,48 @@ IRAM_ATTR void RefreshLine(int Line) {
           index[6] = (pbTData[1] & 0x0C) >> 2;
           index[7] = pbTData[1] & 0x03;
         }
-      } else {
+      } else { // Planar Mode
         if (COLCTL & 0x40) // 16 Color
         {
-          index[0] = (pbTData[0] & 0x80) ? 0x1 : 0;
-          index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-          index[0] |= (pbTData[2] & 0x80) ? 0x4 : 0;
-          index[0] |= (pbTData[3] & 0x80) ? 0x8 : 0;
-          index[1] = (pbTData[0] & 0x40) ? 0x1 : 0;
-          index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-          index[1] |= (pbTData[2] & 0x40) ? 0x4 : 0;
-          index[1] |= (pbTData[3] & 0x40) ? 0x8 : 0;
-          index[2] = (pbTData[0] & 0x20) ? 0x1 : 0;
-          index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-          index[2] |= (pbTData[2] & 0x20) ? 0x4 : 0;
-          index[2] |= (pbTData[3] & 0x20) ? 0x8 : 0;
-          index[3] = (pbTData[0] & 0x10) ? 0x1 : 0;
-          index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-          index[3] |= (pbTData[2] & 0x10) ? 0x4 : 0;
-          index[3] |= (pbTData[3] & 0x10) ? 0x8 : 0;
-          index[4] = (pbTData[0] & 0x08) ? 0x1 : 0;
-          index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-          index[4] |= (pbTData[2] & 0x08) ? 0x4 : 0;
-          index[4] |= (pbTData[3] & 0x08) ? 0x8 : 0;
-          index[5] = (pbTData[0] & 0x04) ? 0x1 : 0;
-          index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-          index[5] |= (pbTData[2] & 0x04) ? 0x4 : 0;
-          index[5] |= (pbTData[3] & 0x04) ? 0x8 : 0;
-          index[6] = (pbTData[0] & 0x02) ? 0x1 : 0;
-          index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-          index[6] |= (pbTData[2] & 0x02) ? 0x4 : 0;
-          index[6] |= (pbTData[3] & 0x02) ? 0x8 : 0;
-          index[7] = (pbTData[0] & 0x01) ? 0x1 : 0;
-          index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
-          index[7] |= (pbTData[2] & 0x01) ? 0x4 : 0;
-          index[7] |= (pbTData[3] & 0x01) ? 0x8 : 0;
+          uint32_t b0 = pbTData[0], b1 = pbTData[1], b2 = pbTData[2], b3 = pbTData[3];
+          for (int k = 0; k < 8; k++) {
+            int shift = 7 - k;
+            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1) | (((b2 >> shift) & 1) << 2) | (((b3 >> shift) & 1) << 3);
+          }
         } else // 4 Color
         {
-          index[0] = (pbTData[0] & 0x80) ? 0x1 : 0;
-          index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-          index[1] = (pbTData[0] & 0x40) ? 0x1 : 0;
-          index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-          index[2] = (pbTData[0] & 0x20) ? 0x1 : 0;
-          index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-          index[3] = (pbTData[0] & 0x10) ? 0x1 : 0;
-          index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-          index[4] = (pbTData[0] & 0x08) ? 0x1 : 0;
-          index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-          index[5] = (pbTData[0] & 0x04) ? 0x1 : 0;
-          index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-          index[6] = (pbTData[0] & 0x02) ? 0x1 : 0;
-          index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-          index[7] = (pbTData[0] & 0x01) ? 0x1 : 0;
-          index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
+          uint32_t b0 = pbTData[0], b1 = pbTData[1];
+          for (int k = 0; k < 8; k++) {
+            int shift = 7 - k;
+            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1);
+          }
         }
       }
 
-      if (TMap & MAP_HREV) {
-        j = index[0];
-        index[0] = index[7];
-        index[7] = j;
-        j = index[1];
-        index[1] = index[6];
-        index[6] = j;
-        j = index[2];
-        index[2] = index[5];
-        index[5] = j;
-        j = index[3];
-        index[3] = index[4];
-        index[4] = j;
-      }
-
       const int is_transparent_0 = (COLCTL & 0x40) || (TMap & 0x0800);
-      PalIndex = (TMap & MAP_PAL) >> 9;
-      for (int k = 0; k < 8; k++) {
-        if (index[k]) {
-          *pSWrBuf++ = Palette[PalIndex][index[k]];
-        } else if (!is_transparent_0) {
-          *pSWrBuf++ = Palette[PalIndex][0];
-        } else {
-          pSWrBuf++;
+      WORD *pal = Palette[(TMap & MAP_PAL) >> 9];
+      
+      if (TMap & MAP_HREV) {
+        for (int k = 0; k < 8; k++) {
+          int idx = index[7-k];
+          if (idx) {
+            *pSWrBuf++ = pal[idx];
+          } else if (!is_transparent_0) {
+            *pSWrBuf++ = pal[0];
+          } else {
+            pSWrBuf++;
+          }
+        }
+      } else {
+        for (int k = 0; k < 8; k++) {
+          int idx = index[k];
+          if (idx) {
+            *pSWrBuf++ = pal[idx];
+          } else if (!is_transparent_0) {
+            *pSWrBuf++ = pal[0];
+          } else {
+            pSWrBuf++;
+          }
         }
       }
     }
@@ -383,59 +354,21 @@ IRAM_ATTR void RefreshLine(int Line) {
           index[6] = (pbTData[1] & 0x0C) >> 2;
           index[7] = pbTData[1] & 0x03;
         }
-      } else {
+      } else { // Planar Mode
         if (COLCTL & 0x40) // 16 Color
         {
-          index[0] = (pbTData[0] & 0x80) ? 0x1 : 0;
-          index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-          index[0] |= (pbTData[2] & 0x80) ? 0x4 : 0;
-          index[0] |= (pbTData[3] & 0x80) ? 0x8 : 0;
-          index[1] = (pbTData[0] & 0x40) ? 0x1 : 0;
-          index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-          index[1] |= (pbTData[2] & 0x40) ? 0x4 : 0;
-          index[1] |= (pbTData[3] & 0x40) ? 0x8 : 0;
-          index[2] = (pbTData[0] & 0x20) ? 0x1 : 0;
-          index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-          index[2] |= (pbTData[2] & 0x20) ? 0x4 : 0;
-          index[2] |= (pbTData[3] & 0x20) ? 0x8 : 0;
-          index[3] = (pbTData[0] & 0x10) ? 0x1 : 0;
-          index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-          index[3] |= (pbTData[2] & 0x10) ? 0x4 : 0;
-          index[3] |= (pbTData[3] & 0x10) ? 0x8 : 0;
-          index[4] = (pbTData[0] & 0x08) ? 0x1 : 0;
-          index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-          index[4] |= (pbTData[2] & 0x08) ? 0x4 : 0;
-          index[4] |= (pbTData[3] & 0x08) ? 0x8 : 0;
-          index[5] = (pbTData[0] & 0x04) ? 0x1 : 0;
-          index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-          index[5] |= (pbTData[2] & 0x04) ? 0x4 : 0;
-          index[5] |= (pbTData[3] & 0x04) ? 0x8 : 0;
-          index[6] = (pbTData[0] & 0x02) ? 0x1 : 0;
-          index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-          index[6] |= (pbTData[2] & 0x02) ? 0x4 : 0;
-          index[6] |= (pbTData[3] & 0x02) ? 0x8 : 0;
-          index[7] = (pbTData[0] & 0x01) ? 0x1 : 0;
-          index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
-          index[7] |= (pbTData[2] & 0x01) ? 0x4 : 0;
-          index[7] |= (pbTData[3] & 0x01) ? 0x8 : 0;
+          uint32_t b0 = pbTData[0], b1 = pbTData[1], b2 = pbTData[2], b3 = pbTData[3];
+          for (int k = 0; k < 8; k++) {
+            int shift = 7 - k;
+            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1) | (((b2 >> shift) & 1) << 2) | (((b3 >> shift) & 1) << 3);
+          }
         } else // 4 Color
         {
-          index[0] = (pbTData[0] & 0x80) ? 0x1 : 0;
-          index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-          index[1] = (pbTData[0] & 0x40) ? 0x1 : 0;
-          index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-          index[2] = (pbTData[0] & 0x20) ? 0x1 : 0;
-          index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-          index[3] = (pbTData[0] & 0x10) ? 0x1 : 0;
-          index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-          index[4] = (pbTData[0] & 0x08) ? 0x1 : 0;
-          index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-          index[5] = (pbTData[0] & 0x04) ? 0x1 : 0;
-          index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-          index[6] = (pbTData[0] & 0x02) ? 0x1 : 0;
-          index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-          index[7] = (pbTData[0] & 0x01) ? 0x1 : 0;
-          index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
+          uint32_t b0 = pbTData[0], b1 = pbTData[1];
+          for (int k = 0; k < 8; k++) {
+            int shift = 7 - k;
+            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1);
+          }
         }
       }
 
@@ -455,18 +388,37 @@ IRAM_ATTR void RefreshLine(int Line) {
       }
 
       const int is_transparent_0 = (COLCTL & 0x40) || (TMap & 0x0800);
-      PalIndex = (TMap & MAP_PAL) >> 9;
-      for (int k = 0; k < 8; k++, pW++, pZ++) {
-        if (*pW) {
-          pSWrBuf++;
-        } else if (index[k]) {
-          *pSWrBuf++ = Palette[PalIndex][index[k]];
-          *pZ = 1;
-        } else if (!is_transparent_0) {
-          *pSWrBuf++ = Palette[PalIndex][0];
-          *pZ = 1;
-        } else {
-          pSWrBuf++;
+      WORD *pal = Palette[(TMap & MAP_PAL) >> 9];
+
+      if (TMap & MAP_HREV) {
+        for (int k = 0; k < 8; k++, pW++, pZ++) {
+          int idx = index[7-k];
+          if (*pW) {
+            pSWrBuf++;
+          } else if (idx) {
+            *pSWrBuf++ = pal[idx];
+            *pZ = 1;
+          } else if (!is_transparent_0) {
+            *pSWrBuf++ = pal[0];
+            *pZ = 1;
+          } else {
+            pSWrBuf++;
+          }
+        }
+      } else {
+        for (int k = 0; k < 8; k++, pW++, pZ++) {
+          int idx = index[k];
+          if (*pW) {
+            pSWrBuf++;
+          } else if (idx) {
+            *pSWrBuf++ = pal[idx];
+            *pZ = 1;
+          } else if (!is_transparent_0) {
+            *pSWrBuf++ = pal[0];
+            *pZ = 1;
+          } else {
+            pSWrBuf++;
+          }
         }
       }
     }
@@ -553,59 +505,21 @@ IRAM_ATTR void RefreshLine(int Line) {
           index[6] = (pbTData[1] & 0x0C) >> 2;
           index[7] = pbTData[1] & 0x03;
         }
-      } else {
+      } else { // Planar Mode
         if (COLCTL & 0x40) // 16 Color
         {
-          index[0] = (pbTData[0] & 0x80) ? 0x1 : 0;
-          index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-          index[0] |= (pbTData[2] & 0x80) ? 0x4 : 0;
-          index[0] |= (pbTData[3] & 0x80) ? 0x8 : 0;
-          index[1] = (pbTData[0] & 0x40) ? 0x1 : 0;
-          index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-          index[1] |= (pbTData[2] & 0x40) ? 0x4 : 0;
-          index[1] |= (pbTData[3] & 0x40) ? 0x8 : 0;
-          index[2] = (pbTData[0] & 0x20) ? 0x1 : 0;
-          index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-          index[2] |= (pbTData[2] & 0x20) ? 0x4 : 0;
-          index[2] |= (pbTData[3] & 0x20) ? 0x8 : 0;
-          index[3] = (pbTData[0] & 0x10) ? 0x1 : 0;
-          index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-          index[3] |= (pbTData[2] & 0x10) ? 0x4 : 0;
-          index[3] |= (pbTData[3] & 0x10) ? 0x8 : 0;
-          index[4] = (pbTData[0] & 0x08) ? 0x1 : 0;
-          index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-          index[4] |= (pbTData[2] & 0x08) ? 0x4 : 0;
-          index[4] |= (pbTData[3] & 0x08) ? 0x8 : 0;
-          index[5] = (pbTData[0] & 0x04) ? 0x1 : 0;
-          index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-          index[5] |= (pbTData[2] & 0x04) ? 0x4 : 0;
-          index[5] |= (pbTData[3] & 0x04) ? 0x8 : 0;
-          index[6] = (pbTData[0] & 0x02) ? 0x1 : 0;
-          index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-          index[6] |= (pbTData[2] & 0x02) ? 0x4 : 0;
-          index[6] |= (pbTData[3] & 0x02) ? 0x8 : 0;
-          index[7] = (pbTData[0] & 0x01) ? 0x1 : 0;
-          index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
-          index[7] |= (pbTData[2] & 0x01) ? 0x4 : 0;
-          index[7] |= (pbTData[3] & 0x01) ? 0x8 : 0;
+          uint32_t b0 = pbTData[0], b1 = pbTData[1], b2 = pbTData[2], b3 = pbTData[3];
+          for (int k = 0; k < 8; k++) {
+            int shift = 7 - k;
+            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1) | (((b2 >> shift) & 1) << 2) | (((b3 >> shift) & 1) << 3);
+          }
         } else // 4 Color
         {
-          index[0] = (pbTData[0] & 0x80) ? 0x1 : 0;
-          index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-          index[1] = (pbTData[0] & 0x40) ? 0x1 : 0;
-          index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-          index[2] = (pbTData[0] & 0x20) ? 0x1 : 0;
-          index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-          index[3] = (pbTData[0] & 0x10) ? 0x1 : 0;
-          index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-          index[4] = (pbTData[0] & 0x08) ? 0x1 : 0;
-          index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-          index[5] = (pbTData[0] & 0x04) ? 0x1 : 0;
-          index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-          index[6] = (pbTData[0] & 0x02) ? 0x1 : 0;
-          index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-          index[7] = (pbTData[0] & 0x01) ? 0x1 : 0;
-          index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
+          uint32_t b0 = pbTData[0], b1 = pbTData[1];
+          for (int k = 0; k < 8; k++) {
+            int shift = 7 - k;
+            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1);
+          }
         }
       }
 
@@ -632,8 +546,10 @@ IRAM_ATTR void RefreshLine(int Line) {
       const int check_window = (DSPCTL & 0x08);
       const int sprite_clip = (TMap & SPR_CLIP);
       const int sprite_layer = (TMap & SPR_LAYR);
+      WORD *pal = Palette[((TMap & SPR_PAL) >> 9) + 8];
 
       for (i = 0; i < 8; i++, pZ++, pW++) {
+        int idx = (TMap & SPR_HREV) ? index[7 - i] : index[i];
         if (check_window) {
           if (sprite_clip) {
             if (!*pW) {
@@ -647,7 +563,7 @@ IRAM_ATTR void RefreshLine(int Line) {
             }
           }
         }
-        if (!index[i]) {
+        if (!idx) {
           if (is_transparent_0) {
             pSWrBuf++;
             continue;
@@ -657,7 +573,7 @@ IRAM_ATTR void RefreshLine(int Line) {
           pSWrBuf++;
           continue;
         }
-        *pSWrBuf++ = Palette[PalIndex][index[i]];
+        *pSWrBuf++ = pal[idx];
       }
     }
   }

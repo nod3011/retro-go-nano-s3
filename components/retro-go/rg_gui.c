@@ -2103,6 +2103,7 @@ static rg_gui_event_t app_options_cb(rg_gui_option_t *option, rg_gui_event_t eve
 
 int rg_gui_options_menu(void)
 {
+    const rg_app_t *app = rg_system_get_app();
     rg_gui_option_t options[20] = {
 #if RG_SCREEN_BACKLIGHT
         {0, _("Brightness"), "-", RG_DIALOG_FLAG_NORMAL, &brightness_update_cb},
@@ -2138,12 +2139,11 @@ int rg_gui_options_menu(void)
 #endif
         {0, _("Emulator options"), NULL, RG_DIALOG_FLAG_NORMAL, &app_options_cb   },
 #ifdef RG_ENABLE_NETPLAY
-        {0, _("Netplay"),          NULL, RG_DIALOG_FLAG_NORMAL, &netplay_cb       },
+        {0, _("Netplay"),          NULL, (strcmp(app->configNs, "nes") == 0 || strcmp(app->configNs, "fds") == 0) ? RG_DIALOG_FLAG_HIDDEN : RG_DIALOG_FLAG_NORMAL, &netplay_cb},
 #endif
         RG_DIALOG_END,
     };
 
-    const rg_app_t *app = rg_system_get_app();
     if (app->isLauncher)
         memcpy(options + get_dialog_items_count(options), misc_options, sizeof(misc_options));
     else

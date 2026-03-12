@@ -1,16 +1,20 @@
 #include <rg_system.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+#include "WSRender.h"
 
 extern void WsInit(void);
 extern void WsReset(void);
-extern int WsRun(void);
+extern int WsRun(bool drawFrame);
 extern int WsCreateFromMemory(const uint8_t *rom, size_t len);
 extern int WsLoadState(const char *filename);
 extern int WsSaveState(const char *filename);
 extern void AllocateBuffers(void);
 extern uint16_t *FrameBuffer;
+extern int SCREEN_WIDTH;
+extern int SCREEN_HEIGHT;
 
 // From WS.h / WSHard.h
 // Buttons are active low.
@@ -44,6 +48,7 @@ uint32_t lastPadState = 0;
 static rg_app_t *app;
 static rg_surface_t *updates[2];
 static rg_surface_t *update;
+static int currentBufferIndex = 0;
 static bool use_y_pad = false;
 
 int ws_input_poll(int mode) {
@@ -126,19 +131,12 @@ int ws_input_poll(int mode) {
 
 // Submit sound and video after a frame
 static void IRAM_ATTR SubmitFrame(void) {
-  // Swap buffers to avoid writing into the active display DMA buffer
-  update = updates[update == updates[0] ? 1 : 0];
+  update->width = WIDTH;
+  update->height = HEIGHT;
+  rg_display_submit(update, RG_DISPLAY_WRITE_NOSYNC);
+}
 
-  uint8_t *dst = (uint8_t *)update->data;
-  const uint16_t *src = FrameBuffer;
-  for (int y = 0; y < HEIGHT; ++y) {
-    memcpy(dst, src, WIDTH * sizeof(uint16_t));
-    dst += update->stride;
-    src += 240; // SCREEN_WIDTH from oswan is 240
-  }
-
-  rg_display_submit(update, 0);
-
+static void update_audio(void) {
   // Drain Audio from oswan buffer
   int have = apuBufLen();
   while (have > 0) {
@@ -197,12 +195,25 @@ void app_main(void) {
       .event = &event_handler,
   };
 
-  app = rg_system_init(48000, &handlers, event_handler);
+  app = rg_system_init(48000, &handlers, NULL);
   rg_system_set_tick_rate(75);
 
-  updates[0] = rg_surface_create(WIDTH, HEIGHT, RG_PIXEL_565_LE, MEM_FAST);
-  updates[1] = rg_surface_create(WIDTH, HEIGHT, RG_PIXEL_565_LE, MEM_FAST);
-  update = updates[0];
+  int device_width = rg_display_get_width();
+  int device_height = rg_display_get_height();
+  int allocated_width = device_width + 16;
+  int margin_offset = 8 * 2; // 8 pixels padding on the left
+
+  SCREEN_WIDTH = allocated_width;
+  SCREEN_HEIGHT = device_height;
+
+  for (int i = 0; i < 2; i++) {
+    updates[i] = rg_surface_create(allocated_width, HEIGHT, RG_PIXEL_565_LE, MEM_FAST);
+    updates[i]->width = device_width;
+    updates[i]->offset = margin_offset;
+  }
+  currentBufferIndex = 0;
+  update = updates[currentBufferIndex];
+  WsSetVidBuf((uint8_t *)update->data + update->offset);
 
   // Map internal oswan buffer directly? Emulators buffer might be incompatible.
   // Instead we will copy during SubmitFrame or map directly.
@@ -233,13 +244,44 @@ void app_main(void) {
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
   } else {
+    extern void WsSplash(void);
     WsSplash();
   }
+  int skipFrames = 0;
 
   for (;;) {
-    WsRun();
+    ws_input_poll(0);
 
-    // Input is polled synchronously by WsRun, we just need to pass the frame
+    bool drawFrame = !skipFrames;
+
+    // Switch buffers and set target for next frame
+    if (drawFrame) {
+      currentBufferIndex = (currentBufferIndex + 1) % 2;
+      update = updates[currentBufferIndex];
+      WsSetVidBuf((uint8_t *)update->data + update->offset);
+    }
+
+    int64_t startTime = rg_system_timer();
+
+    WsRun(drawFrame);
+
+    // Tick before submitting audio/syncing
+    rg_system_tick(rg_system_timer() - startTime);
+
+    // Audio submission provides the pacing (sync)
+    update_audio();
+
+    if (skipFrames == 0) {
+      int64_t elapsed = rg_system_timer() - startTime;
+      if (elapsed > app->frameTime + 1500) { // Slight jitter allowed
+        skipFrames = 1;
+      }
+    } else {
+      skipFrames--;
+    }
+
+    if (rg_system_exit_called())
+      break;
   }
 
   rg_system_exit();

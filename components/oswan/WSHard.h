@@ -8,24 +8,26 @@ $Rev: 71 $
 
 #define LCD_MAIN_W 224
 #define LCD_MAIN_H 144
-#define SCREEN_WIDTH 240
-#define SCREEN_HEIGHT 135
+extern int SCREEN_WIDTH;
+extern int SCREEN_HEIGHT;
 
 typedef unsigned char BYTE;
 typedef unsigned short WORD;
 typedef unsigned long DWORD;
 
 typedef void  (*WriteMemFn) (DWORD A, BYTE V);
+extern BYTE *Page[16];
 extern WriteMemFn WriteMemFnTable[0x10];
 BYTE  ReadMem(DWORD A);
 void  WriteMem(DWORD A, BYTE V);
 void  WriteIO(DWORD A, BYTE V);
 BYTE  ReadIO(DWORD A);
 
-#define cpu_readop(A)               (ReadMem(A))
-#define cpu_readop_arg(A)           (ReadMem(A))
-#define cpu_readmem20(A)            (ReadMem(A))
-#define cpu_writemem20(A, D)        (WriteMem((A), (BYTE)(D)))
+static inline BYTE cpu_readop(DWORD A) { return Page[(A >> 16) & 0xF][A & 0xFFFF]; }
+static inline BYTE cpu_readop_arg(DWORD A) { return Page[(A >> 16) & 0xF][A & 0xFFFF]; }
+static inline BYTE cpu_readmem20(DWORD A) { return Page[(A >> 16) & 0xF][A & 0xFFFF]; }
+static inline void cpu_writemem20(DWORD A, BYTE D) { (*WriteMemFnTable[(A >> 16) & 0x0F])(A, D); }
+
 #define cpu_readport(port)          (ReadIO((port)))
 #define cpu_writeport(port, val)    (WriteIO((port), (BYTE)(val)))
 #define cpu_readport16(port)        (ReadIO((port)))

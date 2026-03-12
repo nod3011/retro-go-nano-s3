@@ -1,7 +1,10 @@
-#include "shared.h"
-
 #include <gnuboy.h>
+#include <rg_system.h>
 #include <sys/time.h>
+#include <time.h>
+
+#define AUDIO_SAMPLE_RATE (32000)
+#define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 50 + 1)
 
 static int skipFrames = 0;
 static bool slowFrame = false;
@@ -23,6 +26,7 @@ static const char *SETTING_SAVESRAM = "SaveSRAM";
 static const char *SETTING_PALETTE = "Palette";
 static const char *SETTING_SYSTIME = "SysTime";
 static const char *SETTING_LOADBIOS = "LoadBIOS";
+
 // --- MAIN
 
 #ifdef RG_ENABLE_NETPLAY
@@ -95,31 +99,23 @@ static bool save_state_handler(const char *filename) {
 
 static bool load_state_handler(const char *filename) {
   if (gnuboy_load_state(filename) != 0) {
-    // If a state fails to load then we should behave as we do on boot
-    // which is a hard reset and load sram if present
     gnuboy_reset(true);
     gnuboy_load_sram(sramFile);
     update_rtc_time();
-
     return false;
   }
 
   update_rtc_time();
-
   skipFrames = 0;
   autoSaveSRAM_Timer = 0;
-
-  // TO DO: Call rtc_sync() if a physical RTC is present
   return true;
 }
 
 static bool reset_handler(bool hard) {
   gnuboy_reset(hard);
   update_rtc_time();
-
   skipFrames = 0;
   autoSaveSRAM_Timer = 0;
-
   return true;
 }
 
@@ -200,8 +196,6 @@ static rg_gui_event_t netplay_start_cb(rg_gui_option_t *option,
 
   if (event == RG_DIALOG_ENTER) {
     if (status == NETPLAY_STATUS_CONNECTED) {
-      // Already connected, maybe just acknowledge or offer to stop?
-      // For now, let's just stay in the menu.
       return RG_DIALOG_VOID;
     }
     if (rg_netplay_quick_start()) {
@@ -224,35 +218,26 @@ static rg_gui_event_t netplay_start_cb(rg_gui_option_t *option,
 static rg_gui_event_t rtc_t_update_cb(rg_gui_option_t *option,
                                       rg_gui_event_t event) {
   int d, h, m, s;
-
   gnuboy_get_time(&d, &h, &m, &s);
 
   if (option->arg == 'd') {
-    if (event == RG_DIALOG_PREV && --d < 0)
-      d = 364;
-    if (event == RG_DIALOG_NEXT && ++d > 364)
-      d = 0;
+    if (event == RG_DIALOG_PREV && --d < 0) d = 364;
+    if (event == RG_DIALOG_NEXT && ++d > 364) d = 0;
     sprintf(option->value, "%02d", d);
   }
   if (option->arg == 'h') {
-    if (event == RG_DIALOG_PREV && --h < 0)
-      h = 23;
-    if (event == RG_DIALOG_NEXT && ++h > 23)
-      h = 0;
+    if (event == RG_DIALOG_PREV && --h < 0) h = 23;
+    if (event == RG_DIALOG_NEXT && ++h > 23) h = 0;
     sprintf(option->value, "%02d", h);
   }
   if (option->arg == 'm') {
-    if (event == RG_DIALOG_PREV && --m < 0)
-      m = 59;
-    if (event == RG_DIALOG_NEXT && ++m > 59)
-      m = 0;
+    if (event == RG_DIALOG_PREV && --m < 0) m = 59;
+    if (event == RG_DIALOG_NEXT && ++m > 59) m = 0;
     sprintf(option->value, "%02d", m);
   }
   if (option->arg == 's') {
-    if (event == RG_DIALOG_PREV && --s < 0)
-      s = 59;
-    if (event == RG_DIALOG_NEXT && ++s > 59)
-      s = 0;
+    if (event == RG_DIALOG_PREV && --s < 0) s = 59;
+    if (event == RG_DIALOG_NEXT && ++s > 59) s = 0;
     sprintf(option->value, "%02d", s);
   }
   if (option->arg == 'x') {
@@ -264,9 +249,6 @@ static rg_gui_event_t rtc_t_update_cb(rg_gui_option_t *option,
   }
 
   gnuboy_set_time(d, h, m, s);
-
-  // TO DO: Update system clock
-
   return RG_DIALOG_VOID;
 }
 
@@ -306,24 +288,19 @@ static void options_handler(rg_gui_option_t *dest) {
   bool is_netplay_menu = (title && strcmp(title, _("Netplay")) == 0);
 
   if (!is_netplay_menu) {
-    *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL,
-                                &palette_update_cb};
-    *dest++ = (rg_gui_option_t){0, _("RTC config"), "-", RG_DIALOG_FLAG_NORMAL,
-                                &rtc_update_cb};
-    *dest++ = (rg_gui_option_t){0, _("SRAM autosave"), "-",
-                                RG_DIALOG_FLAG_NORMAL, &sram_autosave_cb};
-    *dest++ = (rg_gui_option_t){0, _("Enable BIOS"), "-", RG_DIALOG_FLAG_NORMAL,
-                                &enable_bios_cb};
+    *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL, &palette_update_cb};
+    *dest++ = (rg_gui_option_t){0, _("RTC config"), "-", RG_DIALOG_FLAG_NORMAL, &rtc_update_cb};
+    *dest++ = (rg_gui_option_t){0, _("SRAM autosave"), "-", RG_DIALOG_FLAG_NORMAL, &sram_autosave_cb};
+    *dest++ = (rg_gui_option_t){0, _("Enable BIOS"), "-", RG_DIALOG_FLAG_NORMAL, &enable_bios_cb};
   } else {
 #ifdef RG_ENABLE_NETPLAY
-    *dest++ = (rg_gui_option_t){0, _("Netplay quick start"), "-",
-                                RG_DIALOG_FLAG_NORMAL, &netplay_start_cb};
+    *dest++ = (rg_gui_option_t){0, _("Netplay quick start"), "-", RG_DIALOG_FLAG_NORMAL, &netplay_start_cb};
 #endif
   }
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
-void gbc_main(void) {
+void app_main(void) {
   const rg_handlers_t handlers = {
       .loadState = &load_state_handler,
       .saveState = &save_state_handler,
@@ -333,13 +310,11 @@ void gbc_main(void) {
       .options = &options_handler,
   };
 
-  app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+  app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
   rg_system_set_overclock(0);
 
-  updates[0] =
-      rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
-  updates[1] =
-      rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
+  updates[0] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
+  updates[1] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
   currentUpdate = updates[0];
 
   useSystemTime = (bool)rg_settings_get_number(NS_APP, SETTING_SYSTIME, 1);
@@ -350,9 +325,7 @@ void gbc_main(void) {
   if (!rg_storage_mkdir(rg_dirname(sramFile)))
     RG_LOGE("Unable to create SRAM folder...");
 
-  // Initialize the emulator
-  if (gnuboy_init(app->sampleRate, GB_AUDIO_STEREO_S16, GB_PIXEL_565_BE,
-                  &video_callback, &audio_callback) < 0)
+  if (gnuboy_init(app->sampleRate, GB_AUDIO_STEREO_S16, GB_PIXEL_565_BE, &video_callback, &audio_callback) < 0)
     RG_PANIC("Emulator init failed!");
 
 #ifdef RG_ENABLE_NETPLAY
@@ -361,32 +334,22 @@ void gbc_main(void) {
 #endif
 
   gnuboy_set_framebuffer(currentUpdate->data);
-  gnuboy_set_soundbuffer(rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_SLOW),
-                         AUDIO_BUFFER_LENGTH);
+  gnuboy_set_soundbuffer(rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_SLOW), AUDIO_BUFFER_LENGTH);
 
-  // Load ROM into PSRAM to avoid Internal RAM pressure
   void *rom_data = NULL;
   size_t rom_size = 0;
 
   if (rg_extension_match(app->romPath, "zip")) {
-    if (!rg_storage_unzip_file(app->romPath, NULL, &rom_data, &rom_size,
-                               RG_FILE_ALIGN_16KB | RG_FILE_USER_BUFFER)) {
-      // unzip might need to allocate its own buffer if we don't provide one?
-      // Actually rg_storage_unzip_file allocates if *data is NULL.
-      // Let's ensure it ends up in PSRAM.
-    }
+    rg_storage_unzip_file(app->romPath, NULL, &rom_data, &rom_size, RG_FILE_ALIGN_16KB);
   }
 
-  // If not unzipped or unzip failed to provide data in a specific way, load
-  // normally but into PSRAM
   if (!rom_data) {
     rg_stat_t st = rg_storage_stat(app->romPath);
     if (st.size > 0) {
       rom_size = st.size;
       rom_data = rg_alloc(rom_size, MEM_SLOW);
       if (rom_data) {
-        if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size,
-                                  RG_FILE_USER_BUFFER)) {
+        if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size, RG_FILE_USER_BUFFER)) {
           free(rom_data);
           rom_data = NULL;
         }
@@ -398,7 +361,6 @@ void gbc_main(void) {
     RG_PANIC("ROM Loading failed!");
   }
 
-  // Load BIOS
   if (loadBIOSFile) {
     if (gnuboy_get_hwtype() == GB_HW_CGB)
       gnuboy_load_bios_file(RG_BASE_PATH_BIOS "/gbc_bios.bin");
@@ -406,21 +368,15 @@ void gbc_main(void) {
       gnuboy_load_bios_file(RG_BASE_PATH_BIOS "/gb_bios.bin");
   }
 
-  gnuboy_set_palette(
-      rg_settings_get_number(NS_APP, SETTING_PALETTE, GB_PALETTE_DMG));
-
-  // Hard reset to have a clean slate
+  gnuboy_set_palette(rg_settings_get_number(NS_APP, SETTING_PALETTE, GB_PALETTE_DMG));
   gnuboy_reset(true);
 
-  // Load saved state or SRAM
   if (app->bootFlags & RG_BOOT_RESUME)
     rg_emu_load_state(app->saveSlot);
   else
     gnuboy_load_sram(sramFile);
 
   update_rtc_time();
-
-  // Ready!
 
   static uint32_t joystick_old = 0;
   static bool menu_cancelled = false;
@@ -435,23 +391,14 @@ void gbc_main(void) {
     turbo_counter++;
 
     if (joystick & RG_KEY_MENU) {
-      if (joystick_down & RG_KEY_A) {
-        turbo_a_toggled = !turbo_a_toggled;
-        RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
-      }
-      if (joystick_down & RG_KEY_B) {
-        turbo_b_toggled = !turbo_b_toggled;
-        RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
-      }
-      if (joystick & ~RG_KEY_MENU) {
-        menu_cancelled = true;
-      }
+      if (joystick_down & RG_KEY_A) turbo_a_toggled = !turbo_a_toggled;
+      if (joystick_down & RG_KEY_B) turbo_b_toggled = !turbo_b_toggled;
+      if (joystick & ~RG_KEY_MENU) menu_cancelled = true;
       menu_pressed = true;
     } else {
       if (joystick_old & RG_KEY_MENU) {
         if (!menu_cancelled) {
-          if (gnuboy_sram_dirty())
-            gnuboy_save_sram(sramFile, false);
+          if (gnuboy_sram_dirty()) gnuboy_save_sram(sramFile, false);
 #ifdef RG_ENABLE_NETPLAY
           rg_netplay_send_pause(true);
 #endif
@@ -477,25 +424,17 @@ void gbc_main(void) {
 
     if (!menu_pressed) {
       int pad = 0;
-      if (joystick & RG_KEY_UP)
-        pad |= GB_PAD_UP;
-      if (joystick & RG_KEY_RIGHT)
-        pad |= GB_PAD_RIGHT;
-      if (joystick & RG_KEY_DOWN)
-        pad |= GB_PAD_DOWN;
-      if (joystick & RG_KEY_LEFT)
-        pad |= GB_PAD_LEFT;
-      if (joystick & RG_KEY_SELECT)
-        pad |= GB_PAD_SELECT;
-      if (joystick & RG_KEY_START)
-        pad |= GB_PAD_START;
+      if (joystick & RG_KEY_UP) pad |= GB_PAD_UP;
+      if (joystick & RG_KEY_RIGHT) pad |= GB_PAD_RIGHT;
+      if (joystick & RG_KEY_DOWN) pad |= GB_PAD_DOWN;
+      if (joystick & RG_KEY_LEFT) pad |= GB_PAD_LEFT;
+      if (joystick & RG_KEY_SELECT) pad |= GB_PAD_SELECT;
+      if (joystick & RG_KEY_START) pad |= GB_PAD_START;
       if (joystick & RG_KEY_A) {
-        if (!turbo_a_toggled || (turbo_counter & 4))
-          pad |= GB_PAD_A;
+        if (!turbo_a_toggled || (turbo_counter & 4)) pad |= GB_PAD_A;
       }
       if (joystick & RG_KEY_B) {
-        if (!turbo_b_toggled || (turbo_counter & 4))
-          pad |= GB_PAD_B;
+        if (!turbo_b_toggled || (turbo_counter & 4)) pad |= GB_PAD_B;
       }
       gnuboy_set_pad(pad);
     }
@@ -514,31 +453,22 @@ void gbc_main(void) {
 
     if (autoSaveSRAM > 0) {
       if (autoSaveSRAM_Timer <= 0) {
-        if (gnuboy_sram_dirty()) {
-          autoSaveSRAM_Timer = autoSaveSRAM * 60;
-        }
+        if (gnuboy_sram_dirty()) autoSaveSRAM_Timer = autoSaveSRAM * 60;
       } else if (--autoSaveSRAM_Timer == 0) {
         gnuboy_save_sram(sramFile, true);
       }
     }
 
-    // Tick before submitting audio/syncing
     rg_system_tick(rg_system_timer() - startTime - audio_time);
 
-    // Adaptive frameskip logic
     if (skipFrames == 0) {
       int elapsed = rg_system_timer() - startTime;
-      if (app->frameskip > 0) {
-        skipFrames = app->frameskip;
-      } else if (slowFrame || elapsed > app->frameTime) {
-        // If we are significantly behind, skip more aggressively
-        skipFrames = (elapsed > app->frameTime * 2) ? 2 : 1;
-      }
+      if (app->frameskip > 0) skipFrames = app->frameskip;
+      else if (slowFrame || elapsed > app->frameTime) skipFrames = (elapsed > app->frameTime * 2) ? 2 : 1;
     } else if (skipFrames > 0) {
       skipFrames--;
     }
 
-    // Limit speed to 100%
     int64_t frameTime = rg_system_timer() - startTime;
     if (frameTime < app->frameTime && skipFrames == 0) {
       rg_usleep(app->frameTime - frameTime);

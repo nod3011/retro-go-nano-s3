@@ -326,7 +326,7 @@ static void netplay_init()
         ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE)); // Improves latency a lot
         ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-        rg_task_create("rg_netplay", &netplay_task, NULL, 8192, RG_TASK_PRIORITY_4, 1);
+        rg_task_create("rg_netplay", &netplay_task, NULL, 8192, RG_TASK_PRIORITY_4, 0);
     }
 }
 

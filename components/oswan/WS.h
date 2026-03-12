@@ -7,6 +7,7 @@ $Rev: 71 $
 #define WS_H_
 
 #include "WSHard.h"
+#include <stdbool.h>
 
 struct EEPROM
 {
@@ -34,7 +35,7 @@ extern int CartKind;
 void WriteIO(DWORD A, BYTE V);
 void WsReset (void);
 void WsRomPatch(BYTE *buf);
-int WsRun(void);
+int WsRun(bool drawFrame);
 void WsSplash(void);
 void WsCpyPdata(BYTE* dst);
 void Sleep(int);

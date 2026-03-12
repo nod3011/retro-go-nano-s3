@@ -41,6 +41,12 @@
 #include "nec.h"
 #include "necintrf.h"
 
+#if defined(ESP32) || defined(ESP_PLATFORM)
+#include <esp_attr.h>
+#else
+#define IRAM_ATTR
+#endif
+
 typedef union
 {                   /* eight general registers */
     UINT16 w[8];    /* viewed as 16 bits registers */
@@ -928,25 +934,24 @@ void nec_set_reg(int regnum, unsigned val)
 }
 
 
-int nec_execute(int cycles)
+int IRAM_ATTR nec_execute(int cycles)
 {
-    
-
     nec_ICount=cycles;
-//  cpu_type=V30;
 
     while(nec_ICount>0) {
-
         nec_instruction[FETCHOP]();
         nec_ICount++;
-    }
-/*
-    while(nec_ICount>=0) {
-
+        if (nec_ICount <= 0) break;
         nec_instruction[FETCHOP]();
-//      nec_ICount++;
+        nec_ICount++;
+        if (nec_ICount <= 0) break;
+        nec_instruction[FETCHOP]();
+        nec_ICount++;
+        if (nec_ICount <= 0) break;
+        nec_instruction[FETCHOP]();
+        nec_ICount++;
+        if (nec_ICount <= 0) break;
     }
-*/
     return cycles - nec_ICount;
 }
 
