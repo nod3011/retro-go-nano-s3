@@ -28,6 +28,7 @@ __license__ = "GPLv3"
 #include "gwenesis_bus.h"
 #include "gwenesis_sn76489.h"
 #include "gwenesis_savestate.h"
+#include <rg_system.h>
 
 #include <assert.h>
 
@@ -68,12 +69,12 @@ void vdpm_log(const char *subs, const char *fmt, ...) {
   unsigned char *VRAM;
 #endif
 
-unsigned short CRAM[CRAM_MAX_SIZE];           // CRAM - Palettes
-unsigned char SAT_CACHE[SAT_CACHE_MAX_SIZE];  // Sprite cache
+unsigned short *CRAM;           // CRAM - Palettes
+unsigned char *SAT_CACHE;  // Sprite cache
 unsigned char gwenesis_vdp_regs[REG_SIZE];    // Registers
 unsigned short fifo[FIFO_SIZE];               // Fifo
-unsigned short CRAM565[CRAM_MAX_SIZE * 4];    // CRAM - Palettes
-unsigned short VSRAM[VSRAM_MAX_SIZE];         // VSRAM - Scrolling
+unsigned short *CRAM565;    // CRAM - Palettes
+unsigned short *VSRAM;         // VSRAM - Scrolling
 
 // Define VDP control code and set initial code
 static unsigned char code_reg = 0;
@@ -150,11 +151,19 @@ int m68k_irq_acked(int irq) {
 
 
 void gwenesis_vdp_reset() {
+#if GNW_TARGET_MARIO == 0 && GNW_TARGET_ZELDA == 0
+  if (!VRAM) VRAM = rg_alloc(VRAM_MAX_SIZE + 4, MEM_FAST);
+#endif
+  if (!CRAM) CRAM = rg_alloc(CRAM_MAX_SIZE * sizeof(unsigned short) + 4, MEM_FAST);
+  if (!SAT_CACHE) SAT_CACHE = rg_alloc(SAT_CACHE_MAX_SIZE + 4, MEM_FAST);
+  if (!CRAM565) CRAM565 = rg_alloc(CRAM_MAX_SIZE * 4 * sizeof(unsigned short) + 4, MEM_FAST);
+  if (!VSRAM) VSRAM = rg_alloc(VSRAM_MAX_SIZE * sizeof(unsigned short) + 4, MEM_FAST);
+
   memset(VRAM, 0, VRAM_MAX_SIZE);
-  memset(SAT_CACHE, 0, sizeof(SAT_CACHE));
-  memset(CRAM, 0, sizeof(CRAM));
-  memset(CRAM565, 0, sizeof(CRAM565));
-  memset(VSRAM, 0, sizeof(VSRAM));
+  memset(SAT_CACHE, 0, SAT_CACHE_MAX_SIZE);
+  memset(CRAM, 0, CRAM_MAX_SIZE * sizeof(unsigned short));
+  memset(CRAM565, 0, CRAM_MAX_SIZE * 4 * sizeof(unsigned short));
+  memset(VSRAM, 0, VSRAM_MAX_SIZE * sizeof(unsigned short));
   memset(gwenesis_vdp_regs, 0, sizeof(gwenesis_vdp_regs));
   command_word_pending = 0;
   address_reg = 0;
@@ -177,7 +186,7 @@ void gwenesis_vdp_reset() {
  *
  ******************************************************************************/
 //static inline __attribute__((always_inline))
-int gwenesis_vdp_hcounter()
+IRAM_ATTR int gwenesis_vdp_hcounter()
 {
     int mclk = m68k_cycles_run() ;
     int pixclk;
@@ -209,7 +218,7 @@ int gwenesis_vdp_hcounter()
  *
  ******************************************************************************/
 //static inline __attribute__((always_inline))
-int gwenesis_vdp_vcounter()
+IRAM_ATTR int gwenesis_vdp_vcounter()
 {
 
     int vc = scan_line;
@@ -242,7 +251,7 @@ int gwenesis_vdp_vcounter()
  *
  ******************************************************************************/
 //static inline __attribute__((always_inline))
-unsigned short gwenesis_vdp_hvcounter()
+IRAM_ATTR unsigned short gwenesis_vdp_hvcounter()
 {
     /* H/V Counter */
     if (hvcounter_latched == 1)
@@ -258,7 +267,7 @@ unsigned short gwenesis_vdp_hvcounter()
 }
 
 //static inline __attribute__((always_inline))
-bool vblank(void)
+IRAM_ATTR bool vblank(void)
 {
     int vc = gwenesis_vdp_vcounter();
  //  printf("vc=%d,REG1_DISP_ENABLED=%d,VBLAN?%d\n",vc,REG1_DISP_ENABLED,
@@ -407,7 +416,7 @@ unsigned int gwenesis_vdp_get_reg(int reg)
  *
  ******************************************************************************/
 static inline __attribute__((always_inline)) 
-void gwenesis_vdp_dma_fill(unsigned short value)
+IRAM_ATTR void gwenesis_vdp_dma_fill(unsigned short value)
 {
   //vdpm_log(__FUNCTION__,"@%x len:%x val:%x",REG21_DMA_SRCADDR_LOW,REG19_DMA_LENGTH,value);
   int dma_length = REG19_DMA_LENGTH;
@@ -490,7 +499,7 @@ void gwenesis_vdp_dma_fill(unsigned short value)
  *
  ******************************************************************************/
 static inline __attribute__((always_inline)) 
-void gwenesis_vdp_dma_m68k()
+IRAM_ATTR void gwenesis_vdp_dma_m68k()
 {
 
     int dma_length = REG19_DMA_LENGTH;
@@ -654,7 +663,7 @@ void gwenesis_vdp_dma_m68k()
  *
  ******************************************************************************/
 static inline __attribute__((always_inline))
-void gwenesis_vdp_dma_copy()
+IRAM_ATTR void gwenesis_vdp_dma_copy()
 {
    // DMA_RUN=1;
 
@@ -688,7 +697,7 @@ void gwenesis_vdp_dma_copy()
  *
  ******************************************************************************/
 static inline __attribute__((always_inline))
-unsigned int gwenesis_vdp_read_data_port_16()
+IRAM_ATTR unsigned int gwenesis_vdp_read_data_port_16()
 {
     enum
     {
@@ -755,7 +764,7 @@ unsigned int gwenesis_vdp_read_data_port_16()
  *
  ******************************************************************************/
 static inline __attribute__((always_inline))
-void gwenesis_vdp_control_port_write(unsigned int value)
+IRAM_ATTR void gwenesis_vdp_control_port_write(unsigned int value)
 {
     //vdpm_log(__FUNCTION__,"%04x",value);
 
@@ -821,7 +830,7 @@ void gwenesis_vdp_control_port_write(unsigned int value)
  *
  ******************************************************************************/
 static inline __attribute__((always_inline))
-void gwenesis_vdp_write_data_port_16(unsigned int value)
+IRAM_ATTR void gwenesis_vdp_write_data_port_16(unsigned int value)
 {
       vdpm_log(__FUNCTION__,"%04x",value);
 
@@ -913,7 +922,7 @@ unsigned int gwenesis_vdp_get_status()
  *
  ******************************************************************************/
  //static inline 
-unsigned int gwenesis_vdp_read_memory_8(unsigned int address)
+IRAM_ATTR unsigned int gwenesis_vdp_read_memory_8(unsigned int address)
 {
     unsigned int ret = gwenesis_vdp_read_memory_16(address & ~1);
     if (address & 1)
@@ -932,7 +941,7 @@ unsigned int gwenesis_vdp_read_memory_8(unsigned int address)
  *
  ******************************************************************************/
  //static inline 
-unsigned int gwenesis_vdp_read_memory_16(unsigned int address)
+IRAM_ATTR unsigned int gwenesis_vdp_read_memory_16(unsigned int address)
 {
     
     address &= 0x1F;
@@ -955,7 +964,7 @@ unsigned int gwenesis_vdp_read_memory_16(unsigned int address)
  *
  ******************************************************************************/
  //static inline 
-void gwenesis_vdp_write_memory_8(unsigned int address, unsigned int value)
+IRAM_ATTR void gwenesis_vdp_write_memory_8(unsigned int address, unsigned int value)
 {
   gwenesis_vdp_write_memory_16(address & ~1, (value << 8) | value);
 
@@ -969,7 +978,7 @@ void gwenesis_vdp_write_memory_8(unsigned int address, unsigned int value)
  ******************************************************************************/
  //static inline
  extern int system_clock;
-void gwenesis_vdp_write_memory_16(unsigned int address, unsigned int value) {
+IRAM_ATTR void gwenesis_vdp_write_memory_16(unsigned int address, unsigned int value) {
   address = address & 0x1F;
 
   if (address < 0x4) {
@@ -996,12 +1005,12 @@ void gwenesis_vdp_mem_save_state() {
   state = saveGwenesisStateOpenForWrite("vdp_mem");
 
   saveGwenesisStateSetBuffer(state, "VRAM", VRAM, VRAM_MAX_SIZE);
-  saveGwenesisStateSetBuffer(state, "CRAM", CRAM, sizeof(CRAM));
-  saveGwenesisStateSetBuffer(state, "SAT_CACHE", SAT_CACHE, sizeof(SAT_CACHE));
+  saveGwenesisStateSetBuffer(state, "CRAM", CRAM, CRAM_MAX_SIZE * sizeof(unsigned short));
+  saveGwenesisStateSetBuffer(state, "SAT_CACHE", SAT_CACHE, SAT_CACHE_MAX_SIZE);
   saveGwenesisStateSetBuffer(state, "gwenesis_vdp_regs", gwenesis_vdp_regs, sizeof(gwenesis_vdp_regs));
   saveGwenesisStateSetBuffer(state, "fifo", fifo, sizeof(fifo));
-  saveGwenesisStateSetBuffer(state, "CRAM565", CRAM565, sizeof(CRAM565));
-  saveGwenesisStateSetBuffer(state, "VSRAM", VSRAM, sizeof(VSRAM));
+  saveGwenesisStateSetBuffer(state, "CRAM565", CRAM565, CRAM_MAX_SIZE * 4 * sizeof(unsigned short));
+  saveGwenesisStateSetBuffer(state, "VSRAM", VSRAM, VSRAM_MAX_SIZE * sizeof(unsigned short));
   saveGwenesisStateSet(state, "code_reg", code_reg);
   saveGwenesisStateSet(state, "address_reg", address_reg);
   saveGwenesisStateSet(state, "command_word_pending", command_word_pending);
@@ -1016,12 +1025,12 @@ void gwenesis_vdp_mem_load_state() {
   SaveState* state = saveGwenesisStateOpenForRead("vdp_mem");
 
   saveGwenesisStateGetBuffer(state, "VRAM", VRAM, VRAM_MAX_SIZE);
-  saveGwenesisStateGetBuffer(state, "CRAM", CRAM, sizeof(CRAM));
-  saveGwenesisStateGetBuffer(state, "SAT_CACHE", SAT_CACHE, sizeof(SAT_CACHE));
+  saveGwenesisStateGetBuffer(state, "CRAM", CRAM, CRAM_MAX_SIZE * sizeof(unsigned short));
+  saveGwenesisStateGetBuffer(state, "SAT_CACHE", SAT_CACHE, SAT_CACHE_MAX_SIZE);
   saveGwenesisStateGetBuffer(state, "gwenesis_vdp_regs", gwenesis_vdp_regs, sizeof(gwenesis_vdp_regs));
   saveGwenesisStateGetBuffer(state, "fifo", fifo, sizeof(fifo));
-  saveGwenesisStateGetBuffer(state, "CRAM565", CRAM565, sizeof(CRAM565));
-  saveGwenesisStateGetBuffer(state, "VSRAM", VSRAM, sizeof(VSRAM));
+  saveGwenesisStateGetBuffer(state, "CRAM565", CRAM565, CRAM_MAX_SIZE * 4 * sizeof(unsigned short));
+  saveGwenesisStateGetBuffer(state, "VSRAM", VSRAM, VSRAM_MAX_SIZE * sizeof(unsigned short));
   code_reg = saveGwenesisStateGet(state, "code_reg");
   address_reg = saveGwenesisStateGet(state, "address_reg");
   command_word_pending = saveGwenesisStateGet(state, "command_word_pending");

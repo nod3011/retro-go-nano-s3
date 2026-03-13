@@ -25,6 +25,7 @@ __license__ = "GPLv3"
 #include "gwenesis_bus.h"
 #include "ym2612.h"
 #include "gwenesis_sn76489.h"
+#include <rg_system.h>
 #include "gwenesis_savestate.h"
 
 #if GNW_TARGET_MARIO !=0 || GNW_TARGET_ZELDA!=0
@@ -85,7 +86,7 @@ void z80_pulse_reset() {
 }
 static int current_timeslice = 0;
 
-void z80_run(int target) {
+IRAM_ATTR void z80_run(int target) {
 
   // we are in advance,nothind to do
 current_timeslice = 0;

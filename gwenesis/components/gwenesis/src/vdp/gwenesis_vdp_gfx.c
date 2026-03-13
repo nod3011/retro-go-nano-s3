@@ -24,6 +24,7 @@ __license__ = "GPLv3"
 #include "gwenesis_io.h"
 #include "gwenesis_bus.h"
 #include "gwenesis_savestate.h"
+#include <rg_system.h>
 
 //#include <assert.h>
 
@@ -45,13 +46,13 @@ extern unsigned char *VRAM;
 
 #endif
 
-extern unsigned short CRAM[];            // CRAM - Palettes
-extern unsigned char SAT_CACHE[]__attribute__((aligned(4)));        // Sprite cache
+extern unsigned short *CRAM;            // CRAM - Palettes
+extern unsigned char *SAT_CACHE;        // Sprite cache
 extern unsigned char gwenesis_vdp_regs[]; // Registers
 
-extern unsigned short CRAM565[];    // CRAM - Palettes
+extern unsigned short *CRAM565;    // CRAM - Palettes
 
-extern unsigned short VSRAM[];        // VSRAM - Scrolling
+extern unsigned short *VSRAM;        // VSRAM - Scrolling
 
 // Define screen buffers: original and scaled for host RGB
 unsigned char *screen, *scaled_screen;
@@ -1010,7 +1011,7 @@ blit_4to5_line(uint16_t *in, uint16_t *out) {
 }
 */
 
-void gwenesis_vdp_render_line(int line)
+IRAM_ATTR void gwenesis_vdp_render_line(int line)
 {
   mode_h40 = REG12_MODE_H40;
   //mode_pal = REG1_PAL;

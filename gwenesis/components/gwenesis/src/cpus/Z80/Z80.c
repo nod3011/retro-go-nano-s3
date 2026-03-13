@@ -21,6 +21,7 @@
 #include "Z80.h"
 #include "Tables.h"
 #include <stdio.h>
+#include <rg_system.h>
 
 /** INLINE ***************************************************/
 /** C99 standard has "inline", but older compilers used     **/
@@ -64,8 +65,8 @@ INLINE byte OpZ80(word A) { return(RAM[A>>13][A&0x1FFF]); }
 
 #ifdef GENESIS
 #define FAST_RDOP
-extern byte *Z80_RAM[];
-INLINE byte OpZ80(word A) { return(Z80_RAM[A>>13][A&0x1FFF]); }
+extern byte *Z80_RAM;
+INLINE byte OpZ80(word A) { return(Z80_RAM[A & 0x1FFF]); }
 #endif
 
 /** FAST_RDOP ************************************************/
@@ -338,7 +339,7 @@ enum CodesED
   DB_F8,DB_F9,DB_FA,DB_FB,DB_FC,DB_FD,DB_FE,DB_FF
 };
 
-static void CodesCB(register Z80 *R)
+static IRAM_ATTR void CodesCB(register Z80 *R)
 {
   register byte I;
 
@@ -357,7 +358,7 @@ static void CodesCB(register Z80 *R)
   }
 }
 
-static void CodesDDCB(register Z80 *R)
+static IRAM_ATTR void CodesDDCB(register Z80 *R)
 {
   register pair J;
   register byte I;
@@ -380,7 +381,7 @@ static void CodesDDCB(register Z80 *R)
 #undef XX
 }
 
-static void CodesFDCB(register Z80 *R)
+static IRAM_ATTR void CodesFDCB(register Z80 *R)
 {
   register pair J;
   register byte I;
@@ -403,7 +404,7 @@ static void CodesFDCB(register Z80 *R)
 #undef XX
 }
 
-static void CodesED(register Z80 *R)
+static IRAM_ATTR void CodesED(register Z80 *R)
 {
   register byte I;
   register pair J;
@@ -425,7 +426,7 @@ static void CodesED(register Z80 *R)
   }
 }
 
-static void CodesDD(register Z80 *R)
+static IRAM_ATTR void CodesDD(register Z80 *R)
 {
   register byte I;
   register pair J;
@@ -452,7 +453,7 @@ static void CodesDD(register Z80 *R)
 #undef XX
 }
 
-static void CodesFD(register Z80 *R)
+static IRAM_ATTR void CodesFD(register Z80 *R)
 {
   register byte I;
   register pair J;
@@ -518,7 +519,7 @@ int GetRunCyclesZ80(register Z80 *R)
 {
   return(R->ICount - R->RunCycles);
 }
-int ExecZ80(register Z80 *R,register int RunCycles)
+IRAM_ATTR int ExecZ80(register Z80 *R,register int RunCycles)
 {
   register byte I;
   register pair J;

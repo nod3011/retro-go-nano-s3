@@ -70,16 +70,18 @@
 #undef sint
 #undef uint
 
-#define sint8  signed   char      /* ASG: changed from char to signed char */
-#define sint16 signed   short
-#define sint32 signed   int      /* AWJ: changed from long to int */
-#define uint8  unsigned char
-#define uint16 unsigned short
-#define uint32 unsigned int      /* AWJ: changed from long to int */
+typedef signed   char  sint8;
+typedef signed   short sint16;
+typedef signed   int   sint32;
+typedef unsigned char  uint8;
+typedef unsigned short uint16;
+typedef unsigned int   uint32;
 
-/* signed and unsigned int must be at least 32 bits wide */
-#define sint   signed   int
-#define uint   unsigned int
+typedef signed   int   sint;
+#ifndef _UINT_DEFINED_
+#define _UINT_DEFINED_
+typedef unsigned int   uint;
+#endif
 
 
 #if M68K_USE_64_BIT
@@ -158,7 +160,7 @@
 #else
 
 	extern unsigned char *ROM_DATA;
-	extern unsigned char M68K_RAM[];
+	extern unsigned char *M68K_RAM;
 #endif
 
 #define FETCH8ROM(A) ((ROM_DATA[((A) ^ 1)]))

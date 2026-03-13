@@ -133,6 +133,7 @@
 #endif
 #include <stdint.h>
 #include <stdio.h>
+#include <rg_system.h>
 #include <string.h>
 #include <math.h>
 
@@ -2013,7 +2014,7 @@ void YM2612ResetChip(void)
 
 /* YM2612 execution */
 /* Generate samples for ym2612 */
-static inline void YM2612Update(int16_t *buffer, int length)
+static inline IRAM_ATTR void YM2612Update(int16_t *buffer, int length)
 {
   int i;
   int lt;
@@ -2148,7 +2149,7 @@ static inline void YM2612Update(int16_t *buffer, int length)
   INTERNAL_TIMER_B(length);
 }
 
-void ym2612_run( int target) {
+IRAM_ATTR void ym2612_run( int target) {
 
   if ( ym2612_clock >= target) {
     return;

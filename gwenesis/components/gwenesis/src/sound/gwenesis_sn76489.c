@@ -32,6 +32,7 @@
 #include <limits.h>
 #include "gwenesis_bus.h"
 #include "gwenesis_sn76489.h"
+#include <rg_system.h>
 #include "gwenesis_savestate.h"
 
 #define NoiseInitialState   0x8000  /* Initial state of shift register */
@@ -131,7 +132,7 @@ int gwenesis_SN76489_GetContextSize(void)
 {
     return sizeof(SN76489_Context);
 }
-static inline void gwenesis_SN76489_Update(INT16 *buffer, int length)
+static inline IRAM_ATTR void gwenesis_SN76489_Update(INT16 *buffer, int length)
 {
     int i, j;
 
@@ -205,7 +206,7 @@ static inline void gwenesis_SN76489_Update(INT16 *buffer, int length)
 }
 /* SN76589 execution */
 extern int scan_line;
-void gwenesis_SN76489_run(int target) {
+IRAM_ATTR void gwenesis_SN76489_run(int target) {
  
 if ( sn76489_clock >= target) return;
 

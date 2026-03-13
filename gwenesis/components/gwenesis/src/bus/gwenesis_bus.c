@@ -31,6 +31,7 @@ __license__ = "GPLv3"
 #include "gwenesis_vdp.h"
 #include "gwenesis_sn76489.h"
 #include "gwenesis_savestate.h"
+#include <rg_system.h>
 
 #if GNW_TARGET_MARIO !=0 || GNW_TARGET_ZELDA!=0
   #pragma GCC optimize("Ofast")
@@ -65,12 +66,12 @@ unsigned char *M68K_RAM=(void *)(uint32_t)(0); // 68K RAM
 #else
 
 unsigned char *ROM_DATA; // 68K Main Program (uncompressed)
-unsigned char M68K_RAM[MAX_RAM_SIZE];    // 68K RAM
+unsigned char *M68K_RAM; // 68K RAM
 #endif
 
 
 // Setup Z80 Memory
-unsigned char ZRAM[MAX_Z80_RAM_SIZE]; // Z80 RAM
+unsigned char *ZRAM; // Z80 RAM
 unsigned char TMSS[0x4];
 extern unsigned short gwenesis_vdp_status;
 
@@ -105,6 +106,9 @@ void load_cartridge()
 
 void load_cartridge(unsigned char *buffer, size_t size)
 {
+    if (!M68K_RAM) M68K_RAM = rg_alloc(MAX_RAM_SIZE + 4, MEM_FAST);
+    if (!ZRAM) ZRAM = rg_alloc(MAX_Z80_RAM_SIZE + 4, MEM_FAST);
+
     // Clear all volatile memory
     memset(M68K_RAM, 0, MAX_RAM_SIZE);
     memset(ZRAM, 0, MAX_Z80_RAM_SIZE);
@@ -315,7 +319,7 @@ void set_region()
  *   68K Access to Z80 Memory
  *
  ******************************************************************************/
-static inline unsigned int gwenesis_bus_map_z80_address(unsigned int address) {
+static IRAM_ATTR unsigned int gwenesis_bus_map_z80_address(unsigned int address) {
 
   unsigned int range = (address & 0xF000);
   switch (range) {
@@ -344,7 +348,7 @@ static inline unsigned int gwenesis_bus_map_z80_address(unsigned int address) {
  *   Map all input/output region address for CPU program
  *
  ******************************************************************************/
-static inline unsigned int gwenesis_bus_map_io_address(unsigned int address)
+static IRAM_ATTR unsigned int gwenesis_bus_map_io_address(unsigned int address)
 {
   unsigned int range = (address & 0x1000) ;
   switch (range) {
@@ -366,7 +370,7 @@ static inline unsigned int gwenesis_bus_map_io_address(unsigned int address)
  *
  ******************************************************************************/
 
-static inline 
+static IRAM_ATTR
 unsigned int gwenesis_bus_map_address(unsigned int address) {
   // Mask address page
   unsigned int range = (address & 0xFF0000) >> 16;
@@ -397,7 +401,7 @@ unsigned int gwenesis_bus_map_address(unsigned int address) {
  *   Write an value to memory mapped on specified address
  *
  ******************************************************************************/
-static inline unsigned int gwenesis_bus_read_memory_8(unsigned int address) {
+IRAM_ATTR unsigned int gwenesis_bus_read_memory_8(unsigned int address) {
  bus_log(__FUNCTION__,"read8  %x", address);
 
   switch (gwenesis_bus_map_address(address)) {
@@ -443,7 +447,7 @@ static inline unsigned int gwenesis_bus_read_memory_8(unsigned int address) {
   return 0x00;
 }
 
-static inline unsigned int gwenesis_bus_read_memory_16(unsigned int address) {
+IRAM_ATTR unsigned int gwenesis_bus_read_memory_16(unsigned int address) {
    bus_log(__FUNCTION__,"read16 %x", address);
    unsigned int ret_value;
 
@@ -497,7 +501,7 @@ static inline unsigned int gwenesis_bus_read_memory_16(unsigned int address) {
  *   Write an value to memory mapped on specified address
  *
  ******************************************************************************/
-static inline void gwenesis_bus_write_memory_8(unsigned int address,
+IRAM_ATTR void gwenesis_bus_write_memory_8(unsigned int address,
                                               unsigned int value) {
   bus_log(__FUNCTION__,"write8  @%x:%x", address,value);
 
@@ -557,7 +561,7 @@ static inline void gwenesis_bus_write_memory_8(unsigned int address,
   return;
 }
 
-static inline void gwenesis_bus_write_memory_16(unsigned int address,
+IRAM_ATTR void gwenesis_bus_write_memory_16(unsigned int address,
                                                unsigned int value) {
   bus_log(__FUNCTION__,"write16  @%x:%x", address,value);
 
@@ -610,7 +614,7 @@ static inline void gwenesis_bus_write_memory_16(unsigned int address,
  *   Read an address from memory mapped and return value as byte
  *
  ******************************************************************************/
-unsigned int m68k_read_memory_8(unsigned int address)
+IRAM_ATTR unsigned int m68k_read_memory_8(unsigned int address)
 {
       //  if ((address &  0xFF0000 ) == 0xFF0000) return FETCH8RAM(address);
     return gwenesis_bus_read_memory_8(address);
@@ -622,7 +626,7 @@ unsigned int m68k_read_memory_8(unsigned int address)
  *   Read an address from memory mapped and return value as word
  *
  ******************************************************************************/
- unsigned int m68k_read_memory_16(unsigned int address)
+ IRAM_ATTR unsigned int m68k_read_memory_16(unsigned int address)
 {
      //   if ((address &  0xFF0000 ) == 0xFF0000) return FETCH16RAM(address);
     return gwenesis_bus_read_memory_16(address);
@@ -634,7 +638,7 @@ unsigned int m68k_read_memory_8(unsigned int address)
  *   Read an address from memory mapped and return value as long
  *
  ******************************************************************************/
- unsigned int m68k_read_memory_32(unsigned int address)
+ IRAM_ATTR unsigned int m68k_read_memory_32(unsigned int address)
 {
   //  if ((address &  0xFF0000 ) == 0xFF0000) return FETCH32RAM(address);
     return (gwenesis_bus_read_memory_16(address) << 16) | gwenesis_bus_read_memory_16(address + 2);
@@ -646,7 +650,7 @@ unsigned int m68k_read_memory_8(unsigned int address)
  *   Write an value as byte to memory mapped on specified address
  *
  ******************************************************************************/
-void m68k_write_memory_8(unsigned int address, unsigned int value) {
+IRAM_ATTR void m68k_write_memory_8(unsigned int address, unsigned int value) {
   // if ((address & 0xFF0000) == 0xFF0000) {
   //   WRITE8RAM(address, value);
   //   return;
@@ -661,7 +665,7 @@ void m68k_write_memory_8(unsigned int address, unsigned int value) {
  *   Write an value as word to memory mapped on specified address
  *
  ******************************************************************************/
-void m68k_write_memory_16(unsigned int address, unsigned int value) {
+IRAM_ATTR void m68k_write_memory_16(unsigned int address, unsigned int value) {
   // if ((address & 0xFF0000) == 0xFF0000) {
   //   WRITE16RAM(address, value);
   //   return;
@@ -675,7 +679,7 @@ void m68k_write_memory_16(unsigned int address, unsigned int value) {
  *   Write an value as word to memory mapped on specified address
  *
  ******************************************************************************/
-void m68k_write_memory_32(unsigned int address, unsigned int value) {
+IRAM_ATTR void m68k_write_memory_32(unsigned int address, unsigned int value) {
 
   // if ((address & 0xFF0000) == 0xFF0000) {
   //   WRITE32RAM(address, value);

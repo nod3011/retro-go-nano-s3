@@ -241,10 +241,13 @@ void app_main(void) {
   app->frameskip = 3;
 
   extern unsigned char gwenesis_vdp_regs[0x20];
-  extern unsigned int gwenesis_vdp_status;
-  extern unsigned short CRAM565[256];
-  extern unsigned int screen_width, screen_height;
+  extern unsigned short gwenesis_vdp_status;
+  extern unsigned short *CRAM565;
+  extern int screen_width, screen_height;
   extern int hint_pending;
+  extern int zclk;
+
+  zclk = z80_enabled ? 0 : 0x1000000;
 
   // index: 0=Up, 1=Down, 2=Left, 3=Right, 4=Gen_A, 5=Gen_B, 6=Gen_C,
   // 7=Gen_Start
@@ -288,7 +291,6 @@ void app_main(void) {
 
     /* Reset the difference clocks and audio index */
     system_clock = 0;
-    zclk = z80_enabled ? 0 : 0x1000000;
 
     ym2612_clock = yfm_enabled ? 0 : 0x1000000;
     ym2612_index = 0;
@@ -362,8 +364,9 @@ void app_main(void) {
       ym2612_run(system_clock);
     }
 
-    // reset m68k cycles to the begin of next frame cycle
+    // reset m68k & z80 cycles to the begin of next frame cycle
     m68k.cycles -= system_clock;
+    if (z80_enabled) zclk -= system_clock;
 
     if (drawFrame) {
       for (int i = 0; i < 256; ++i)
