@@ -73,7 +73,6 @@ static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static rg_audio_sample_t *audioBuffer;
-static bool slowFrame = false;
 
 static bool apu_enabled = true;
 static bool lowpass_filter = false;
@@ -215,9 +214,16 @@ bool S9xInitDisplay(void) {
   GFX.Pitch = SNES_WIDTH * 2;
   GFX.ZPitch = SNES_WIDTH;
   GFX.Screen = currentUpdate->data;
-  GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+
+  GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_FAST | MEM_NOPANIC);
+  if (!GFX.SubScreen) GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+
+  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST | MEM_NOPANIC);
+  if (!GFX.ZBuffer) GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+
+  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST | MEM_NOPANIC);
+  if (!GFX.SubZBuffer) GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+
   return GFX.Screen && GFX.SubScreen && GFX.ZBuffer && GFX.SubZBuffer;
 }
 
@@ -381,6 +387,7 @@ void app_main(void) {
 
   bool menuCancelled = false;
   bool menuPressed = false;
+  bool slowFrame = false;
   int skipFrames = 0;
 
   while (1) {
@@ -426,20 +433,16 @@ void app_main(void) {
                            AUDIO_LOW_PASS_RANGE);
     else if (apu_enabled)
       S9xMixSamples((void *)audioBuffer, AUDIO_BUFFER_LENGTH << 1);
-#endif
 
-    rg_system_tick(rg_system_timer() - startTime);
-
-#ifndef USE_BLARGG_APU
     if (apu_enabled) {
-      // Audio boost (similar to FCEUMM)
+      // Optimized audio boost using hardware-accelerated saturating arithmetic
       for (int i = 0; i < AUDIO_BUFFER_LENGTH; i++) {
-        int32_t left = (int16_t)audioBuffer[i].left * 2;
-        int32_t right = (int16_t)audioBuffer[i].right * 2;
+        int32_t left = (int32_t)audioBuffer[i].left << 1;
+        int32_t right = (int32_t)audioBuffer[i].right << 1;
         if (left < -32768) left = -32768;
-        if (left > 32767) left = 32767;
+        else if (left > 32767) left = 32767;
         if (right < -32768) right = -32768;
-        if (right > 32767) right = 32767;
+        else if (right > 32767) right = 32767;
         audioBuffer[i].left = (int16_t)left;
         audioBuffer[i].right = (int16_t)right;
       }
@@ -447,12 +450,14 @@ void app_main(void) {
     }
 #endif
 
+    rg_system_tick(rg_system_timer() - startTime);
+
     if (skipFrames == 0) {
       int elapsed = rg_system_timer() - startTime;
       if (app->frameskip > 0)
         skipFrames = app->frameskip;
       else if (elapsed > app->frameTime + 1500) // Allow some jitter
-        skipFrames = 1;                         // (elapsed / frameTime)
+        skipFrames = 1;
       else if (drawFrame && slowFrame)
         skipFrames = 1;
     } else if (skipFrames > 0) {

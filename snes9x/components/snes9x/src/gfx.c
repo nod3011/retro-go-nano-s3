@@ -185,7 +185,8 @@ void DrawLargePixel16Sub1_2(uint32_t Tile, int32_t Offset, uint32_t StartPixel,
                             uint32_t LineCount);
 
 bool S9xInitGFX(void) {
-  LocalState = (void *)rg_alloc(sizeof(*LocalState), MEM_SLOW);
+  LocalState = (void *)rg_alloc(sizeof(*LocalState), MEM_FAST | MEM_NOPANIC);
+  if (!LocalState) LocalState = (void *)rg_alloc(sizeof(*LocalState), MEM_SLOW);
   if (!LocalState)
     return false;
 
@@ -209,7 +210,9 @@ bool S9xInitGFX(void) {
   S9xFixColourBrightness();
 
 #ifndef NO_ZERO_LUT
-  if (!(GFX.ZERO = (uint16_t *)rg_alloc(sizeof(uint16_t) * 0x10000, MEM_SLOW)))
+  GFX.ZERO = (uint16_t *)rg_alloc(sizeof(uint16_t) * 0x10000, MEM_FAST | MEM_NOPANIC);
+  if (!GFX.ZERO) GFX.ZERO = (uint16_t *)rg_alloc(sizeof(uint16_t) * 0x10000, MEM_SLOW);
+  if (!GFX.ZERO)
     return false;
 
   /* Build a lookup table that if the top bit of the color value is zero
@@ -303,7 +306,7 @@ void S9xStartScreenRefresh(void) {
     IPPU.FrameCount = 0;
 }
 
-void RenderLine(uint8_t C) {
+void IRAM_ATTR RenderLine(uint8_t C) {
   if (IPPU.RenderThisFrame) {
     LineData[C].BG[0].VOffset = PPU.BG[0].VOffset + 1;
     LineData[C].BG[0].HOffset = PPU.BG[0].HOffset;
@@ -2383,7 +2386,7 @@ static void DrawBGMode7Background16Sub1_2_i(uint8_t *Screen, int32_t bg) {
                             (ScreenColors[b & GFX.Mode7Mask]));
 }
 
-static void RenderScreen(uint8_t *Screen, bool sub, bool force_no_add,
+static void IRAM_ATTR RenderScreen(uint8_t *Screen, bool sub, bool force_no_add,
                          uint8_t D) {
   bool BG0;
   bool BG1;
