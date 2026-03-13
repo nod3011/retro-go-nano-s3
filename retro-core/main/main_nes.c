@@ -652,7 +652,8 @@ void fceumm_main(void) {
   // Region detection
   int slstart, slend;
   int is_pal = FCEUI_GetCurrentVidSystem(&slstart, &slend);
-  rg_system_set_tick_rate(is_pal ? 50 : 60);
+  rg_system_set_tick_rate(60);
+  app->frameskip = 0;
   RG_LOGI("Detected %s region (%d lines)\n", is_pal ? "PAL" : "NTSC",
           is_pal ? 312 : 262);
 
@@ -686,6 +687,8 @@ void fceumm_main(void) {
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
   }
+
+  app->frameskip = 0;
 
   static uint32_t joystick_old = 0;
   static bool menu_cancelled = false;

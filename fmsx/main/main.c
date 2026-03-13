@@ -429,6 +429,7 @@ void app_main(void)
     };
 
     app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
+    app->frameskip = 0;
     // This is probably not right, but the emulator outputs 440 samples per frame??
     rg_system_set_tick_rate(55);
 

@@ -196,6 +196,7 @@ void app_main(void) {
   };
 
   app = rg_system_init(48000, &handlers, NULL);
+  app->frameskip = 0;
   rg_system_set_tick_rate(75);
 
   int device_width = rg_display_get_width();

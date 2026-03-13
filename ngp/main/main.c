@@ -280,6 +280,7 @@ void app_main() {
   rg_system_init(22050, &handlers, event_handler);
   rg_system_set_overclock(0);
   app = rg_system_get_app();
+  app->frameskip = 0;
 
   // Load ROM
   size_t rom_size = 0;
@@ -369,6 +370,7 @@ void app_main() {
   }
 
   rg_system_set_tick_rate(1);
+  app->frameskip = 0;
 
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
