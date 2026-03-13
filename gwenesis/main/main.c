@@ -57,6 +57,11 @@ static struct {
     {&btn_start_map, "btn_start", 7},
 };
 
+static bool turbo_a_toggled = false;
+static bool turbo_b_toggled = false;
+static bool menu_cancelled = false;
+static int turbo_counter = 0;
+
 static void load_config();
 static void save_config();
 
@@ -318,6 +323,7 @@ void app_main(void) {
   };
 
   app = rg_system_init(AUDIO_SAMPLE_RATE / 2, &handlers, NULL);
+  rg_system_set_overclock(1);
 
   yfm_enabled = rg_settings_get_number(NS_APP, SETTING_YFM_EMULATION, 1);
   sn76489_enabled =
@@ -381,7 +387,7 @@ void app_main(void) {
 
   // index: 0=Up, 1=Down, 2=Left, 3=Right, 4=Gen_A, 5=Gen_B, 6=Gen_C,
   // 7=Gen_Start
-  uint32_t joystick = 0, joystick_old;
+  uint32_t joystick = 0, joystick_old = 0, effective_old = 0;
 
   int skipFrames = 0;
 
@@ -389,19 +395,52 @@ void app_main(void) {
   while (true) {
     joystick_old = joystick;
     joystick = rg_input_read_gamepad();
+    uint32_t joystick_down = joystick & ~joystick_old;
+    turbo_counter++;
 
-    if (joystick & (RG_KEY_MENU | RG_KEY_OPTION)) {
-      if (joystick & RG_KEY_MENU)
-        rg_gui_game_menu();
-      else
-        rg_gui_options_menu();
-    } else if (joystick != joystick_old) {
+    if (joystick & RG_KEY_MENU) {
+      if (joystick_down & RG_KEY_A) {
+        turbo_a_toggled = !turbo_a_toggled;
+        RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
+      }
+      if (joystick_down & RG_KEY_B) {
+        turbo_b_toggled = !turbo_b_toggled;
+        RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
+      }
+      if (joystick & ~RG_KEY_MENU) {
+        menu_cancelled = true;
+      }
+    } else {
+      if (joystick_old & RG_KEY_MENU) {
+        if (!menu_cancelled)
+          rg_gui_game_menu();
+        menu_cancelled = false;
+      }
+    }
+
+    if (joystick & RG_KEY_OPTION) {
+      rg_gui_options_menu();
+    }
+
+    uint32_t effective = joystick;
+    if (joystick & RG_KEY_MENU) {
+      effective = 0; // Don't pass inputs if menu is held (as modifier)
+    } else {
+      if (turbo_a_toggled && (joystick & RG_KEY_A) && (turbo_counter & 4))
+        effective &= ~RG_KEY_A;
+      if (turbo_b_toggled && (joystick & RG_KEY_B) && (turbo_counter & 4))
+        effective &= ~RG_KEY_B;
+    }
+
+    if (effective != effective_old) {
       for (int i = 0; i < 8; i++) {
-        if ((joystick & keymap[i]) == keymap[i])
+        uint32_t key = keymap[i];
+        if ((effective & key) == key)
           gwenesis_io_pad_press_button(0, i);
         else
           gwenesis_io_pad_release_button(0, i);
       }
+      effective_old = effective;
     }
 
     int64_t startTime = rg_system_timer();
