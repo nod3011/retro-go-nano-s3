@@ -71,7 +71,9 @@ static const char *SNES_BUTTONS[] = {
 static rg_app_t *app;
 static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
+static int currentBufferIndex = 0;
 static rg_audio_sample_t *audioBuffer;
+static bool slowFrame = false;
 
 static bool apu_enabled = true;
 static bool lowpass_filter = false;
@@ -107,7 +109,7 @@ static bool reset_handler(bool hard) {
 
 static void event_handler(int event, void *arg) {
   if (event == RG_EVENT_REDRAW) {
-    rg_display_submit(currentUpdate, 0);
+    rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
   }
 }
 
@@ -294,15 +296,23 @@ void app_main(void) {
       .options = &options_handler,
   };
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+  rg_system_set_overclock(0);
+  app->frameskip = 0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
 
   apu_enabled = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
 
-  updates[0] =
-      rg_surface_create(SNES_WIDTH, SNES_HEIGHT_EXTENDED, RG_PIXEL_565_LE, 0);
-  updates[0]->height = SNES_HEIGHT;
-  currentUpdate = updates[0];
+  for (int i = 0; i < 2; i++) {
+    updates[i] =
+        rg_surface_create(SNES_WIDTH, SNES_HEIGHT_EXTENDED, RG_PIXEL_565_LE, MEM_SLOW);
+    updates[i]->height = SNES_HEIGHT;
+  }
+  currentBufferIndex = 0;
+  currentUpdate = updates[currentBufferIndex];
 
-  audioBuffer = (rg_audio_sample_t *)malloc(AUDIO_BUFFER_LENGTH * 4);
+  audioBuffer = (rg_audio_sample_t *)malloc(AUDIO_BUFFER_LENGTH * 8);
+  if (!audioBuffer)
+    RG_PANIC("Audio buffer allocation failed!");
+
 
   update_keymap(rg_settings_get_number(NS_APP, SETTING_KEYMAP, 0));
 
@@ -314,8 +324,8 @@ void app_main(void) {
   Settings.HBlankStart = (256 * Settings.H_Max) / SNES_HCOUNTER_MAX;
   Settings.SoundPlaybackRate = AUDIO_SAMPLE_RATE;
   Settings.SoundInputRate = AUDIO_SAMPLE_RATE;
-  Settings.DisableSoundEcho = false;
-  Settings.InterpolatedSound = true;
+  Settings.DisableSoundEcho = true;
+  Settings.InterpolatedSound = false;
 
   if (!S9xInitDisplay())
     RG_PANIC("Display init failed!");
@@ -367,7 +377,7 @@ void app_main(void) {
   }
 
   rg_system_set_tick_rate(Memory.ROMFramesPerSecond);
-  app->frameskip = 3;
+  app->frameskip = 0;
 
   bool menuCancelled = false;
   bool menuPressed = false;
@@ -394,16 +404,20 @@ void app_main(void) {
 
     int64_t startTime = rg_system_timer();
     bool drawFrame = (skipFrames == 0);
-    bool slowFrame = false;
+
+    if (drawFrame) {
+      currentBufferIndex = (currentBufferIndex + 1) % 2;
+      currentUpdate = updates[currentBufferIndex];
+      GFX.Screen = currentUpdate->data;
+    }
 
     IPPU.RenderThisFrame = drawFrame;
-    GFX.Screen = currentUpdate->data;
 
     S9xMainLoop();
 
     if (drawFrame) {
       slowFrame = !rg_display_sync(false);
-      rg_display_submit(currentUpdate, 0);
+      rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
 #ifndef USE_BLARGG_APU
@@ -417,8 +431,20 @@ void app_main(void) {
     rg_system_tick(rg_system_timer() - startTime);
 
 #ifndef USE_BLARGG_APU
-    if (apu_enabled)
+    if (apu_enabled) {
+      // Audio boost (similar to FCEUMM)
+      for (int i = 0; i < AUDIO_BUFFER_LENGTH; i++) {
+        int32_t left = (int16_t)audioBuffer[i].left * 2;
+        int32_t right = (int16_t)audioBuffer[i].right * 2;
+        if (left < -32768) left = -32768;
+        if (left > 32767) left = 32767;
+        if (right < -32768) right = -32768;
+        if (right > 32767) right = 32767;
+        audioBuffer[i].left = (int16_t)left;
+        audioBuffer[i].right = (int16_t)right;
+      }
       rg_audio_submit(audioBuffer, AUDIO_BUFFER_LENGTH);
+    }
 #endif
 
     if (skipFrames == 0) {

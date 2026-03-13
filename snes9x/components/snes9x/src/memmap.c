@@ -141,18 +141,21 @@ bool S9xInitMemory(void) {
   Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_SLOW);
   Memory.FillRAM = (uint8_t *)rg_alloc(0x8000, MEM_SLOW);
 
-  Memory.Map =
-      (uint8_t **)rg_alloc(MEMMAP_NUM_BLOCKS * sizeof(uint8_t *), MEM_SLOW);
-  Memory.MapInfo =
-      (SMapInfo *)rg_alloc(MEMMAP_NUM_BLOCKS * sizeof(SMapInfo), MEM_SLOW);
+  Memory.Map = (uint8_t **)rg_alloc(MEMMAP_NUM_BLOCKS * sizeof(uint8_t *), MEM_FAST | MEM_NOPANIC);
+  if (!Memory.Map) Memory.Map = (uint8_t **)rg_alloc(MEMMAP_NUM_BLOCKS * sizeof(uint8_t *), MEM_SLOW);
+
+  Memory.MapInfo = (SMapInfo *)rg_alloc(MEMMAP_NUM_BLOCKS * sizeof(SMapInfo), MEM_FAST | MEM_NOPANIC);
+  if (!Memory.MapInfo) Memory.MapInfo = (SMapInfo *)rg_alloc(MEMMAP_NUM_BLOCKS * sizeof(SMapInfo), MEM_SLOW);
 
   IPPU.ScreenColors =
       (uint16_t *)rg_alloc(256 * 9 * sizeof(uint16_t), MEM_SLOW);
   IPPU.DirectColors = IPPU.ScreenColors + 256;
   IPPU.TileCache = (uint8_t *)rg_alloc(MAX_2BIT_TILES * 128, MEM_SLOW);
-  IPPU.TileCached = (uint8_t *)rg_alloc(MAX_2BIT_TILES, MEM_SLOW);
+  IPPU.TileCached = (uint8_t *)rg_alloc(MAX_2BIT_TILES, MEM_FAST | MEM_NOPANIC);
+  if (!IPPU.TileCached) IPPU.TileCached = (uint8_t *)rg_alloc(MAX_2BIT_TILES, MEM_SLOW);
 
-  bytes0x2000 = (uint8_t *)rg_alloc(0x2000, MEM_SLOW);
+  bytes0x2000 = (uint8_t *)rg_alloc(0x2000, MEM_FAST | MEM_NOPANIC);
+  if (!bytes0x2000) bytes0x2000 = (uint8_t *)rg_alloc(0x2000, MEM_SLOW);
 
   // Try to find the biggest (commercial) ROM size that can fit in our available
   // memory. const size_t AllocSizes[] = {0x600000, 0x400000, 0x300000,
