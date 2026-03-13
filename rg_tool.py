@@ -21,8 +21,8 @@ PROJECT_APPS = {
   # Project name  Type, SubType, Size (bytes)
   'launcher':     [0, 16, 1572864],  # 1.5 MB
   'retro-core':   [0, 16, 2097152],  # 2.0 MB
-  'gnuboy':       [0, 16, 1048576],  # 1.0 MB
-  'snes9x':       [0, 16, 1048576],  # 1.0 MB
+  'gnuboy':       [0, 16, 1572864],  # 1.5 MB
+  'snes9x':       [0, 16, 1572864],  # 1.5 MB
   'prboom-go':    [0, 16, 1048576],  # 1 MB
   'gwenesis':     [0, 16, 1572864],  # 1.5 MB (Reserved)
   'fmsx':         [0, 16, 1048576],  # 1 MB (Reserved)

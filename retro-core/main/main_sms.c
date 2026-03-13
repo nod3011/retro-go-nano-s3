@@ -161,6 +161,11 @@ void sms_main(void)
     app->frameskip = 0;
 
     int skipFrames = 0;
+    static uint32_t joystick_old = 0;
+    static bool menu_cancelled = false;
+    static bool turbo_a_toggled = false;
+    static bool turbo_b_toggled = false;
+    static int turbo_counter = 0;
     int colecoKey = 0;
     int colecoKeyDecay = 0;
 
@@ -168,15 +173,47 @@ void sms_main(void)
     {
         const int64_t startTime = rg_system_timer();
         uint32_t joystick = rg_input_read_gamepad();
+        uint32_t joystick_down = joystick & ~joystick_old;
         bool drawFrame = !skipFrames;
         bool slowFrame = false;
+        turbo_counter++;
 
-        if (joystick & (RG_KEY_MENU|RG_KEY_OPTION))
+        if (joystick & RG_KEY_MENU)
         {
-            if (joystick & RG_KEY_MENU)
-                rg_gui_game_menu();
-            else
-                rg_gui_options_menu();
+            if (joystick_down & RG_KEY_A)
+            {
+                turbo_a_toggled = !turbo_a_toggled;
+                RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
+                menu_cancelled = true;
+            }
+            if (joystick_down & RG_KEY_B)
+            {
+                turbo_b_toggled = !turbo_b_toggled;
+                RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
+                menu_cancelled = true;
+            }
+            if (joystick & ~RG_KEY_MENU)
+                menu_cancelled = true;
+        }
+        else
+        {
+            if (joystick_old & RG_KEY_MENU)
+            {
+                if (!menu_cancelled) rg_gui_game_menu();
+                menu_cancelled = false;
+            }
+        }
+
+        if (joystick & RG_KEY_OPTION)
+        {
+            rg_gui_options_menu();
+            joystick_old = joystick;
+            continue;
+        }
+
+        if (joystick & RG_KEY_MENU)
+        {
+            joystick_old = joystick;
             continue;
         }
 
@@ -188,8 +225,14 @@ void sms_main(void)
         if (joystick & RG_KEY_DOWN)  input.pad[0] |= INPUT_DOWN;
         if (joystick & RG_KEY_LEFT)  input.pad[0] |= INPUT_LEFT;
         if (joystick & RG_KEY_RIGHT) input.pad[0] |= INPUT_RIGHT;
-        if (joystick & RG_KEY_A)     input.pad[0] |= INPUT_BUTTON2;
-        if (joystick & RG_KEY_B)     input.pad[0] |= INPUT_BUTTON1;
+        if (joystick & RG_KEY_A)
+        {
+            if (!turbo_a_toggled || (turbo_counter & 4)) input.pad[0] |= INPUT_BUTTON2;
+        }
+        if (joystick & RG_KEY_B)
+        {
+            if (!turbo_b_toggled || (turbo_counter & 4)) input.pad[0] |= INPUT_BUTTON1;
+        }
 
         if (IS_SMS)
         {
@@ -280,5 +323,6 @@ void sms_main(void)
         {
             skipFrames--;
         }
+        joystick_old = joystick;
     }
 }

@@ -185,8 +185,7 @@ void DrawLargePixel16Sub1_2(uint32_t Tile, int32_t Offset, uint32_t StartPixel,
                             uint32_t LineCount);
 
 bool S9xInitGFX(void) {
-  LocalState = (void *)rg_alloc(sizeof(*LocalState), MEM_FAST | MEM_NOPANIC);
-  if (!LocalState) LocalState = (void *)rg_alloc(sizeof(*LocalState), MEM_SLOW);
+  LocalState = (void *)rg_alloc(sizeof(*LocalState), MEM_SLOW);
   if (!LocalState)
     return false;
 
@@ -210,8 +209,7 @@ bool S9xInitGFX(void) {
   S9xFixColourBrightness();
 
 #ifndef NO_ZERO_LUT
-  GFX.ZERO = (uint16_t *)rg_alloc(sizeof(uint16_t) * 0x10000, MEM_FAST | MEM_NOPANIC);
-  if (!GFX.ZERO) GFX.ZERO = (uint16_t *)rg_alloc(sizeof(uint16_t) * 0x10000, MEM_SLOW);
+  GFX.ZERO = (uint16_t *)rg_alloc(sizeof(uint16_t) * 0x10000, MEM_SLOW);
   if (!GFX.ZERO)
     return false;
 
