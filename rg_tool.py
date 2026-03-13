@@ -14,7 +14,7 @@ import zlib
 DEFAULT_TARGET = os.getenv("RG_TOOL_TARGET", "odroid-go")
 DEFAULT_BAUD = os.getenv("RG_TOOL_BAUD", "1152000")
 DEFAULT_PORT = os.getenv("RG_TOOL_PORT", "COM3")
-DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core gnuboy snes9x prboom-go ngp oswan")
+DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core gnuboy snes9x prboom-go ngp oswan gwenesis")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "Retro-Go")
 PROJECT_ICON = os.getenv("PROJECT_ICON", "assets/icon.raw")
 PROJECT_APPS = {
@@ -233,7 +233,8 @@ try:
     if command in ["build", "build-fw", "build-img", "release", "run", "profile", "install"]:
         print("=== Step: Building ===\n")
         for app in apps:
-            build_app(app, args.target, command == "profile", args.no_networking, command == "release", args.netplay)
+            build_app(app, args.target, command == "profile", args.no_networking, command == "release", 
+                      args.netplay if app == "gnuboy" else False)
 
     if command in ["build-fw", "release"]:
         print("=== Step: Packing ===\n")
