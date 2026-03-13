@@ -14,7 +14,6 @@ static nes_t *nes;
 static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
-static uint8_t *nofrendo_vidbuf = NULL;
 static bool nofrendo_running = false;
 static bool slowFrame = false;
 

@@ -61,9 +61,9 @@
 
 #define Pal (PALRAM)
 
-static IRAM_ATTR void FetchSpriteData(void);
-static IRAM_ATTR void RefreshLine(int lastpixel);
-static IRAM_ATTR void RefreshSprites(void);
+static void FetchSpriteData(void);
+static void RefreshLine(int lastpixel);
+static void RefreshSprites(void);
 static void CopySprites(uint8 *target);
 
 static void Fixit1(void);
@@ -452,7 +452,7 @@ static uint8 spr_min_x, spr_max_x;
 static uint8 active_sprites[64];
 static uint8 num_active_sprites;
 
-static void IRAM_ATTR BuildActiveSpriteList(void);
+static void BuildActiveSpriteList(void);
 
 /* lasttile is really "second to last tile." */
 static IRAM_ATTR void RefreshLine(int lastpixel) {

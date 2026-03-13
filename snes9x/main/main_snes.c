@@ -69,7 +69,7 @@ static const char *SNES_BUTTONS[] = {
 #define AUDIO_LOW_PASS_RANGE ((60 * 65536) / 100)
 
 static rg_app_t *app;
-static rg_surface_t *updates[2];
+static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static rg_audio_sample_t *audioBuffer;
@@ -215,14 +215,9 @@ bool S9xInitDisplay(void) {
   GFX.ZPitch = SNES_WIDTH;
   GFX.Screen = currentUpdate->data;
 
-  GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_FAST | MEM_NOPANIC);
-  if (!GFX.SubScreen) GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-
-  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST | MEM_NOPANIC);
-  if (!GFX.ZBuffer) GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-
-  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST | MEM_NOPANIC);
-  if (!GFX.SubZBuffer) GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
 
   return GFX.Screen && GFX.SubScreen && GFX.ZBuffer && GFX.SubZBuffer;
 }
@@ -307,7 +302,7 @@ void app_main(void) {
 
   apu_enabled = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
 
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < 3; i++) {
     updates[i] =
         rg_surface_create(SNES_WIDTH, SNES_HEIGHT_EXTENDED, RG_PIXEL_565_LE, MEM_SLOW);
     updates[i]->height = SNES_HEIGHT;
@@ -413,7 +408,7 @@ void app_main(void) {
     bool drawFrame = (skipFrames == 0);
 
     if (drawFrame) {
-      currentBufferIndex = (currentBufferIndex + 1) % 2;
+      currentBufferIndex = (currentBufferIndex + 1) % 3;
       currentUpdate = updates[currentBufferIndex];
       GFX.Screen = currentUpdate->data;
     }

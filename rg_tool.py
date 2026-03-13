@@ -19,15 +19,15 @@ PROJECT_NAME = os.getenv("PROJECT_NAME", "Retro-Go")
 PROJECT_ICON = os.getenv("PROJECT_ICON", "assets/icon.raw")
 PROJECT_APPS = {
   # Project name  Type, SubType, Size (bytes)
-  'launcher':     [0, 16, 1572864],  # 1.5 MB
+  'launcher':     [0, 16, 2097152],  # 2.0 MB (Was 1.5)
   'retro-core':   [0, 16, 2097152],  # 2.0 MB
   'gnuboy':       [0, 16, 1572864],  # 1.5 MB
   'snes9x':       [0, 16, 1572864],  # 1.5 MB
-  'prboom-go':    [0, 16, 1048576],  # 1 MB
-  'gwenesis':     [0, 16, 1572864],  # 1.5 MB (Reserved)
-  'fmsx':         [0, 16, 1048576],  # 1 MB (Reserved)
-  'oswan':        [0, 16, 786432],   # 768 KB
-  'ngp':          [0, 16, 786432],   # 768 KB
+  'prboom-go':    [0, 16, 1572864],  # 1.5 MB (Was 1.0)
+  'gwenesis':     [0, 16, 1572864],  # 1.5 MB
+  'fmsx':         [0, 16, 1048576],  # 1 MB
+  'ws':           [0, 16, 1048576],  # 1 MB (Was 0.75)
+  'ngp':          [0, 16, 1048576],  # 1 MB (Was 0.75)
   'quake-go':     [0, 16, 2097152],  # 2 MB (Quake needs more space)
 }
 
