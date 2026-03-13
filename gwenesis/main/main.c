@@ -33,6 +33,33 @@ static rg_app_t *app;
 static const char *SETTING_YFM_EMULATION = "yfm_enable";
 static const char *SETTING_Z80_EMULATION = "z80_enable";
 static const char *SETTING_SN76489_EMULATION = "sn_enable";
+
+static int btn_a_map = 1;     // Default: B
+static int btn_b_map = 0;     // Default: A
+static int btn_c_map = 2;     // Default: Select
+static int btn_start_map = 3; // Default: Start
+
+static const char *btn_names[] = {"A", "B", "Select", "Start"};
+static const uint32_t btn_keys[] = {RG_KEY_A, RG_KEY_B, RG_KEY_SELECT,
+                                    RG_KEY_START};
+
+static uint32_t keymap[8] = {RG_KEY_UP, RG_KEY_DOWN, RG_KEY_LEFT, RG_KEY_RIGHT,
+                             RG_KEY_B,  RG_KEY_A,    RG_KEY_SELECT, RG_KEY_START};
+
+static struct {
+  int *val;
+  const char *key;
+  int index;
+} btn_configs[4] = {
+    {&btn_a_map, "btn_a", 4},
+    {&btn_b_map, "btn_b", 5},
+    {&btn_c_map, "btn_c", 6},
+    {&btn_start_map, "btn_start", 7},
+};
+
+static void load_config();
+static void save_config();
+
 // --- MAIN
 
 typedef struct {
@@ -132,6 +159,68 @@ static rg_gui_event_t z80_update_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
+static rg_gui_event_t sub_btn_mapping_cb(rg_gui_option_t *option,
+                                         rg_gui_event_t event) {
+  int i = (int)option->arg;
+  int *val = btn_configs[i].val;
+  int index = btn_configs[i].index;
+
+  if (event == RG_DIALOG_PREV)
+    *val = (*val + 3) % 4;
+  if (event == RG_DIALOG_NEXT)
+    *val = (*val + 1) % 4;
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    keymap[index] = btn_keys[*val];
+  }
+
+  strcpy(option->value, btn_names[*val]);
+
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t save_config_cb(rg_gui_option_t *option,
+                                     rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    save_config();
+    rg_gui_alert(_("Success"), _("Configuration saved."));
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t load_config_cb(rg_gui_option_t *option,
+                                     rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    load_config();
+    rg_gui_alert(_("Success"), _("Configuration loaded."));
+    return RG_DIALOG_REDRAW;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option,
+                                     rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    rg_gui_option_t options[7];
+    options[0] = (rg_gui_option_t){0, _("Button A"), "-", RG_DIALOG_FLAG_NORMAL,
+                                   &sub_btn_mapping_cb};
+    options[1] = (rg_gui_option_t){1, _("Button B"), "-", RG_DIALOG_FLAG_NORMAL,
+                                   &sub_btn_mapping_cb};
+    options[2] = (rg_gui_option_t){2, _("Button C"), "-", RG_DIALOG_FLAG_NORMAL,
+                                   &sub_btn_mapping_cb};
+    options[3] = (rg_gui_option_t){3, _("Button Start"), "-",
+                                   RG_DIALOG_FLAG_NORMAL, &sub_btn_mapping_cb};
+    options[4] = (rg_gui_option_t){0, _("Save Config"), NULL,
+                                   RG_DIALOG_FLAG_NORMAL, &save_config_cb};
+    options[5] = (rg_gui_option_t){0, _("Load Config"), NULL,
+                                   RG_DIALOG_FLAG_NORMAL, &load_config_cb};
+    options[6] = (rg_gui_option_t)RG_DIALOG_END;
+
+    rg_gui_dialog(option->label, options, 0);
+  }
+  return RG_DIALOG_VOID;
+}
+
 static bool screenshot_handler(const char *filename, int width, int height) {
   return rg_surface_save_image_file(currentUpdate, filename, width, height);
 }
@@ -176,7 +265,46 @@ static void options_handler(rg_gui_option_t *dest) {
                               &sn76489_update_cb};
   *dest++ = (rg_gui_option_t){0, _("Z80 emulation"), "-", RG_DIALOG_FLAG_NORMAL,
                               &z80_update_cb};
+
+  *dest++ = (rg_gui_option_t){0, _("Map Buttons"), "...", RG_DIALOG_FLAG_NORMAL,
+                              &btn_mapping_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
+}
+
+static void load_config() {
+  char path[RG_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/%s.cfg", RG_BASE_PATH_SAVES,
+           rg_basename(app->romPath));
+
+  void *data = NULL;
+  size_t size = 0;
+  if (rg_storage_read_file(path, &data, &size, 0)) {
+    if (size >= sizeof(int) * 4) {
+      int *vals = (int *)data;
+      btn_a_map = vals[0];
+      btn_b_map = vals[1];
+      btn_c_map = vals[2];
+      btn_start_map = vals[3];
+      RG_LOGI("Config loaded from %s\n", path);
+    }
+    free(data);
+  }
+
+  keymap[4] = btn_keys[btn_a_map];
+  keymap[5] = btn_keys[btn_b_map];
+  keymap[6] = btn_keys[btn_c_map];
+  keymap[7] = btn_keys[btn_start_map];
+}
+
+static void save_config() {
+  char path[RG_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/%s.cfg", RG_BASE_PATH_SAVES,
+           rg_basename(app->romPath));
+
+  int vals[4] = {btn_a_map, btn_b_map, btn_c_map, btn_start_map};
+  if (rg_storage_write_file(path, vals, sizeof(vals), 0)) {
+    RG_LOGI("Config saved to %s\n", path);
+  }
 }
 
 void app_main(void) {
@@ -195,6 +323,8 @@ void app_main(void) {
   sn76489_enabled =
       rg_settings_get_number(NS_APP, SETTING_SN76489_EMULATION, 0);
   z80_enabled = rg_settings_get_number(NS_APP, SETTING_Z80_EMULATION, 1);
+
+  load_config();
 
   updates[0] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_FAST);
   // updates[1] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_FAST);
@@ -223,7 +353,7 @@ void app_main(void) {
     RG_PANIC("ROM load failed!");
   }
 
-  RG_LOGI("load_cartridge(%p, %d)\n", rom_data, rom_size);
+  RG_LOGI("load_cartridge(%p, %zu)\n", rom_data, rom_size);
   load_cartridge(rom_data, rom_size);
   // free(rom_data); // load_cartridge takes ownership
 
@@ -251,8 +381,6 @@ void app_main(void) {
 
   // index: 0=Up, 1=Down, 2=Left, 3=Right, 4=Gen_A, 5=Gen_B, 6=Gen_C,
   // 7=Gen_Start
-  uint32_t keymap[8] = {RG_KEY_UP, RG_KEY_DOWN, RG_KEY_LEFT,   RG_KEY_RIGHT,
-                        RG_KEY_B,  RG_KEY_A,    RG_KEY_SELECT, RG_KEY_START};
   uint32_t joystick = 0, joystick_old;
 
   int skipFrames = 0;
