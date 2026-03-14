@@ -19,6 +19,8 @@
 
 int is_mono_game = 0;
 
+#define NGP_CPU_CLOCK 6144000
+
 // Defined in retro_compat.h (inside RETRO_COMPAT_IMPLEMENTATION)
 // EMUINFO m_emuInfo;
 // struct ngp_screen *screen;
@@ -369,7 +371,7 @@ void app_main() {
     break;
   }
 
-  rg_system_set_tick_rate(1);
+  // rg_system_set_tick_rate(1);
   app->frameskip = 0;
 
   if (app->bootFlags & RG_BOOT_RESUME) {
@@ -380,6 +382,7 @@ void app_main() {
   static bool menu_cancelled = false;
   static bool menu_pressed = false;
   int64_t sram_save_timer = 0;
+  int64_t frame_start = rg_system_timer();
 
   while (m_bIsActive) {
     uint32_t joystick = rg_input_read_gamepad();
@@ -416,11 +419,15 @@ void app_main() {
 
     poll_input(menu_pressed ? 0 : joystick);
 
-    tlcs_execute(5700000 / 60);
+    tlcs_execute(NGP_CPU_CLOCK / 60);
 
     if (g_frame_ready) {
       g_frame_ready = 0;
       submit_frame();
+
+      int64_t now = rg_system_timer();
+      rg_system_tick(now - frame_start);
+      frame_start = now;
     }
 
     extern unsigned char needToWriteFile;
