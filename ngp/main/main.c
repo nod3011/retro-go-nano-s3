@@ -18,7 +18,6 @@
 #include "types.h"
 
 int is_mono_game = 0;
-
 #define NGP_CPU_CLOCK 6144000
 
 // Defined in retro_compat.h (inside RETRO_COMPAT_IMPLEMENTATION)
@@ -210,6 +209,10 @@ static void event_handler(int event, void *arg) {
   }
 }
 
+static void options_handler(rg_gui_option_t *dest) {
+  *dest++ = (rg_gui_option_t)RG_DIALOG_END;
+}
+
 static bool load_state_handler(const char *filename) {
   size_t size = 0;
   void *data = NULL;
@@ -278,11 +281,14 @@ void app_main() {
       .loadState = load_state_handler,
       .screenshot = screenshot_handler,
       .event = event_handler,
+      .options = NULL,
   };
   rg_system_init(22050, &handlers, event_handler);
-  rg_system_set_overclock(0);
+  rg_system_set_tick_rate(60);
+  rg_system_set_overclock(1);
   app = rg_system_get_app();
   app->frameskip = 0;
+  g_overclock = 0;
 
   // Load ROM
   size_t rom_size = 0;
@@ -371,7 +377,7 @@ void app_main() {
     break;
   }
 
-  // rg_system_set_tick_rate(1);
+  rg_system_set_tick_rate(60);
   app->frameskip = 0;
 
   if (app->bootFlags & RG_BOOT_RESUME) {
@@ -424,7 +430,6 @@ void app_main() {
     if (g_frame_ready) {
       g_frame_ready = 0;
       submit_frame();
-
       int64_t now = rg_system_timer();
       rg_system_tick(now - frame_start);
       frame_start = now;

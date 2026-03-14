@@ -31,6 +31,7 @@ extern unsigned int
 extern int timer0, timer1, timer2, timer3;
 extern unsigned char ldcRegs[64];
 extern int setting_ngp_language;
+extern int g_overclock;
 
 #define XWA0	0
 #define XBC0	1

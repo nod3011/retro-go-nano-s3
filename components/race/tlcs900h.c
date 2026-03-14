@@ -100,6 +100,7 @@ unsigned char *Ztable;  // zero and sign flags table for faster setting
 unsigned char *SZtable; // zero and sign flags table for faster setting
 extern unsigned char *ngpScY;
 int ngOverflow = 0;
+int g_overclock = 0;
 
 #ifdef NGP_HW_INTERLACED
 // Etat frameskip
@@ -7709,7 +7710,8 @@ void tlcs_execute(int cycles)
       ;
     tlcsTimers(elapsed);
     elapsed *= tlcsClockMulti;
-    soundStep(elapsed);
+    if (!g_overclock || cycles > 0)
+      soundStep(elapsed);
 
     hCounter -= elapsed;
 
@@ -7813,4 +7815,16 @@ void tlcs_execute(int cycles)
   }
 
   ngOverflow = hCounter + cycles;
+
+  if (g_overclock > 0 && cycles <= 0) {
+    int extra = g_overclock * (6144000 / 60);
+    while (extra > 0) {
+      int elapsed;
+      for (elapsed = tlcs_step(); elapsed < (515 >> (tlcsClockMulti - 1));
+           elapsed += tlcs_step())
+        ;
+      tlcsTimers(elapsed);
+      extra -= (elapsed * tlcsClockMulti);
+    }
+  }
 }
