@@ -981,10 +981,10 @@ void FCEU_ResetVidSys(void) {
     dendy = 0;
 
   normal_scanlines = dendy ? 290 : 240;
-#ifndef FCEU_NO_OVERCLOCKING
-  totalscanlines = normal_scanlines + (overclock_enabled ? extrascanlines : 0);
-#else
   totalscanlines = normal_scanlines;
+#ifndef FCEU_NO_OVERCLOCKING
+  /* totalscanlines is no longer expanded to include overclocking cycles
+     to prevent timing inversion issues. */
 #endif
   FCEUPPU_SetVideoSystem(w || dendy);
   SetSoundVariables();

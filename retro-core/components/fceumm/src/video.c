@@ -62,8 +62,8 @@ void FCEU_KillVirtualVideo(void) {
 
 int FCEU_InitVirtualVideo(void) {
 #ifndef TARGET_GNW
-  /* 256 bytes per scanline, * 240 scanline maximum, +8 for alignment, */
-  size_t size = 256 * (256 + extrascanlines + 8);
+  /* 256 bytes per scanline, * 256 scanline maximum */
+  size_t size = 256 * 256;
   if (!XBuf)
     XBuf = (uint8 *)(rg_alloc(size, 0));
   if (!XDBuf)

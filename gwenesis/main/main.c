@@ -26,8 +26,9 @@ static bool yfm_enabled = true;
 static bool z80_enabled = true;
 static bool sn76489_enabled = true;
 
-static rg_surface_t *updates[2];
+static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
+static int currentBufferIndex = 0;
 static rg_app_t *app;
 
 static const char *SETTING_YFM_EMULATION = "yfm_enable";
@@ -334,16 +335,20 @@ void app_main(void) {
 
   load_config();
 
-  updates[0] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_FAST);
-  // updates[1] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_FAST);
-  currentUpdate = updates[0];
+  updates[0] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_SLOW);
+  updates[1] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_SLOW);
+  updates[2] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_SLOW);
+  currentBufferIndex = 0;
+  currentUpdate = updates[currentBufferIndex];
 
   // This is a hack because our new surface format doesn't yet support overdraw
   // space easily
   updates[0]->data += 160;
   updates[0]->height = 240;
-  // updates[1]->data += 160;
-  // updates[1]->height = 240;
+  updates[1]->data += 160;
+  updates[1]->height = 240;
+  updates[2]->data += 160;
+  updates[2]->height = 240;
 
   VRAM = rg_alloc(VRAM_MAX_SIZE, MEM_FAST);
 
@@ -449,6 +454,11 @@ void app_main(void) {
     bool drawFrame = skipFrames == 0;
     bool slowFrame = false;
 
+    if (drawFrame) {
+      currentBufferIndex = (currentBufferIndex + 1) % 3;
+      currentUpdate = updates[currentBufferIndex];
+    }
+
     int lines_per_frame = REG1_PAL ? LINES_PER_FRAME_PAL : LINES_PER_FRAME_NTSC;
     int hint_counter = gwenesis_vdp_regs[10];
 
@@ -543,7 +553,7 @@ void app_main(void) {
       slowFrame = !rg_display_sync(false);
       currentUpdate->width = screen_width;
       currentUpdate->height = screen_height;
-      rg_display_submit(currentUpdate, 0);
+      rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
     rg_system_tick(rg_system_timer() - startTime);

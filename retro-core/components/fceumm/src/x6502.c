@@ -62,9 +62,10 @@ void FP_FASTAPASS(1) (*MapIRQHook)(int a);
     int __x = x;                                                               \
     _tcount += __x;                                                            \
     _count -= __x * 48;                                                        \
-    timestamp += __x;                                                          \
-    if (!overclocked)                                                          \
+    if (!overclocked) {                                                        \
+      timestamp += __x;                                                        \
       sound_timestamp += __x;                                                  \
+    }                                                                          \
   }
 #else
 #define ADDCYC(x)                                                              \

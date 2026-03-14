@@ -1715,8 +1715,7 @@ static void check_variables(bool startup) {
     }
 
     normal_scanlines = dendy ? 290 : 240;
-    totalscanlines =
-        normal_scanlines + (overclock_enabled ? extrascanlines : 0);
+    totalscanlines = normal_scanlines;
 
     if (do_reinit && startup) {
       FCEU_KillVirtualVideo();

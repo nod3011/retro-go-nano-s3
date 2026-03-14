@@ -1259,15 +1259,6 @@ IRAM_ATTR int FCEUPPU_Loop(int skip) {
         TriggerNMI();
     }
     X6502_Run((scanlines_per_frame - 242) * (256 + 85) - 12);
-#ifndef FCEU_NO_OVERCLOCKING
-    if (overclock_enabled && vblankscanlines) {
-      if (!DMC_7bit || !skip_7bit_overclocking) {
-        overclocked = 1;
-        X6502_Run(vblankscanlines * (256 + 85) - 12);
-        overclocked = 0;
-      }
-    }
-#endif
     PPU_status &= 0x1f;
     X6502_Run(256);
 
@@ -1335,36 +1326,12 @@ IRAM_ATTR int FCEUPPU_Loop(int skip) {
 
       deemp = PPU[1] >> 5;
 
-      /* manual samples can't play correctly with overclocking */
-#ifndef FCEU_NO_OVERCLOCKING
-      if (DMC_7bit && skip_7bit_overclocking)
-        totalscanlines = normal_scanlines;
-      else
-        totalscanlines =
-            normal_scanlines + (overclock_enabled ? extrascanlines : 0);
-#else
       totalscanlines = normal_scanlines;
-#endif
-      for (scanline = 0;
-           scanline < totalscanlines;) { /* scanline is incremented in  DoLine.
-                                            Evil. :/ */
+      for (scanline = 0; scanline < totalscanlines;) {
         deempcnt[deemp]++;
         DoLine();
-#ifndef FCEU_NO_OVERCLOCKING
-        if (scanline < normal_scanlines || scanline == totalscanlines) {
-          overclocked = 0;
-        } else {
-          if (DMC_7bit &&
-              skip_7bit_overclocking) /* 7bit sample started after 240th line */
-            break;
-          overclocked = 1;
-        }
-#endif
       }
 
-#ifndef FCEU_NO_OVERCLOCKING
-      DMC_7bit = 0;
-#endif
       if (MMC5Hack && (ScreenON || SpriteON))
         MMC5_hb(scanline);
       for (x = 1, max = 0, maxref = 0; x < 7; x++) {
@@ -1377,6 +1344,20 @@ IRAM_ATTR int FCEUPPU_Loop(int skip) {
       SetNESDeemph(maxref, 0);
     }
   }
+
+#ifndef FCEU_NO_OVERCLOCKING
+  if (overclock_enabled) {
+    unsigned total_extra = extrascanlines + vblankscanlines;
+    if (total_extra > 0) {
+      if (!DMC_7bit || !skip_7bit_overclocking) {
+        overclocked = 1;
+        X6502_Run(total_extra * (256 + 85));
+        overclocked = 0;
+      }
+    }
+  }
+  DMC_7bit = 0;
+#endif
 
 #if defined(FRAMESKIP) || defined(TARGET_GNW)
   if (skip) {
