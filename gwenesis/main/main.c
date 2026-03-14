@@ -278,7 +278,7 @@ static void options_handler(rg_gui_option_t *dest) {
 
 static void load_config() {
   char path[RG_PATH_MAX];
-  snprintf(path, sizeof(path), "%s/%s.cfg", RG_BASE_PATH_SAVES,
+  snprintf(path, sizeof(path), "%s/md/%s.cfg", RG_BASE_PATH_CONFIG,
            rg_basename(app->romPath));
 
   void *data = NULL;
@@ -303,8 +303,10 @@ static void load_config() {
 
 static void save_config() {
   char path[RG_PATH_MAX];
-  snprintf(path, sizeof(path), "%s/%s.cfg", RG_BASE_PATH_SAVES,
+  snprintf(path, sizeof(path), "%s/md/%s.cfg", RG_BASE_PATH_CONFIG,
            rg_basename(app->romPath));
+           
+  rg_storage_mkdir(rg_dirname(path));
 
   int vals[4] = {btn_a_map, btn_b_map, btn_c_map, btn_start_map};
   if (rg_storage_write_file(path, vals, sizeof(vals), 0)) {

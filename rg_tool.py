@@ -27,6 +27,7 @@ PROJECT_APPS = {
   'gwenesis':     [0, 16, 1572864],  # 1.5 MB
   'fmsx':         [0, 16, 1048576],  # 1 MB
   'ws':           [0, 16, 1048576],  # 1 MB (Was 0.75)
+  'oswan':        [0, 16, 1048576],  # 1 MB
   'ngp':          [0, 16, 1048576],  # 1 MB (Was 0.75)
   'quake-go':     [0, 16, 2097152],  # 2 MB (Quake needs more space)
 }

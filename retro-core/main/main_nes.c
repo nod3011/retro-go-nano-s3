@@ -245,6 +245,11 @@ static void load_cheats(void) {
   if (!path)
     return;
 
+  char *saves_str = strstr(path, "saves");
+  if (saves_str) {
+    memcpy(saves_str, "cheat", 5);
+  }
+
   char *ext = strrchr(path, '.');
   if (ext)
     strcpy(ext, ".cht");
@@ -287,6 +292,13 @@ static void save_cheats(void) {
   char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
   if (!path)
     return;
+
+  char *saves_str = strstr(path, "saves");
+  if (saves_str) {
+    memcpy(saves_str, "cheat", 5);
+  }
+  
+  rg_storage_mkdir(rg_dirname(path));
 
   char *ext = strrchr(path, '.');
   if (ext)

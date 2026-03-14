@@ -169,7 +169,7 @@ static void poll_input(uint32_t state) {
       joy |= (1 << 5);
   }
 
-  if (state & (RG_KEY_START | RG_KEY_SELECT | RG_KEY_OPTION))
+  if (state & (RG_KEY_START | RG_KEY_SELECT))
     joy |= (1 << 6);
 
   ngpInputState = (unsigned char)joy;
