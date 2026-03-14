@@ -49,6 +49,7 @@ static QueueHandle_t netplay_queue = NULL;
 static SemaphoreHandle_t netplay_send_mutex = NULL;
 static uint8_t local_seq = 0;
 static uint8_t remote_last_seq[MAX_PLAYERS] = {0};
+static uint8_t last_sent_data[MAX_PLAYERS][128];
 static const uint8_t broadcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 typedef struct
@@ -65,8 +66,30 @@ static void dummy_netplay_callback(netplay_event_t event, void *arg)
 
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len)
 {
-    if (len < 4 || len > sizeof(netplay_packet_t) || !espnow_rx_queue)
+    if (len < 4 || len > sizeof(netplay_packet_t))
         return;
+
+    netplay_packet_t *packet = (netplay_packet_t *)data;
+
+    if (packet->cmd == NETPLAY_PACKET_SYNC_REQ || packet->cmd == NETPLAY_PACKET_SYNC_ACK)
+    {
+        if (netplay_queue)
+        {
+            if (xQueueSend(netplay_queue, packet, 0) != pdPASS)
+            {
+                netplay_packet_t tmp;
+                xQueueReceive(netplay_queue, &tmp, 0);
+                xQueueSend(netplay_queue, packet, 0);
+            }
+        }
+        if (packet->player_id < MAX_PLAYERS)
+            players[packet->player_id].last_contact = rg_system_timer();
+        return;
+    }
+
+    if (!espnow_rx_queue)
+        return;
+
     espnow_packet_t pkt;
     memcpy(pkt.mac_addr, recv_info->src_addr, 6);
     memcpy(&pkt.packet, data, len);
@@ -539,23 +562,21 @@ bool rg_netplay_poll_sync(void *data_in, void *data_out, uint8_t data_len)
 
     netplay_packet_t packet;
 
-    // Role-agnostic: handle incoming SYNC_REQ from either side.
-    // This is the serial Slave path — we respond to whoever is the serial Master.
     if (receive_packet(&packet, 0))
     {
         if (packet.cmd == NETPLAY_PACKET_SYNC_REQ)
         {
-            if (packet.arg == remote_last_seq[packet.player_id])
+            int8_t diff = (int8_t)(packet.arg - remote_last_seq[packet.player_id]);
+            if (diff <= 0)
             {
-                // Duplicate request — resend ACK but don't process again
-                send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
+                send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, last_sent_data[packet.player_id], data_len);
                 return false;
             }
 
             if (data_out)
                 memcpy(data_out, packet.data, data_len);
 
-            // Respond immediately with our data
+            memcpy(last_sent_data[packet.player_id], data_in, data_len);
             send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
             remote_last_seq[packet.player_id] = packet.arg;
 
@@ -577,9 +598,6 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
     int64_t start_time = rg_system_timer();
     const int SYNC_TIMEOUT_MS = 2000;
 
-    // Role-agnostic: The serial Master (caller) always sends SYNC_REQ.
-    // This works regardless of whether we are netplay HOST or GUEST,
-    // because GB serial Master is determined by who sets SC=0x81.
     uint8_t seq = ++local_seq;
     if (seq == 0)
         seq = ++local_seq;
@@ -590,11 +608,10 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
     {
         if (remote_player->is_paused)
         {
-            return; // Don't block if peer is paused
+            return; 
         }
 
-        // (Re)send our SYNC_REQ every 40ms
-        if ((rg_system_timer() - last_send) / 1000 >= 40)
+        if ((rg_system_timer() - last_send) / 1000 >= 10)
         {
             send_packet(remote_player->id, NETPLAY_PACKET_SYNC_REQ, seq, data_in, data_len);
             last_send = rg_system_timer();
@@ -608,40 +625,39 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
 
         if (receive_packet(&packet, 2))
         {
-            if (packet.cmd == NETPLAY_PACKET_SYNC_ACK && packet.arg == seq)
-            {
-                // Got our matching ACK — exchange complete
-                if (data_out)
-                    memcpy(data_out, packet.data, data_len);
-                remote_last_seq[packet.player_id] = packet.arg;
-                return;
-            }
-            else if (packet.cmd == NETPLAY_PACKET_GAME_PAUSE)
-            {
-                players[packet.player_id].is_paused = true;
-            }
-            else if (packet.cmd == NETPLAY_PACKET_GAME_START)
-            {
-                players[packet.player_id].is_paused = false;
-            }
-            else if (packet.cmd == NETPLAY_PACKET_SYNC_REQ)
-            {
-                // Peer is also a serial Master (both sides initiated).
-                // Respond with ACK and use their data as our received byte.
-                if (packet.arg != remote_last_seq[packet.player_id])
+            do {
+                if (packet.cmd == NETPLAY_PACKET_SYNC_ACK && packet.arg == seq)
                 {
                     if (data_out)
                         memcpy(data_out, packet.data, data_len);
-                    send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
-                    remote_last_seq[packet.player_id] = packet.arg;
                     return;
                 }
-                else
+                else if (packet.cmd == NETPLAY_PACKET_GAME_PAUSE)
                 {
-                    // Duplicate REQ — resend ACK
-                    send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
+                    players[packet.player_id].is_paused = true;
                 }
-            }
+                else if (packet.cmd == NETPLAY_PACKET_GAME_START)
+                {
+                    players[packet.player_id].is_paused = false;
+                }
+                else if (packet.cmd == NETPLAY_PACKET_SYNC_REQ)
+                {
+                    int8_t diff = (int8_t)(packet.arg - remote_last_seq[packet.player_id]);
+                    if (diff > 0)
+                    {
+                        if (data_out)
+                            memcpy(data_out, packet.data, data_len);
+                        memcpy(last_sent_data[packet.player_id], data_in, data_len);
+                        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
+                        remote_last_seq[packet.player_id] = packet.arg;
+                        return;
+                    }
+                    else
+                    {
+                        send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, last_sent_data[packet.player_id], data_len);
+                    }
+                }
+            } while (receive_packet(&packet, 0));
         }
     }
     RG_LOGW("netplay_sync_ex: timeout!\n");
