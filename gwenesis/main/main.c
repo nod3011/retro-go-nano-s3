@@ -40,6 +40,8 @@ static int btn_b_map = 0;     // Default: A
 static int btn_c_map = 2;     // Default: Select
 static int btn_start_map = 3; // Default: Start
 
+static int gwenesis_overclock = 100; // 100 = 100% (No overclock)
+
 static const char *btn_names[] = {"A", "B", "Select", "Start"};
 static const uint32_t btn_keys[] = {RG_KEY_A, RG_KEY_B, RG_KEY_SELECT,
                                     RG_KEY_START};
@@ -264,7 +266,25 @@ static void event_handler(int event, void *arg) {
   }
 }
 
+static rg_gui_event_t overclock_update_cb(rg_gui_option_t *option,
+                                           rg_gui_event_t event) {
+  if (event == RG_DIALOG_PREV)
+    gwenesis_overclock = RG_MAX(100, gwenesis_overclock - 25);
+  if (event == RG_DIALOG_NEXT)
+    gwenesis_overclock = RG_MIN(300, gwenesis_overclock + 25);
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    rg_settings_set_number(NS_APP, "overclock", gwenesis_overclock);
+  }
+
+  sprintf(option->value, "%d%%", gwenesis_overclock);
+
+  return RG_DIALOG_VOID;
+}
+
 static void options_handler(rg_gui_option_t *dest) {
+  *dest++ = (rg_gui_option_t){0, _("Overclock"), "-", RG_DIALOG_FLAG_NORMAL,
+                               &overclock_update_cb};
   *dest++ = (rg_gui_option_t){0, _("YM2612 audio "), "-", RG_DIALOG_FLAG_NORMAL,
                               &yfm_update_cb};
   *dest++ = (rg_gui_option_t){0, _("SN76489 audio"), "-", RG_DIALOG_FLAG_NORMAL,
@@ -332,6 +352,7 @@ void app_main(void) {
   sn76489_enabled =
       rg_settings_get_number(NS_APP, SETTING_SN76489_EMULATION, 0);
   z80_enabled = rg_settings_get_number(NS_APP, SETTING_Z80_EMULATION, 1);
+  gwenesis_overclock = rg_settings_get_number(NS_APP, "overclock", 100);
 
   load_config();
 
@@ -480,8 +501,26 @@ void app_main(void) {
     scan_line = 0;
 
     while (scan_line < lines_per_frame) {
-      m68k_run(system_clock + VDP_CYCLES_PER_LINE);
-      z80_run(system_clock + VDP_CYCLES_PER_LINE);
+      int next_system_clock = system_clock + VDP_CYCLES_PER_LINE;
+      
+      if (gwenesis_overclock > 100) {
+        int m68k_start_cycles = m68k.cycles;
+        int m68k_target = system_clock + (VDP_CYCLES_PER_LINE * gwenesis_overclock / 100);
+        
+        m68k_run(m68k_target);
+        
+        // Cycle hiding: adjust m68k.cycles to hide the extra overclocked cycles 
+        // from the rest of the system (VDP, Z80, Sound).
+        int executed = m68k.cycles - m68k_start_cycles;
+        int standard = VDP_CYCLES_PER_LINE;
+        if (executed > standard) {
+            m68k.cycles -= (executed - standard);
+        }
+      } else {
+        m68k_run(next_system_clock);
+      }
+      
+      z80_run(next_system_clock);
 
       /* Audio */
       /*  GWENESIS_AUDIO_ACCURATE:
@@ -490,8 +529,8 @@ void app_main(void) {
        * every lines.
        */
       if (GWENESIS_AUDIO_ACCURATE == 0) {
-        gwenesis_SN76489_run(system_clock + VDP_CYCLES_PER_LINE);
-        ym2612_run(system_clock + VDP_CYCLES_PER_LINE);
+        gwenesis_SN76489_run(next_system_clock);
+        ym2612_run(next_system_clock);
       }
 
       /* Video */
@@ -531,7 +570,7 @@ void app_main(void) {
         z80_irq_line(0);
       }
 
-      system_clock += VDP_CYCLES_PER_LINE;
+      system_clock = next_system_clock;
     }
 
     /* Audio
