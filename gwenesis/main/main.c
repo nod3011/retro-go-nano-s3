@@ -503,23 +503,7 @@ void app_main(void) {
     while (scan_line < lines_per_frame) {
       int next_system_clock = system_clock + VDP_CYCLES_PER_LINE;
       
-      if (gwenesis_overclock > 100) {
-        int m68k_start_cycles = m68k.cycles;
-        int m68k_target = system_clock + (VDP_CYCLES_PER_LINE * gwenesis_overclock / 100);
-        
-        m68k_run(m68k_target);
-        
-        // Cycle hiding: adjust m68k.cycles to hide the extra overclocked cycles 
-        // from the rest of the system (VDP, Z80, Sound).
-        int executed = m68k.cycles - m68k_start_cycles;
-        int standard = VDP_CYCLES_PER_LINE;
-        if (executed > standard) {
-            m68k.cycles -= (executed - standard);
-        }
-      } else {
-        m68k_run(next_system_clock);
-      }
-      
+      m68k_run(next_system_clock);
       z80_run(next_system_clock);
 
       /* Audio */
@@ -571,6 +555,13 @@ void app_main(void) {
       }
 
       system_clock = next_system_clock;
+    }
+
+    if (gwenesis_overclock > 100) {
+      int m68k_start = m68k.cycles;
+      int m68k_extra = (system_clock * (gwenesis_overclock - 100)) / 100;
+      m68k_run(m68k_start + m68k_extra);
+      m68k.cycles = m68k_start; // Hide the extra overclocked cycles
     }
 
     /* Audio
