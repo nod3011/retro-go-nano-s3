@@ -40,7 +40,8 @@ static int btn_b_map = 0;     // Default: A
 static int btn_c_map = 2;     // Default: Select
 static int btn_start_map = 3; // Default: Start
 
-static int gwenesis_overclock = 100; // 100 = 100% (No overclock)
+static int gwenesis_voverclock = 100; // 100 = 100% (No overclock)
+static int gwenesis_frameskip = 0;    // 0=Auto, 1=Off, 2=1, 3=2, 4=3
 
 static const char *btn_names[] = {"A", "B", "Select", "Start"};
 static const uint32_t btn_keys[] = {RG_KEY_A, RG_KEY_B, RG_KEY_SELECT,
@@ -266,25 +267,44 @@ static void event_handler(int event, void *arg) {
   }
 }
 
-static rg_gui_event_t overclock_update_cb(rg_gui_option_t *option,
-                                           rg_gui_event_t event) {
+static rg_gui_event_t voverclock_update_cb(rg_gui_option_t *option,
+                                            rg_gui_event_t event) {
   if (event == RG_DIALOG_PREV)
-    gwenesis_overclock = RG_MAX(100, gwenesis_overclock - 25);
+    gwenesis_voverclock = RG_MAX(100, gwenesis_voverclock - 25);
   if (event == RG_DIALOG_NEXT)
-    gwenesis_overclock = RG_MIN(300, gwenesis_overclock + 25);
+    gwenesis_voverclock = RG_MIN(300, gwenesis_voverclock + 25);
 
   if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
-    rg_settings_set_number(NS_APP, "overclock", gwenesis_overclock);
+    rg_settings_set_number(NS_APP, "overclock", gwenesis_voverclock);
   }
 
-  sprintf(option->value, "%d%%", gwenesis_overclock);
+  sprintf(option->value, "%d%%", gwenesis_voverclock);
+
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t frameskip_update_cb(rg_gui_option_t *option,
+                                           rg_gui_event_t event) {
+  if (event == RG_DIALOG_PREV)
+    gwenesis_frameskip = (gwenesis_frameskip + 4) % 5;
+  if (event == RG_DIALOG_NEXT)
+    gwenesis_frameskip = (gwenesis_frameskip + 1) % 5;
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    rg_settings_set_number(NS_APP, "frameskip_mode", gwenesis_frameskip);
+  }
+
+  const char *modes[] = {_("Auto"), _("Off"), "1", "2", "3"};
+  strcpy(option->value, modes[gwenesis_frameskip]);
 
   return RG_DIALOG_VOID;
 }
 
 static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t){0, _("Overclock"), "-", RG_DIALOG_FLAG_NORMAL,
-                               &overclock_update_cb};
+  *dest++ = (rg_gui_option_t){0, _("Frameskip"), "-", RG_DIALOG_FLAG_NORMAL,
+                               &frameskip_update_cb};
+  *dest++ = (rg_gui_option_t){0, _("VOverclock"), "-", RG_DIALOG_FLAG_NORMAL,
+                               &voverclock_update_cb};
   *dest++ = (rg_gui_option_t){0, _("YM2612 audio "), "-", RG_DIALOG_FLAG_NORMAL,
                               &yfm_update_cb};
   *dest++ = (rg_gui_option_t){0, _("SN76489 audio"), "-", RG_DIALOG_FLAG_NORMAL,
@@ -311,6 +331,11 @@ static void load_config() {
       btn_b_map = vals[1];
       btn_c_map = vals[2];
       btn_start_map = vals[3];
+      if (size >= sizeof(int) * 6) {
+        gwenesis_voverclock = vals[4];
+        gwenesis_frameskip = vals[5];
+        RG_LOGI("Overclock and Frameskip loaded.\n");
+      }
       RG_LOGI("Config loaded from %s\n", path);
     }
     free(data);
@@ -329,7 +354,7 @@ static void save_config() {
            
   rg_storage_mkdir(rg_dirname(path));
 
-  int vals[4] = {btn_a_map, btn_b_map, btn_c_map, btn_start_map};
+  int vals[6] = {btn_a_map, btn_b_map, btn_c_map, btn_start_map, gwenesis_voverclock, gwenesis_frameskip};
   if (rg_storage_write_file(path, vals, sizeof(vals), 0)) {
     RG_LOGI("Config saved to %s\n", path);
   }
@@ -346,15 +371,18 @@ void app_main(void) {
   };
 
   app = rg_system_init(AUDIO_SAMPLE_RATE / 2, &handlers, NULL);
-  rg_system_set_overclock(1);
+  rg_system_set_overclock(3);
 
   yfm_enabled = rg_settings_get_number(NS_APP, SETTING_YFM_EMULATION, 1);
   sn76489_enabled =
       rg_settings_get_number(NS_APP, SETTING_SN76489_EMULATION, 0);
   z80_enabled = rg_settings_get_number(NS_APP, SETTING_Z80_EMULATION, 1);
-  gwenesis_overclock = rg_settings_get_number(NS_APP, "overclock", 100);
+  gwenesis_voverclock = rg_settings_get_number(NS_APP, "overclock", 100);
+  gwenesis_frameskip = rg_settings_get_number(NS_APP, "frameskip_mode", 0);
 
   load_config();
+  rg_system_set_overclock(3);
+  rg_task_delay(100); // Wait for system to settle
 
   updates[0] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_SLOW);
   updates[1] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_SLOW);
@@ -398,6 +426,7 @@ void app_main(void) {
   reset_emulation();
 
   if (app->bootFlags & RG_BOOT_RESUME) {
+    rg_task_delay(200); // Extra safety delay before state load
     rg_emu_load_state(app->saveSlot);
   }
 
@@ -557,9 +586,9 @@ void app_main(void) {
       system_clock = next_system_clock;
     }
 
-    if (gwenesis_overclock > 100) {
+    if (gwenesis_voverclock > 100) {
       int m68k_start = m68k.cycles;
-      int m68k_extra = (system_clock * (gwenesis_overclock - 100)) / 100;
+      int m68k_extra = (system_clock * (gwenesis_voverclock - 100)) / 100;
       m68k_run(m68k_start + m68k_extra);
       m68k.cycles = m68k_start; // Hide the extra overclocked cycles
     }
@@ -595,12 +624,23 @@ void app_main(void) {
 
     if (skipFrames == 0) {
       int elapsed = rg_system_timer() - startTime;
-      if (app->frameskip > 0)
-        skipFrames = app->frameskip;
-      else if (elapsed > app->frameTime + 1500) // Allow some jitter
-        skipFrames = 1;                         // (elapsed / frameTime)
-      else if (drawFrame && slowFrame)
-        skipFrames = 1;
+      int target_skip = 0;
+
+      if (gwenesis_frameskip == 0)      // Auto (System)
+        target_skip = app->frameskip;
+      else if (gwenesis_frameskip == 1) // Off
+        target_skip = 0;
+      else                             // Fixed 1, 2, 3
+        target_skip = gwenesis_frameskip - 1;
+
+      if (target_skip > 0) {
+        skipFrames = target_skip;
+      } else if (gwenesis_frameskip == 0) { // Smart skip for Auto mode
+        if (elapsed > app->frameTime)
+          skipFrames = RG_MIN(3, (elapsed / app->frameTime));
+        else if (drawFrame && slowFrame)
+          skipFrames = 1;
+      }
     } else if (skipFrames > 0) {
       skipFrames--;
     }
