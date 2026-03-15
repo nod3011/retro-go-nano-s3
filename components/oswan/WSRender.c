@@ -372,20 +372,7 @@ IRAM_ATTR void RefreshLine(int Line) {
         }
       }
 
-      if (TMap & MAP_HREV) {
-        j = index[0];
-        index[0] = index[7];
-        index[7] = j;
-        j = index[1];
-        index[1] = index[6];
-        index[6] = j;
-        j = index[2];
-        index[2] = index[5];
-        index[5] = j;
-        j = index[3];
-        index[3] = index[4];
-        index[4] = j;
-      }
+      // Redundant HREV swap removed to fix cancel-out bug
 
       const int is_transparent_0 = (COLCTL & 0x40) || (TMap & 0x0800);
       WORD *pal = Palette[(TMap & MAP_PAL) >> 9];
@@ -523,20 +510,7 @@ IRAM_ATTR void RefreshLine(int Line) {
         }
       }
 
-      if (TMap & SPR_HREV) {
-        j = index[0];
-        index[0] = index[7];
-        index[7] = j;
-        j = index[1];
-        index[1] = index[6];
-        index[6] = j;
-        j = index[2];
-        index[2] = index[5];
-        index[5] = j;
-        j = index[3];
-        index[3] = index[4];
-        index[4] = j;
-      }
+      // Redundant SPR_HREV swap removed to fix cancel-out bug
 
       pW = WBuf + 8 + k;
       pZ = ZBuf + k + 8;

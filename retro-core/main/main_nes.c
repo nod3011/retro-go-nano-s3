@@ -609,7 +609,7 @@ void fceumm_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(1);
+  rg_system_set_overclock(0);
 
   if (!nes_framebuffer) {
     // NES_WIDTH * 312 = 79,872 bytes.

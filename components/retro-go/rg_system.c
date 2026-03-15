@@ -1233,7 +1233,11 @@ void rg_system_set_overclock(int level)
     static int original_div7_0 = -1;
     if (original_div7_0 == -1)
         original_div7_0 = rom_i2c_readReg(I2C_BBPLL, I2C_BBPLL_HOSTID, I2C_BBPLL_OC_DIV_7_0);
+#if CONFIG_IDF_TARGET_ESP32
     uint8_t div7_0 = original_div7_0 - (level - 1);
+#else // CONFIG_IDF_TARGET_ESP32S3
+    uint8_t div7_0 = original_div7_0 + (level - 1);
+#endif
     rom_i2c_writeReg(I2C_BBPLL, I2C_BBPLL_HOSTID, I2C_BBPLL_OC_DIV_7_0, div7_0);
     rg_task_delay(20);
 
