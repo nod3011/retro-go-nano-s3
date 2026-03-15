@@ -396,6 +396,9 @@ static void platform_init(void)
     gpio_set_direction(RG_GPIO_SDSPI_CS, GPIO_MODE_OUTPUT);
     gpio_set_level(RG_GPIO_SDSPI_CS, 1);
 #endif
+#if defined(RG_STORAGE_SDSPI_HOST) && defined(RG_GPIO_SDSPI_MISO)
+    gpio_set_pull_mode(RG_GPIO_SDSPI_MISO, GPIO_PULLUP_ONLY);
+#endif
 #ifdef RG_GPIO_LED
     gpio_set_direction(RG_GPIO_LED, GPIO_MODE_OUTPUT);
     gpio_set_level(RG_GPIO_LED, 0);
