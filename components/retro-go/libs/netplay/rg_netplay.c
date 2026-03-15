@@ -586,11 +586,11 @@ bool rg_netplay_poll_sync(void *data_in, void *data_out, uint8_t data_len)
     return false;
 }
 
-void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int timeout_ms)
+bool rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int timeout_ms)
 {
     if (netplay_status != NETPLAY_STATUS_CONNECTED || !remote_player)
     {
-        return;
+        return false;
     }
 
     netplay_packet_t packet;
@@ -607,7 +607,7 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
     {
         if (remote_player->is_paused)
         {
-            return; 
+            return true; 
         }
 
         if ((rg_system_timer() - last_send) / 1000 >= 10)
@@ -629,7 +629,7 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
                 {
                     if (data_out)
                         memcpy(data_out, packet.data, data_len);
-                    return;
+                    return true;
                 }
                 else if (packet.cmd == NETPLAY_PACKET_GAME_PAUSE)
                 {
@@ -649,7 +649,7 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
                         memcpy(last_sent_data[packet.player_id], data_in, data_len);
                         send_packet(remote_player->id, NETPLAY_PACKET_SYNC_ACK, packet.arg, data_in, data_len);
                         remote_last_seq[packet.player_id] = packet.arg;
-                        return;
+                        return true;
                     }
                     else
                     {
@@ -660,6 +660,7 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
         }
     }
     RG_LOGW("netplay_sync_ex: timeout!\n");
+    return false;
 }
 
 

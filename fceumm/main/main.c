@@ -29,6 +29,7 @@ static uint8_t *nes_framebuffer = NULL;
 static uint16_t palette565[256];
 static uint32_t fceu_joystick;
 static uint32_t fceu_joystick2;
+static uint32_t fceu_joystick_packed = 0;
 
 // Linkage stubs for FCEUMM
 unsigned int swapDuty = 0;
@@ -730,8 +731,8 @@ void fceumm_main(void) {
   FCEUI_DisableSpriteLimitation(1); // Always disable by default
 
   FCEUI_Sound(app->sampleRate);
-  FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
-  FCEUI_SetInput(1, SI_GAMEPAD, &fceu_joystick2, 0);
+  FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick_packed, 0);
+  FCEUI_SetInput(1, SI_GAMEPAD, &fceu_joystick_packed, 0);
 
   update_palette(
       (nespal_t)rg_settings_get_number(app->configNs, SETTING_PALETTE, 0));
@@ -795,7 +796,13 @@ void fceumm_main(void) {
       if (joystick_old & RG_KEY_MENU) {
         if (!menu_cancelled) {
           save_sram();
+#ifdef RG_ENABLE_NETPLAY
+          rg_netplay_send_pause(true);
+#endif
           rg_gui_game_menu();
+#ifdef RG_ENABLE_NETPLAY
+          rg_netplay_send_pause(false);
+#endif
         }
         menu_cancelled = false;
       }
@@ -828,15 +835,32 @@ void fceumm_main(void) {
 
     if (joystick & RG_KEY_OPTION) {
       save_sram();
+#ifdef RG_ENABLE_NETPLAY
+      rg_netplay_send_pause(true);
+#endif
       rg_gui_options_menu();
+#ifdef RG_ENABLE_NETPLAY
+      rg_netplay_send_pause(false);
+#endif
     }
 
     joystick_old = joystick;
 
 #ifdef RG_ENABLE_NETPLAY
+    static int sync_fail_count = 0;
     if (rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
         uint32_t remote_buf = 0;
-        rg_netplay_sync_ex(&input_buf, &remote_buf, sizeof(input_buf), 0);
+        if (rg_netplay_sync_ex(&input_buf, &remote_buf, sizeof(input_buf), 20)) {
+            sync_fail_count = 0;
+        } else {
+            sync_fail_count++;
+        }
+
+        if (sync_fail_count > 120) { // ~2 seconds of continuous failures
+            RG_LOGW("Netplay connection lost, stopping netplay...\n");
+            rg_netplay_stop();
+            sync_fail_count = 0;
+        }
 
         if (rg_netplay_mode() == NETPLAY_MODE_HOST) {
             fceu_joystick = input_buf;
@@ -848,11 +872,14 @@ void fceumm_main(void) {
     } else {
         fceu_joystick = input_buf;
         fceu_joystick2 = 0;
+        sync_fail_count = 0;
     }
 #else
     fceu_joystick = input_buf;
     fceu_joystick2 = 0;
 #endif
+
+    fceu_joystick_packed = (fceu_joystick & 0xFF) | ((fceu_joystick2 & 0xFF) << 8);
 
     int64_t startTime = rg_system_timer();
 
