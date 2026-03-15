@@ -567,6 +567,34 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
+#ifdef RG_ENABLE_NETPLAY
+static rg_gui_event_t netplay_start_cb(rg_gui_option_t *option,
+                                       rg_gui_event_t event) {
+  netplay_status_t status = rg_netplay_status();
+
+  if (event == RG_DIALOG_ENTER) {
+    if (status == NETPLAY_STATUS_CONNECTED) {
+      return RG_DIALOG_VOID;
+    }
+    if (rg_netplay_quick_start()) {
+      return RG_DIALOG_SELECT;
+    }
+  }
+
+  if (option && option->value) {
+    if (status == NETPLAY_STATUS_CONNECTED) {
+      strcpy(option->value, "Connected");
+    } else if (status >= NETPLAY_STATUS_CONNECTING) {
+      strcpy(option->value, "Connecting...");
+    } else {
+      strcpy(option->value, "Start");
+    }
+  }
+
+  return RG_DIALOG_VOID;
+}
+#endif
+
 // --- GUI CALLBACKS
 static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){.label = "Load Cheats",
@@ -588,6 +616,12 @@ static void options_handler(rg_gui_option_t *dest) {
                               .value = "-",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = palette_selection_cb};
+#ifdef RG_ENABLE_NETPLAY
+  *dest++ = (rg_gui_option_t){.label = "Netplay quick start",
+                              .value = "-",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = netplay_start_cb};
+#endif
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
