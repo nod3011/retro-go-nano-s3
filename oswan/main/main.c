@@ -195,8 +195,8 @@ void app_main(void) {
       .event = &event_handler,
   };
 
-  app = rg_system_init(48000, &handlers, NULL);
-  app->frameskip = 0;
+  // ลด Sample rate เพื่อประหยัดพลังงาน CPU (48kHz สูงเกินไปสำหรับ WSC)
+  app = rg_system_init(32000, &handlers, NULL);
   rg_system_set_tick_rate(75);
 
   int device_width = rg_display_get_width();
@@ -248,12 +248,14 @@ void app_main(void) {
     extern void WsSplash(void);
     WsSplash();
   }
-  int skipFrames = 0;
+  
+  int skipCounter = 0;
 
   for (;;) {
     ws_input_poll(0);
 
-    bool drawFrame = !skipFrames;
+    // ใช้ระบบ Frameskip มาตรฐานของ Retro-Go แทน
+    bool drawFrame = (skipCounter == 0);
 
     // Switch buffers and set target for next frame
     if (drawFrame) {
@@ -272,13 +274,10 @@ void app_main(void) {
     // Audio submission provides the pacing (sync)
     update_audio();
 
-    if (skipFrames == 0) {
-      int64_t elapsed = rg_system_timer() - startTime;
-      if (elapsed > app->frameTime + 1500) { // Slight jitter allowed
-        skipFrames = 1;
-      }
+    if (skipCounter >= app->frameskip) {
+      skipCounter = 0;
     } else {
-      skipFrames--;
+      skipCounter++;
     }
 
     if (rg_system_exit_called())

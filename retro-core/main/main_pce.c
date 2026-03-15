@@ -199,6 +199,7 @@ void pce_main(void)
     };
 
     app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+    rg_system_set_overclock(1);
     overscan = rg_settings_get_number(NS_APP, SETTING_OVERSCAN, 1);
 
     updates[0] = rg_surface_create(XBUF_WIDTH, XBUF_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);

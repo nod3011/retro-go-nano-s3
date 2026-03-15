@@ -214,17 +214,25 @@ IRAM_ATTR void RefreshLine(int Line) {
         if (COLCTL & 0x40) // 16 Color
         {
           uint32_t b0 = pbTData[0], b1 = pbTData[1], b2 = pbTData[2], b3 = pbTData[3];
-          for (int k = 0; k < 8; k++) {
-            int shift = 7 - k;
-            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1) | (((b2 >> shift) & 1) << 2) | (((b3 >> shift) & 1) << 3);
-          }
+          index[0] = ((b0 >> 7) & 1) | (((b1 >> 7) & 1) << 1) | (((b2 >> 7) & 1) << 2) | (((b3 >> 7) & 1) << 3);
+          index[1] = ((b0 >> 6) & 1) | (((b1 >> 6) & 1) << 1) | (((b2 >> 6) & 1) << 2) | (((b3 >> 6) & 1) << 3);
+          index[2] = ((b0 >> 5) & 1) | (((b1 >> 5) & 1) << 1) | (((b2 >> 5) & 1) << 2) | (((b3 >> 5) & 1) << 3);
+          index[3] = ((b0 >> 4) & 1) | (((b1 >> 4) & 1) << 1) | (((b2 >> 4) & 1) << 2) | (((b3 >> 4) & 1) << 3);
+          index[4] = ((b0 >> 3) & 1) | (((b1 >> 3) & 1) << 1) | (((b2 >> 3) & 1) << 2) | (((b3 >> 3) & 1) << 3);
+          index[5] = ((b0 >> 2) & 1) | (((b1 >> 2) & 1) << 1) | (((b2 >> 2) & 1) << 2) | (((b3 >> 2) & 1) << 3);
+          index[6] = ((b0 >> 1) & 1) | (((b1 >> 1) & 1) << 1) | (((b2 >> 1) & 1) << 2) | (((b3 >> 1) & 1) << 3);
+          index[7] = (b0 & 1) | ((b1 & 1) << 1) | ((b2 & 1) << 2) | ((b3 & 1) << 3);
         } else // 4 Color
         {
           uint32_t b0 = pbTData[0], b1 = pbTData[1];
-          for (int k = 0; k < 8; k++) {
-            int shift = 7 - k;
-            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1);
-          }
+          index[0] = ((b0 >> 7) & 1) | (((b1 >> 7) & 1) << 1);
+          index[1] = ((b0 >> 6) & 1) | (((b1 >> 6) & 1) << 1);
+          index[2] = ((b0 >> 5) & 1) | (((b1 >> 5) & 1) << 1);
+          index[3] = ((b0 >> 4) & 1) | (((b1 >> 4) & 1) << 1);
+          index[4] = ((b0 >> 3) & 1) | (((b1 >> 3) & 1) << 1);
+          index[5] = ((b0 >> 2) & 1) | (((b1 >> 2) & 1) << 1);
+          index[6] = ((b0 >> 1) & 1) | (((b1 >> 1) & 1) << 1);
+          index[7] = (b0 & 1) | ((b1 & 1) << 1);
         }
       }
 
@@ -358,17 +366,25 @@ IRAM_ATTR void RefreshLine(int Line) {
         if (COLCTL & 0x40) // 16 Color
         {
           uint32_t b0 = pbTData[0], b1 = pbTData[1], b2 = pbTData[2], b3 = pbTData[3];
-          for (int k = 0; k < 8; k++) {
-            int shift = 7 - k;
-            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1) | (((b2 >> shift) & 1) << 2) | (((b3 >> shift) & 1) << 3);
-          }
+          index[0] = ((b0 >> 7) & 1) | (((b1 >> 7) & 1) << 1) | (((b2 >> 7) & 1) << 2) | (((b3 >> 7) & 1) << 3);
+          index[1] = ((b0 >> 6) & 1) | (((b1 >> 6) & 1) << 1) | (((b2 >> 6) & 1) << 2) | (((b3 >> 6) & 1) << 3);
+          index[2] = ((b0 >> 5) & 1) | (((b1 >> 5) & 1) << 1) | (((b2 >> 5) & 1) << 2) | (((b3 >> 5) & 1) << 3);
+          index[3] = ((b0 >> 4) & 1) | (((b1 >> 4) & 1) << 1) | (((b2 >> 4) & 1) << 2) | (((b3 >> 4) & 1) << 3);
+          index[4] = ((b0 >> 3) & 1) | (((b1 >> 3) & 1) << 1) | (((b2 >> 3) & 1) << 2) | (((b3 >> 3) & 1) << 3);
+          index[5] = ((b0 >> 2) & 1) | (((b1 >> 2) & 1) << 1) | (((b2 >> 2) & 1) << 2) | (((b3 >> 2) & 1) << 3);
+          index[6] = ((b0 >> 1) & 1) | (((b1 >> 1) & 1) << 1) | (((b2 >> 1) & 1) << 2) | (((b3 >> 1) & 1) << 3);
+          index[7] = (b0 & 1) | ((b1 & 1) << 1) | ((b2 & 1) << 2) | ((b3 & 1) << 3);
         } else // 4 Color
         {
           uint32_t b0 = pbTData[0], b1 = pbTData[1];
-          for (int k = 0; k < 8; k++) {
-            int shift = 7 - k;
-            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1);
-          }
+          index[0] = ((b0 >> 7) & 1) | (((b1 >> 7) & 1) << 1);
+          index[1] = ((b0 >> 6) & 1) | (((b1 >> 6) & 1) << 1);
+          index[2] = ((b0 >> 5) & 1) | (((b1 >> 5) & 1) << 1);
+          index[3] = ((b0 >> 4) & 1) | (((b1 >> 4) & 1) << 1);
+          index[4] = ((b0 >> 3) & 1) | (((b1 >> 3) & 1) << 1);
+          index[5] = ((b0 >> 2) & 1) | (((b1 >> 2) & 1) << 1);
+          index[6] = ((b0 >> 1) & 1) | (((b1 >> 1) & 1) << 1);
+          index[7] = (b0 & 1) | ((b1 & 1) << 1);
         }
       }
 
@@ -496,17 +512,25 @@ IRAM_ATTR void RefreshLine(int Line) {
         if (COLCTL & 0x40) // 16 Color
         {
           uint32_t b0 = pbTData[0], b1 = pbTData[1], b2 = pbTData[2], b3 = pbTData[3];
-          for (int k = 0; k < 8; k++) {
-            int shift = 7 - k;
-            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1) | (((b2 >> shift) & 1) << 2) | (((b3 >> shift) & 1) << 3);
-          }
+          index[0] = ((b0 >> 7) & 1) | (((b1 >> 7) & 1) << 1) | (((b2 >> 7) & 1) << 2) | (((b3 >> 7) & 1) << 3);
+          index[1] = ((b0 >> 6) & 1) | (((b1 >> 6) & 1) << 1) | (((b2 >> 6) & 1) << 2) | (((b3 >> 6) & 1) << 3);
+          index[2] = ((b0 >> 5) & 1) | (((b1 >> 5) & 1) << 1) | (((b2 >> 5) & 1) << 2) | (((b3 >> 5) & 1) << 3);
+          index[3] = ((b0 >> 4) & 1) | (((b1 >> 4) & 1) << 1) | (((b2 >> 4) & 1) << 2) | (((b3 >> 4) & 1) << 3);
+          index[4] = ((b0 >> 3) & 1) | (((b1 >> 3) & 1) << 1) | (((b2 >> 3) & 1) << 2) | (((b3 >> 3) & 1) << 3);
+          index[5] = ((b0 >> 2) & 1) | (((b1 >> 2) & 1) << 1) | (((b2 >> 2) & 1) << 2) | (((b3 >> 2) & 1) << 3);
+          index[6] = ((b0 >> 1) & 1) | (((b1 >> 1) & 1) << 1) | (((b2 >> 1) & 1) << 2) | (((b3 >> 1) & 1) << 3);
+          index[7] = (b0 & 1) | ((b1 & 1) << 1) | ((b2 & 1) << 2) | ((b3 & 1) << 3);
         } else // 4 Color
         {
           uint32_t b0 = pbTData[0], b1 = pbTData[1];
-          for (int k = 0; k < 8; k++) {
-            int shift = 7 - k;
-            index[k] = ((b0 >> shift) & 1) | (((b1 >> shift) & 1) << 1);
-          }
+          index[0] = ((b0 >> 7) & 1) | (((b1 >> 7) & 1) << 1);
+          index[1] = ((b0 >> 6) & 1) | (((b1 >> 6) & 1) << 1);
+          index[2] = ((b0 >> 5) & 1) | (((b1 >> 5) & 1) << 1);
+          index[3] = ((b0 >> 4) & 1) | (((b1 >> 4) & 1) << 1);
+          index[4] = ((b0 >> 3) & 1) | (((b1 >> 3) & 1) << 1);
+          index[5] = ((b0 >> 2) & 1) | (((b1 >> 2) & 1) << 1);
+          index[6] = ((b0 >> 1) & 1) | (((b1 >> 1) & 1) << 1);
+          index[7] = (b0 & 1) | ((b1 & 1) << 1);
         }
       }
 
@@ -522,32 +546,28 @@ IRAM_ATTR void RefreshLine(int Line) {
       const int sprite_layer = (TMap & SPR_LAYR);
       WORD *pal = Palette[((TMap & SPR_PAL) >> 9) + 8];
 
-      for (i = 0; i < 8; i++, pZ++, pW++) {
-        int idx = (TMap & SPR_HREV) ? index[7 - i] : index[i];
-        if (check_window) {
-          if (sprite_clip) {
-            if (!*pW) {
-              pSWrBuf++;
-              continue;
-            }
-          } else {
-            if (*pW) {
-              pSWrBuf++;
-              continue;
-            }
+      if (TMap & SPR_HREV) {
+        for (i = 0; i < 8; i++, pZ++, pW++) {
+          int idx = index[7 - i];
+          if (check_window) {
+            if (sprite_clip) { if (!*pW) { pSWrBuf++; continue; } }
+            else { if (*pW) { pSWrBuf++; continue; } }
           }
+          if (!idx && is_transparent_0) { pSWrBuf++; continue; }
+          if ((*pZ) && (!sprite_layer)) { pSWrBuf++; continue; }
+          *pSWrBuf++ = pal[idx];
         }
-        if (!idx) {
-          if (is_transparent_0) {
-            pSWrBuf++;
-            continue;
+      } else {
+        for (i = 0; i < 8; i++, pZ++, pW++) {
+          int idx = index[i];
+          if (check_window) {
+            if (sprite_clip) { if (!*pW) { pSWrBuf++; continue; } }
+            else { if (*pW) { pSWrBuf++; continue; } }
           }
+          if (!idx && is_transparent_0) { pSWrBuf++; continue; }
+          if ((*pZ) && (!sprite_layer)) { pSWrBuf++; continue; }
+          *pSWrBuf++ = pal[idx];
         }
-        if ((*pZ) && (!sprite_layer)) {
-          pSWrBuf++;
-          continue;
-        }
-        *pSWrBuf++ = pal[idx];
       }
     }
   }

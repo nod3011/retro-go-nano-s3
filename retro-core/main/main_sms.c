@@ -106,6 +106,7 @@ void sms_main(void)
     };
 
     app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+    rg_system_set_overclock(1);
 
     updates[0] = rg_surface_create(SMS_WIDTH, SMS_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);
     updates[1] = rg_surface_create(SMS_WIDTH, SMS_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);

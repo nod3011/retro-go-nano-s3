@@ -311,7 +311,7 @@ void app_main(void) {
   };
 
   app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(0);
+  rg_system_set_overclock(1);
 
   updates[0] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
   updates[1] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);

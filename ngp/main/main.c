@@ -285,7 +285,7 @@ void app_main() {
   };
   rg_system_init(22050, &handlers, event_handler);
   rg_system_set_tick_rate(60);
-  rg_system_set_overclock(1);
+  rg_system_set_overclock(2);
   app = rg_system_get_app();
   app->frameskip = 0;
   g_overclock = 0;

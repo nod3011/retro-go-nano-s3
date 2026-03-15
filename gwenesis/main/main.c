@@ -325,7 +325,7 @@ void app_main(void) {
   };
 
   app = rg_system_init(AUDIO_SAMPLE_RATE / 2, &handlers, NULL);
-  rg_system_set_overclock(1);
+  rg_system_set_overclock(2);
 
   yfm_enabled = rg_settings_get_number(NS_APP, SETTING_YFM_EMULATION, 1);
   sn76489_enabled =
