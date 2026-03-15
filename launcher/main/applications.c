@@ -689,8 +689,8 @@ static void application(const char *desc, const char *name, const char *exts,
 
 void applications_init(void) {
   application("Nintendo Entertainment System", "nes", "nes fc zip",
-              "retro-core", 16);
-  application("Famicom Disk System", "fds", "fds zip", "retro-core", 16);
+              "fceumm", 16);
+  application("Famicom Disk System", "fds", "fds zip", "fceumm", 16);
   application("Nintendo Gameboy", "gb", "gb gbc zip", "gnuboy", 0);
   application("Nintendo Gameboy Color", "gbc", "gbc gb zip", "gnuboy", 0);
   application("Sega Game Gear", "gg", "gg zip", "retro-core", 0);

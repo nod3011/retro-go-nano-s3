@@ -84,6 +84,6 @@ void rg_netplay_reset_sync_queue(void);
 void rg_netplay_async(void *data_in, void *data_out, uint8_t data_len);
 void rg_netplay_send_pause(bool paused);
 
-netplay_mode_t rg_netplay_get_mode();
+netplay_mode_t rg_netplay_mode();
 netplay_status_t rg_netplay_status();
 bool rg_netplay_check(void);
