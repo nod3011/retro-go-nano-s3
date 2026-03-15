@@ -70,6 +70,165 @@ bool FCEUSS_Load_Fs(const char *path) {
   return true;
 }
 
+#ifdef RG_ENABLE_NETPLAY
+CartInfo *get_cart_info(void);
+
+static void sync_initial_state(void) {
+    if (rg_netplay_status() != NETPLAY_STATUS_CONNECTED) return;
+
+    // Visual alerts disabled to avoid Display task overlays lockups.
+
+    const size_t CHUNK_SIZE = 120;
+    uint8_t chunk_buf[CHUNK_SIZE];
+    size_t dummy = 0;
+
+    // Step 0: Sync Battery SRAM (WRAM) for complete RNG and progression parity
+    CartInfo *cart = get_cart_info();
+    for (int i = 0; i < 4; i++) {
+        if (cart && cart->SaveGame[i] && cart->SaveGameLen[i] > 0) {
+            size_t sram_len = cart->SaveGameLen[i];
+            if (rg_netplay_mode() == NETPLAY_MODE_HOST) {
+                size_t sent = 0;
+                while (sent < sram_len && rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+                    size_t len = (sram_len - sent > CHUNK_SIZE) ? CHUNK_SIZE : (sram_len - sent);
+                    rg_netplay_sync_ex((uint8_t *)cart->SaveGame[i] + sent, NULL, len, 1000);
+                    sent += len;
+                    rg_task_delay(1);
+                }
+            } else {
+                size_t recvd = 0;
+                while (recvd < sram_len && rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+                    size_t len = (sram_len - recvd > CHUNK_SIZE) ? CHUNK_SIZE : (sram_len - recvd);
+                    if (rg_netplay_poll_sync(&dummy, (uint8_t *)cart->SaveGame[i] + recvd, len)) {
+                        recvd += len;
+                    }
+                    rg_task_delay(1);
+                }
+            }
+        }
+    }
+
+    uint8_t sync_slot = 99; 
+    char *state_path = rg_emu_get_path(RG_PATH_SAVE_STATE + sync_slot, app->romPath);
+
+    if (rg_netplay_mode() == NETPLAY_MODE_HOST) {
+        bool save_ok = rg_emu_save_state(sync_slot);
+        if (!save_ok) {
+            RG_LOGE("Host: rg_emu_save_state(slot=%u) FAILED!\n", sync_slot);
+        }
+
+        FILE *f = fopen(state_path, "rb");
+        if (!f) {
+            RG_LOGE("Host: Failed to open sync state file %s!\n", state_path);
+            return;
+        }
+
+        fseek(f, 0, SEEK_END);
+        size_t actual_size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+
+        while (rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+            if (rg_netplay_sync_ex(&actual_size, &dummy, sizeof(size_t), 50)) break;
+            rg_task_delay(1);
+        }
+
+        size_t sent = 0;
+        int chunk_count = 0;
+        while (sent < actual_size && rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+            size_t len = fread(chunk_buf, 1, CHUNK_SIZE, f);
+            if (len <= 0) break;
+            rg_netplay_sync_ex(chunk_buf, NULL, len, 1000);
+            sent += len;
+            chunk_count++;
+
+            // Every 10 chunks (~2KB), yield to background hardware drivers
+            if (chunk_count % 10 == 0) {
+                rg_task_delay(1);
+            }
+        }
+        fclose(f);
+
+        // Calculate simple checksum of sent file for verification
+        FILE *f_chk = fopen(state_path, "rb");
+        uint32_t checksum = 0;
+        if (f_chk) {
+            uint8_t b;
+            while (fread(&b, 1, 1, f_chk)) checksum += b;
+            fclose(f_chk);
+        }
+        RG_LOGI("Host: File state sync sent (%u bytes, chk=%08X)\n", (unsigned int)actual_size, (unsigned int)checksum);
+    } else {
+        size_t actual_size = 0;
+
+        while (rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+            if (rg_netplay_poll_sync(&dummy, &actual_size, sizeof(size_t))) break;
+            rg_task_delay(1);
+        }
+
+        if (actual_size > 0) {
+            FILE *f = fopen(state_path, "wb");
+            if (!f) {
+                RG_LOGE("Guest: Failed to write sync state file %s!\n", state_path);
+                return;
+            }
+
+            size_t recvd = 0;
+            int chunk_count = 0;
+            while (recvd < actual_size && rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+                size_t len = (actual_size - recvd > CHUNK_SIZE) ? CHUNK_SIZE : (actual_size - recvd);
+                
+                if (rg_netplay_poll_sync(&dummy, chunk_buf, len)) {
+                    fwrite(chunk_buf, 1, len, f);
+                    recvd += len;
+                    chunk_count++;
+
+                    if (chunk_count % 10 == 0) {
+                        rg_task_delay(1);
+                    }
+                } else {
+                    rg_task_delay(1);
+                }
+            }
+            fclose(f);
+
+            // Calculate simple checksum of loaded file for verification
+            FILE *f_chk = fopen(state_path, "rb");
+            uint32_t checksum = 0;
+            if (f_chk) {
+                uint8_t b;
+                while (fread(&b, 1, 1, f_chk)) checksum += b;
+                fclose(f_chk);
+            }
+
+            bool load_ok = rg_emu_load_state(sync_slot);
+            if (load_ok) {
+                RG_LOGI("Guest: File state sync loaded (%u bytes, chk=%08X)\n", (unsigned int)actual_size, (unsigned int)checksum);
+            } else {
+                RG_LOGE("Guest: rg_emu_load_state(slot=%u) FAILED!\n", sync_slot);
+            }
+        }
+    }
+
+    size_t ready_flag = 1;
+    RG_LOGI("sync_initial_state: Entering final barrier loop (mode=%d).\n", rg_netplay_mode());
+    while (rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+        if (rg_netplay_mode() == NETPLAY_MODE_HOST) {
+            if (rg_netplay_sync_ex(&ready_flag, NULL, sizeof(size_t), 50)) {
+                RG_LOGI("Host: Barrier sync OK\n");
+                break;
+            }
+        } else {
+            if (rg_netplay_poll_sync(&dummy, &ready_flag, sizeof(size_t))) {
+                RG_LOGI("Guest: Barrier sync OK\n");
+                break;
+            }
+        }
+        rg_task_delay(1);
+    }
+    RG_LOGI("sync_initial_state: EXITED SAFELY!\n");
+}
+#endif
+
 CartInfo *get_cart_info(void) {
   if (iNESCart.mapper >= 0 || iNESCart.PRGRomSize > 0)
     return &iNESCart;
@@ -743,6 +902,10 @@ void fceumm_main(void) {
 
   app->frameskip = 0;
 
+#ifdef RG_ENABLE_NETPLAY
+  sync_initial_state();
+#endif
+
   static uint32_t joystick_old = 0;
   static bool menu_cancelled = false;
   static bool menu_pressed = false;
@@ -797,11 +960,12 @@ void fceumm_main(void) {
         if (!menu_cancelled) {
           save_sram();
 #ifdef RG_ENABLE_NETPLAY
-          rg_netplay_send_pause(true);
+          rg_netplay_send_pause_ex(true, 0);
 #endif
           rg_gui_game_menu();
 #ifdef RG_ENABLE_NETPLAY
-          rg_netplay_send_pause(false);
+          rg_netplay_send_pause_ex(false, 0);
+          sync_initial_state();
 #endif
         }
         menu_cancelled = false;
@@ -836,11 +1000,12 @@ void fceumm_main(void) {
     if (joystick & RG_KEY_OPTION) {
       save_sram();
 #ifdef RG_ENABLE_NETPLAY
-      rg_netplay_send_pause(true);
+      rg_netplay_send_pause_ex(true, 1);
 #endif
       rg_gui_options_menu();
 #ifdef RG_ENABLE_NETPLAY
-      rg_netplay_send_pause(false);
+      rg_netplay_send_pause_ex(false, 1);
+      sync_initial_state();
 #endif
     }
 
@@ -848,26 +1013,45 @@ void fceumm_main(void) {
 
 #ifdef RG_ENABLE_NETPLAY
     static int sync_fail_count = 0;
+    static uint32_t remote_buf = 0; 
+
     if (rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
-        uint32_t remote_buf = 0;
-        if (rg_netplay_sync_ex(&input_buf, &remote_buf, sizeof(input_buf), 20)) {
-            sync_fail_count = 0;
-        } else {
-            sync_fail_count++;
+        bool sync_succeeded = false;
+
+        while (rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+            if (rg_netplay_sync_ex(&input_buf, &remote_buf, sizeof(input_buf), 20)) {
+                sync_fail_count = 0;
+                sync_succeeded = true;
+                break;
+            } else {
+                sync_fail_count++;
+                if (sync_fail_count > 150) { // ~3 seconds of continuous failures
+                    RG_LOGW("Netplay connection lost, stopping netplay...\n");
+                    rg_netplay_stop();
+                    sync_fail_count = 0;
+                    break;
+                }
+                rg_task_delay(1); // Yield execution
+            }
         }
 
-        if (sync_fail_count > 120) { // ~2 seconds of continuous failures
-            RG_LOGW("Netplay connection lost, stopping netplay...\n");
-            rg_netplay_stop();
-            sync_fail_count = 0;
-        }
+        if (sync_succeeded && rg_netplay_status() == NETPLAY_STATUS_CONNECTED) {
+            int remote_pause = rg_netplay_is_remote_paused();
+            if (remote_pause > 0) {
+                RG_LOGI("Remote player is in menu. Waiting...\n");
+                while (rg_netplay_status() == NETPLAY_STATUS_CONNECTED && rg_netplay_is_remote_paused() > 0) {
+                    rg_task_delay(2);
+                }
+                sync_initial_state();
+            }
 
-        if (rg_netplay_mode() == NETPLAY_MODE_HOST) {
-            fceu_joystick = input_buf;
-            fceu_joystick2 = remote_buf;
-        } else {
-            fceu_joystick = remote_buf;
-            fceu_joystick2 = input_buf;
+            if (rg_netplay_mode() == NETPLAY_MODE_HOST) {
+                fceu_joystick = input_buf;
+                fceu_joystick2 = remote_buf;
+            } else {
+                fceu_joystick = remote_buf;
+                fceu_joystick2 = input_buf;
+            }
         }
     } else {
         fceu_joystick = input_buf;
@@ -881,53 +1065,66 @@ void fceumm_main(void) {
 
     fceu_joystick_packed = (fceu_joystick & 0xFF) | ((fceu_joystick2 & 0xFF) << 8);
 
-    int64_t startTime = rg_system_timer();
+    {
+        int64_t startTime = rg_system_timer();
 
-    static int skipFrames = 0;
-    bool drawFrame = !skipFrames;
+        static int skipFrames = 0;
+        bool drawFrame = !skipFrames;
 
-    // Switch buffers and set target for next frame
-    if (drawFrame) {
-      currentBufferIndex = (currentBufferIndex + 1) % 3;
-      currentUpdate = updates[currentBufferIndex];
-      // Copy palette to avoid race conditions with display task
-      memcpy(currentUpdate->palette, palette565, 512);
+        // Switch buffers and set target for next frame
+        if (drawFrame) {
+          currentBufferIndex = (currentBufferIndex + 1) % 3;
+          currentUpdate = updates[currentBufferIndex];
+          // Copy palette to avoid race conditions with display task
+          memcpy(currentUpdate->palette, palette565, 512);
 
-      currentUpdate->width = NES_WIDTH;
-      currentUpdate->height = surface_height;
-      currentUpdate->offset = 0;
+          currentUpdate->width = NES_WIDTH;
+          currentUpdate->height = surface_height;
+          currentUpdate->offset = 0;
 
-      XBuf = (uint8_t *)currentUpdate->data;
+          XBuf = (uint8_t *)currentUpdate->data;
+        }
+
+        uint8_t *gfx = NULL;
+        int32_t *sound = NULL;
+        int32_t sound_samples = 0;
+
+        // FCEUMM handles internal skipping if we pass the flag
+        FCEUI_Emulate(&gfx, &sound, &sound_samples, drawFrame ? 0 : 1);
+
+        if (drawFrame && gfx) {
+          slowFrame = !rg_display_sync(false);
+          rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
+        }
+
+        static int netplay_frame_cnt = 0;
+        if (netplay_frame_cnt++ % 60 == 0) {
+            bool netplay_active = false;
+#ifdef RG_ENABLE_NETPLAY
+            netplay_active = (rg_netplay_status() == NETPLAY_STATUS_CONNECTED);
+#endif
+            if (netplay_active) {
+                RG_LOGI("Frame advanced: draw=%d, gfx=%p, XBuf=%p, slow=%d\n", drawFrame, gfx, XBuf, slowFrame);
+            }
+        }
+
+        // Audio submission provides the pacing (sync)
+        update_audio(sound, sound_samples);
+
+        // Dynamic frame skipping logic
+        if (skipFrames == 0) {
+          int64_t elapsed = rg_system_timer() - startTime;
+          if (elapsed > app->frameTime + 1000) { // Slight jitter allowed
+            skipFrames = 1;
+          } else if (drawFrame && slowFrame) {
+            skipFrames = 1;
+          }
+        } else {
+          skipFrames--;
+        }
+
+        rg_system_tick(rg_system_timer() - startTime);
     }
-
-    uint8_t *gfx = NULL;
-    int32_t *sound = NULL;
-    int32_t sound_samples = 0;
-
-    // FCEUMM handles internal skipping if we pass the flag
-    FCEUI_Emulate(&gfx, &sound, &sound_samples, drawFrame ? 0 : 1);
-
-    if (drawFrame && gfx) {
-      slowFrame = !rg_display_sync(false);
-      rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
-    }
-
-    // Audio submission provides the pacing (sync)
-    update_audio(sound, sound_samples);
-
-    // Dynamic frame skipping logic
-    if (skipFrames == 0) {
-      int64_t elapsed = rg_system_timer() - startTime;
-      if (elapsed > app->frameTime + 1000) { // Slight jitter allowed
-        skipFrames = 1;
-      } else if (drawFrame && slowFrame) {
-        skipFrames = 1;
-      }
-    } else {
-      skipFrames--;
-    }
-
-    rg_system_tick(rg_system_timer() - startTime);
   }
 
   save_sram();
