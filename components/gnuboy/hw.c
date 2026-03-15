@@ -488,6 +488,11 @@ void gb_hw_write(unsigned a, byte b) {
         REG(r) = b;
         break;
       case RI_SC:
+#ifdef RG_ENABLE_NETPLAY
+        if (b & 0x80) {
+            rg_netplay_reset_sync_queue();
+        }
+#endif
         if ((b & 0x81) == 0x81) {
           // Gameboy serial clock is 8kHz (1024Hz * 8 bits) by default.
           // CGB supports a "Fast" mode (32kHz) if Bit 1 is set.

@@ -166,8 +166,7 @@ static inline void send_packet(uint32_t dest, uint8_t cmd, uint8_t arg, void *da
 
     esp_now_send(target_mac, (uint8_t *)&packet, len);
 
-    if (cmd <= NETPLAY_PACKET_SYNC_DONE)
-        esp_now_send(target_mac, (uint8_t *)&packet, len);
+    // Redundant dual-send removed to solve airtime congestion
 
     if (netplay_send_mutex)
         xSemaphoreGive(netplay_send_mutex);
@@ -596,7 +595,7 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
 
     netplay_packet_t packet;
     int64_t start_time = rg_system_timer();
-    const int SYNC_TIMEOUT_MS = 2000;
+    int actual_timeout = (timeout_ms <= 0) ? 2000 : timeout_ms;
 
     uint8_t seq = ++local_seq;
     if (seq == 0)
@@ -604,7 +603,7 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
     int64_t last_send = 0;
     bool dialog_shown = false;
 
-    while ((rg_system_timer() - start_time) / 1000 < SYNC_TIMEOUT_MS)
+    while ((rg_system_timer() - start_time) / 1000 < actual_timeout)
     {
         if (remote_player->is_paused)
         {
@@ -661,6 +660,14 @@ void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int tim
         }
     }
     RG_LOGW("netplay_sync_ex: timeout!\n");
+}
+
+
+void rg_netplay_reset_sync_queue(void) 
+{
+    if (netplay_queue) {
+        xQueueReset(netplay_queue);
+    }
 }
 
 

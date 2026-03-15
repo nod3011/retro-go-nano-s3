@@ -80,6 +80,7 @@ bool rg_netplay_stop(void);
 void rg_netplay_sync(void *data_in, void *data_out, uint8_t data_len);
 void rg_netplay_sync_ex(void *data_in, void *data_out, uint8_t data_len, int timeout_ms);
 bool rg_netplay_poll_sync(void *data_in, void *data_out, uint8_t data_len);
+void rg_netplay_reset_sync_queue(void);
 void rg_netplay_async(void *data_in, void *data_out, uint8_t data_len);
 void rg_netplay_send_pause(bool paused);
 
