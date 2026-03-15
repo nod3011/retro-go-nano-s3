@@ -21,7 +21,7 @@ PROJECT_APPS = {
   # Project name  Type, SubType, Size (bytes)
   'launcher':     [0, 16, 1441792],  # 1.375 MB
   'retro-core':   [0, 16, 1376256],  # 1.31 MB
-  'gnuboy':       [0, 16, 1179648],  # 1.125 MB
+  'gnuboy':       [0, 16, 1572864],  # 1.125 MB
   'snes9x':       [0, 16, 851968],   # 832 KB
   'prboom-go':    [0, 16, 1048576],  # 1.0 MB
   'gwenesis':     [0, 16, 1179648],  # 1.125 MB
@@ -45,7 +45,7 @@ try:
 except:
     GIT_HASH = "unknown"
 
-PROJECT_VER = "nochii-0.95"
+PROJECT_VER = "nochii-1.00"
 FW_FORMAT = "none"
 
 TARGETS = []
@@ -234,7 +234,7 @@ try:
     if command in ["build", "build-fw", "build-img", "release", "run", "profile", "install"]:
         print("=== Step: Building ===\n")
         for app in apps:
-            build_app(app, args.target, command == "profile", args.no_networking, command == "release", 
+            build_app(app, args.target, command == "profile", args.no_networking, command == "release",
                       args.netplay if app == "gnuboy" else False)
 
     if command in ["build-fw", "release"]:
