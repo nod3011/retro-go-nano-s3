@@ -2139,7 +2139,7 @@ int rg_gui_options_menu(void)
 #endif
         {0, _("Emulator options"), NULL, RG_DIALOG_FLAG_NORMAL, &app_options_cb   },
 #ifdef RG_ENABLE_NETPLAY
-        {0, _("Netplay"),          NULL, (strcmp(app->configNs, "nes") == 0 || strcmp(app->configNs, "fds") == 0) ? RG_DIALOG_FLAG_HIDDEN : RG_DIALOG_FLAG_NORMAL, &netplay_cb},
+        {0, _("Netplay"),          NULL, RG_DIALOG_FLAG_NORMAL, &netplay_cb},
 #endif
         RG_DIALOG_END,
     };

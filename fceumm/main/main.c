@@ -597,31 +597,37 @@ static rg_gui_event_t netplay_start_cb(rg_gui_option_t *option,
 
 // --- GUI CALLBACKS
 static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t){.label = "Load Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_load_cheats_cb};
-  *dest++ = (rg_gui_option_t){.label = "Save Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_save_cheats_cb};
-  *dest++ = (rg_gui_option_t){.label = "Cheats Menu",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_cheat_menu_cb};
-  *dest++ = (rg_gui_option_t){.label = "Add Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_add_cheat_menu_cb};
-  *dest++ = (rg_gui_option_t){.label = "Delete Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_delete_cheat_menu_cb};
-  *dest++ = (rg_gui_option_t){.label = "Color Palette",
-                              .value = "-",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = palette_selection_cb};
+  const char *title = rg_gui_get_dialog_title();
+  bool is_netplay_menu = (title && strcmp(title, "Netplay") == 0);
+
+  if (!is_netplay_menu) {
+    *dest++ = (rg_gui_option_t){.label = "Load Cheats",
+                                .flags = RG_DIALOG_FLAG_NORMAL,
+                                .update_cb = handle_load_cheats_cb};
+    *dest++ = (rg_gui_option_t){.label = "Save Cheats",
+                                .flags = RG_DIALOG_FLAG_NORMAL,
+                                .update_cb = handle_save_cheats_cb};
+    *dest++ = (rg_gui_option_t){.label = "Cheats Menu",
+                                .flags = RG_DIALOG_FLAG_NORMAL,
+                                .update_cb = handle_cheat_menu_cb};
+    *dest++ = (rg_gui_option_t){.label = "Add Cheats",
+                                .flags = RG_DIALOG_FLAG_NORMAL,
+                                .update_cb = handle_add_cheat_menu_cb};
+    *dest++ = (rg_gui_option_t){.label = "Delete Cheats",
+                                .flags = RG_DIALOG_FLAG_NORMAL,
+                                .update_cb = handle_delete_cheat_menu_cb};
+    *dest++ = (rg_gui_option_t){.label = "Color Palette",
+                                .value = "-",
+                                .flags = RG_DIALOG_FLAG_NORMAL,
+                                .update_cb = palette_selection_cb};
+  } else {
 #ifdef RG_ENABLE_NETPLAY
-  *dest++ = (rg_gui_option_t){.label = "Netplay quick start",
-                              .value = "-",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = netplay_start_cb};
+    *dest++ = (rg_gui_option_t){.label = "Netplay quick start",
+                                .value = "-",
+                                .flags = RG_DIALOG_FLAG_NORMAL,
+                                .update_cb = netplay_start_cb};
 #endif
+  }
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
