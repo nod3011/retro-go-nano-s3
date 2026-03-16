@@ -1,5 +1,6 @@
 // Target definition
-#define RG_TARGET_NAME "NANO-S3"
+#define RG_TARGET_NAME     "NANO-S3"
+#define RG_GPIO_LED_INVERT 1
 
 // Storage
 #define RG_STORAGE_ROOT        "/sd"
