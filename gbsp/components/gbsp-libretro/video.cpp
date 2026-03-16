@@ -1517,9 +1517,7 @@ static void order_obj(u32 video_mode)
   u16 rend_cycles[160];
 
   bool hblank_free = read_ioreg(REG_DISPCNT) & 0x20;
-  u16 max_rend_cycles = !sprite_limit ? REND_CYC_MAX :
-                         hblank_free  ? REND_CYC_REDUCED :
-                                        REND_CYC_SCANLINE;
+  u16 max_rend_cycles = hblank_free ? REND_CYC_REDUCED : REND_CYC_SCANLINE;
 
   memset(obj_priority_count, 0, sizeof(obj_priority_count));
   memset(obj_alpha_count, 0, sizeof(obj_alpha_count));
