@@ -46,11 +46,22 @@ void esp32s3_update_performance_stats(uint32_t frame_time) {
     uint32_t frame_time_us = moving_avg / (ESP32S3_CPU_FREQ / 1000000);
     
     if (frame_time_us > ESP32S3_FRAME_TIME_SLOW) {
-        // Too slow, reduce quality
-        if (perf_stats.performance_level < 2) {
+        // Too slow, reduce quality significantly
+        if (perf_stats.performance_level < 4) {
             perf_stats.performance_level++;
         }
         perf_stats.dropped_frames++;
+    } else if (frame_time_us > ESP32S3_FRAME_TIME_MEDIUM) {
+        // Medium speed, reduce quality moderately
+        if (perf_stats.performance_level < 3) {
+            perf_stats.performance_level = 3;
+        }
+        perf_stats.dropped_frames++;
+    } else if (frame_time_us > ESP32S3_FRAME_TIME_FAST) {
+        // Fast but not optimal, slight quality reduction
+        if (perf_stats.performance_level < 2) {
+            perf_stats.performance_level = 2;
+        }
     } else if (frame_time_us < ESP32S3_FRAME_TIME_TARGET * 0.8) {
         // Running fast, can increase quality
         if (perf_stats.performance_level > 0) {
@@ -63,10 +74,12 @@ uint32_t esp32s3_get_optimal_cycles(bool hblank_free) {
     uint32_t base_cycles = hblank_free ? ESP32S3_MAX_SPRITE_CYCLES_REDUCED 
                                        : ESP32S3_MAX_SPRITE_CYCLES_NORMAL;
     
-    // Apply performance level multiplier
+    // Apply performance level multiplier with 5 levels
     switch (perf_stats.performance_level) {
-        case 2: return base_cycles * 0.5;  // 50% cycles for minimum quality
-        case 1: return base_cycles * 0.75; // 75% cycles for reduced quality
+        case 4: return base_cycles * 0.3;  // 30% cycles for minimum quality
+        case 3: return base_cycles * 0.5;  // 50% cycles for very low quality  
+        case 2: return base_cycles * 0.7;  // 70% cycles for reduced quality
+        case 1: return base_cycles * 0.85; // 85% cycles for slightly reduced quality
         default: return base_cycles;        // 100% cycles for normal quality
     }
 }

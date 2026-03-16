@@ -154,6 +154,11 @@ static u32 frame_skip_counter = 0;
 static u32 performance_level = 0; // 0=normal, 1=reduced, 2=minimum
 static u32 last_frame_time = 0;
 
+// Enhanced frame skip logic
+static u32 adaptive_skip_counter = 0;
+static u32 adaptive_skip_frequency = 3;
+static u32 consecutive_slow_frames = 0;
+
 // Dynamic cycle adjustment based on performance
 static inline u16 get_dynamic_render_cycles(bool hblank_free) {
 #ifdef ESP32
@@ -2497,8 +2502,20 @@ void update_scanline(void)
   u16 dispcnt = read_ioreg(REG_DISPCNT);
   u32 video_mode = dispcnt & 0x07;
 
-  if(skip_next_frame)
+  // Enhanced frame skip logic
+  if (skip_next_frame) {
     return;
+  }
+  
+  // Adaptive frame skipping based on performance level
+  if (performance_level >= 2) {
+    adaptive_skip_counter++;
+    if (adaptive_skip_counter % adaptive_skip_frequency == 0) {
+      skip_next_frame = 1;
+      adaptive_skip_counter = 0;
+      return;
+    }
+  }
 
   if(reg[OAM_UPDATED])
   {

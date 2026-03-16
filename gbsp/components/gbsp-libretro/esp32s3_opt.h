@@ -27,9 +27,11 @@
 #define ESP32S3_PREFER_DRAM     0
 
 // Video optimization settings
-#define ESP32S3_MAX_SPRITE_CYCLES_NORMAL    650   // Base cycles for normal rendering
-#define ESP32S3_MAX_SPRITE_CYCLES_REDUCED   720   // Cycles for hblank-free mode
+#define ESP32S3_MAX_SPRITE_CYCLES_NORMAL    550   // Reduced from 650 for better performance
+#define ESP32S3_MAX_SPRITE_CYCLES_REDUCED   600   // Increased from 720 for hblank-free mode
 #define ESP32S3_FRAME_TIME_TARGET           16666  // ~60 FPS in microseconds
+#define ESP32S3_FRAME_TIME_FAST            20000  // ~50 FPS threshold
+#define ESP32S3_FRAME_TIME_MEDIUM          25000  // ~40 FPS threshold
 #define ESP32S3_FRAME_TIME_SLOW            33333  // ~30 FPS threshold
 
 // Cache optimization
