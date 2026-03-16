@@ -23,6 +23,10 @@
 #include <stdbool.h>
 #include "gpsp_config.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // System mode and user mode are represented as the same here
 
 typedef u32 cpu_mode_type;
@@ -183,5 +187,9 @@ void init_cpu(void);
 void move_reg();
 
 extern const u8 bit_count[256];
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

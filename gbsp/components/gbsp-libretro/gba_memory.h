@@ -22,6 +22,10 @@
 
 #include "libretro.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define FEAT_AUTODETECT  -1
 #define FEAT_DISABLE      0
 #define FEAT_ENABLE       1
@@ -359,6 +363,10 @@ extern gbsp_memory_t *gbsp_memory;
 #define iwram gbsp_memory->iwram
 // #define memory_map_read gbsp_memory->memory_map_read
 #define gamepak_backup gbsp_memory->gamepak_backup
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

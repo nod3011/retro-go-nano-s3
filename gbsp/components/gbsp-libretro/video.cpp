@@ -29,6 +29,7 @@ extern "C" {
 #ifdef ESP32
 #include "xtensa/core-macros.h"
 #include "esp32s3_opt.h"
+#include "esp32s3_dualcore.h"
 #endif
 
 static QueueHandle_t scanlineQueue = NULL;
@@ -2502,6 +2503,16 @@ void update_scanline(void)
   }
 
   u32 vcount = read_ioreg(REG_VCOUNT);
+  
+#ifdef ESP32
+  // Use dual-core system for ESP32-S3
+  if (dualcore_state.video_task_running) {
+    u16* scanline_data = get_screen_pixels() + (vcount * GBA_SCREEN_PITCH);
+    u32 render_flags = dispcnt;
+    esp32s3_dualcore_submit_scanline(vcount, scanline_data, render_flags);
+    return;
+  }
+#endif
   
   if (scanlineQueue) {
       xQueueSend(scanlineQueue, &vcount, portMAX_DELAY);

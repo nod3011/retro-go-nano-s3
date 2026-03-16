@@ -20,6 +20,10 @@
 #include "common.h"
 #include <ctype.h>
 
+#ifdef ESP32
+#include "esp32s3_integration.h"
+#endif
+
 timer_type timer[4];
 
 u32 frame_counter = 0;
@@ -105,6 +109,11 @@ void init_main(void)
 
   timer[0].direct_sound_channels = TIMER_DS_CHANNEL_BOTH;
   timer[1].direct_sound_channels = TIMER_DS_CHANNEL_NONE;
+
+#ifdef ESP32
+  // Initialize ESP32-S3 optimizations
+  GBSP_INIT();
+#endif
 
   frame_counter = 0;
   cpu_ticks = 0;
