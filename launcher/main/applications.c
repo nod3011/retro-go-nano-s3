@@ -701,6 +701,7 @@ void applications_init(void) {
   application("Super Nintendo", "snes", "smc sfc zip", "snes9x", 0);
   application("Sega Master System", "sms", "sms sg zip", "retro-core", 0);
   application("Atari Lynx", "lnx", "lnx zip", "retro-core", 64);
+  application("Nintendo Gameboy Advance", "gba", "gba zip", "gbsp", 0);
   application("DOOM", "doom", "wad zip", "prboom-go", 0);
   application("Quake", "quake", "quake pak", "quake-go", 0);
 
