@@ -26,6 +26,11 @@ extern "C" {
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+#ifdef ESP32
+#include "xtensa/core-macros.h"
+#include "esp32s3_opt.h"
+#endif
+
 static QueueHandle_t scanlineQueue = NULL;
 
 u16* gba_screen_pixels = NULL;
@@ -105,9 +110,15 @@ typedef struct
 #define tile_size_8bpp   64
 
 // Sprite rendering cycles
+#ifdef ESP32
 #define REND_CYC_MAX          32768   /* Theoretical max is 17920 */
-#define REND_CYC_SCANLINE       900   // เดิม 1210 ลดเพื่อประหยัด CPU ให้อัตราเฟรมขึ้น
-#define REND_CYC_REDUCED        954
+#define REND_CYC_SCANLINE       ESP32S3_MAX_SPRITE_CYCLES_NORMAL   // Optimized for ESP32-S3
+#define REND_CYC_REDUCED        ESP32S3_MAX_SPRITE_CYCLES_REDUCED  // Hblank-free mode
+#else
+#define REND_CYC_MAX          32768   /* Theoretical max is 17920 */
+#define REND_CYC_SCANLINE       650   // Optimized for ESP32-S3 dual-core, reduced from 900
+#define REND_CYC_REDUCED        720   // Slightly higher for hblank-free mode
+#endif
 
 // Generate bit mask (bits 9th and 10th) with information about the pixel
 // status (1st and/or 2nd target) for later blending.
@@ -137,6 +148,21 @@ static s32 affine_matrix_cache[2][4][4] __attribute__((aligned(16))); // 2 backg
 static u32 last_affine_update[2] = {0, 0};
 static bool affine_cache_valid[2] = {false, false};
 
+// ESP32-S3 performance optimization: dynamic cycle adjustment
+static u32 frame_skip_counter = 0;
+static u32 performance_level = 0; // 0=normal, 1=reduced, 2=minimum
+static u32 last_frame_time = 0;
+
+// Dynamic cycle adjustment based on performance
+static inline u16 get_dynamic_render_cycles(bool hblank_free) {
+#ifdef ESP32
+  return esp32s3_get_optimal_cycles(hblank_free);
+#else
+  // Fallback for non-ESP32 platforms
+  return hblank_free ? REND_CYC_REDUCED : REND_CYC_SCANLINE;
+#endif
+}
+
 static inline s32 signext28(u32 value)
 {
   s32 ret = (s32)(value << 4);
@@ -150,6 +176,24 @@ void video_reload_counters()
   affine_reference_y[0] = signext28(read_ioreg32(REG_BG2Y_L));
   affine_reference_x[1] = signext28(read_ioreg32(REG_BG3X_L));
   affine_reference_y[1] = signext28(read_ioreg32(REG_BG3Y_L));
+  
+  // Update affine matrix cache for ESP32-S3 optimization
+#ifdef ESP32
+  for (int bg = 0; bg < 2; bg++) {
+    u32 layer = bg + 2;
+    u32 current_frame = read_ioreg(REG_VCOUNT);
+    
+    // Check if matrix needs update (avoid unnecessary recalculations)
+    if (current_frame - last_affine_update[bg] > 1) {
+      affine_matrix_cache[bg][0][0] = (s16)read_ioreg(REG_BGxPA(layer));
+      affine_matrix_cache[bg][0][1] = (s16)read_ioreg(REG_BGxPB(layer));
+      affine_matrix_cache[bg][1][0] = (s16)read_ioreg(REG_BGxPC(layer));
+      affine_matrix_cache[bg][1][1] = (s16)read_ioreg(REG_BGxPD(layer));
+      affine_cache_valid[bg] = true;
+      last_affine_update[bg] = current_frame;
+    }
+  }
+#endif
 }
 
 // Renders non-affine tiled background layer.
@@ -1583,7 +1627,7 @@ static void order_obj(u32 video_mode)
   u16 rend_cycles[160];
 
   bool hblank_free = read_ioreg(REG_DISPCNT) & 0x20;
-  u16 max_rend_cycles = hblank_free ? REND_CYC_REDUCED : REND_CYC_SCANLINE;
+  u16 max_rend_cycles = get_dynamic_render_cycles(hblank_free);
 
   memset(obj_priority_count, 0, sizeof(obj_priority_count));
   memset(obj_alpha_count, 0, sizeof(obj_alpha_count));
