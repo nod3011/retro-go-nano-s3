@@ -2476,7 +2476,11 @@ void video_task(void *arg) {
 void init_video_task(void) {
     if (!scanlineQueue) {
         scanlineQueue = xQueueCreate(160, sizeof(u32));
+#ifdef ESP32
+        xTaskCreatePinnedToCore(video_task, "video_task", 4096, NULL, 5, NULL, 1 - xTaskGetCoreID()); 
+#else
         xTaskCreatePinnedToCore(video_task, "video_task", 4096, NULL, 5, NULL, 0); 
+#endif
     }
 }
 

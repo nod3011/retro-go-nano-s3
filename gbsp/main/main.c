@@ -116,7 +116,10 @@ static rg_gui_event_t frameskip_toggle_cb(rg_gui_option_t *option, rg_gui_event_
             app->frameskip = (app->frameskip + 1) % 4;
         rg_settings_set_number(NS_APP, "Frameskip", app->frameskip);
     }
-    sprintf(option->value, "%d", app->frameskip);
+    if (app->frameskip == 0)
+        strcpy(option->value, _("Auto"));
+    else
+        sprintf(option->value, "%d", app->frameskip);
     return RG_DIALOG_VOID;
 }
 
@@ -141,7 +144,7 @@ void app_main(void)
     rg_system_set_overclock(2);
 
     sound_master_enable = true;
-    app->frameskip = rg_settings_get_number(NS_APP, "Frameskip", 1);
+    app->frameskip = rg_settings_get_number(NS_APP, "Frameskip", 0);
 
     updates[0] = rg_surface_create(GBA_SCREEN_WIDTH, GBA_SCREEN_HEIGHT + 1, RG_PIXEL_565_LE, MEM_FAST);
     updates[0]->height = GBA_SCREEN_HEIGHT;
@@ -221,10 +224,18 @@ void app_main(void)
         rg_audio_submit(mixbuffer, frames_count);
         // RG_TIMER_LAP("rg_audio_submit");
 
-        if (skip_next_frame == 0)
-            skip_next_frame = app->frameskip;
-        else if (skip_next_frame > 0)
-            skip_next_frame--;
+        int64_t frameTime = rg_system_timer() - startTime;
+        if (app->frameskip == 0) { // Auto frameskip
+            if (frameTime > 16666) // Exceeds 16.6ms
+                skip_next_frame = 1;
+            else
+                skip_next_frame = 0;
+        } else { // Fixed frameskip
+            if (skip_next_frame == 0)
+                skip_next_frame = app->frameskip;
+            else if (skip_next_frame > 0)
+                skip_next_frame--;
+        }
     }
 
     RG_PANIC("GBsP Ended");
