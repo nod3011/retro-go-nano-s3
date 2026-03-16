@@ -10,7 +10,7 @@
 #include "../components/gbsp-libretro/video.h"
 
 #define AUDIO_SAMPLE_RATE (GBA_SOUND_FREQUENCY)
-#define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 60 + 1)
+#define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 30 + 1)
 
 u32 idle_loop_target_pc = 0xFFFFFFFF;
 u32 translation_gate_target_pc[MAX_TRANSLATION_GATES];
@@ -27,6 +27,11 @@ static rg_surface_t *currentUpdate;
 static rg_app_t *app;
 
 static const char *SETTING_SOUND_EMULATION = "sound";
+
+// Performance monitoring variables
+static u32 frame_count = 0;
+static u32 last_fps_time = 0;
+static u32 current_fps = 0;
 
 void netpacket_poll_receive()
 {
@@ -198,6 +203,17 @@ void app_main(void)
 
         if (!skip_next_frame)
             rg_display_submit(currentUpdate, 0);
+
+        // Performance monitoring
+        frame_count++;
+        u32 current_time = rg_system_timer();
+        if (current_time - last_fps_time >= 1000000) { // Every second
+            current_fps = frame_count;
+            frame_count = 0;
+            last_fps_time = current_time;
+            // Optional: Print FPS for debugging
+            // printf("FPS: %u\n", current_fps);
+        }
 
         rg_system_tick(rg_system_timer() - startTime);
 

@@ -108,8 +108,8 @@ void init_main(void)
 
   frame_counter = 0;
   cpu_ticks = 0;
-  execute_cycles = 960;
-  video_count = 960;
+  execute_cycles = 1152;  // Increased from 1024 for better performance (+20% total)
+  video_count = 1152;     // Match execute_cycles
 
 #ifdef HAVE_DYNAREC
   init_dynarec_caches();

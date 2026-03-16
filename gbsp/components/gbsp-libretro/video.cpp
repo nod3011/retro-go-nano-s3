@@ -2299,8 +2299,22 @@ void render_scanline_for_vcount(u32 vcount)
   u16 *screen_offset = get_screen_pixels() + (vcount * pitch);
   u32 video_mode = dispcnt & 0x07;
 
+  // Skip rendering if display is in forced blank mode (optimization)
+  // Only skip if bit 7 (0x80) is set and no backgrounds are enabled
+  if ((dispcnt & 0x80) && !(dispcnt & 0x1F00)) {
+    return;
+  }
+
+  // Additional optimization: skip if no backgrounds or objects are enabled
+  u32 enabled_layers = (dispcnt >> 8) & active_layers[video_mode];
+  if (enabled_layers == 0) {
+    // Clear screen to black if nothing is enabled
+    memset(screen_offset, 0x0000, 240*sizeof(u16));
+    return;
+  }
+
   // order_layers or window render
-  order_layers((dispcnt >> 8) & active_layers[video_mode], vcount);
+  order_layers(enabled_layers, vcount);
 
   if(dispcnt & 0x80)
     memset(screen_offset, 0xff, 240*sizeof(u16));
