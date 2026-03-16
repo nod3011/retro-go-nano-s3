@@ -132,6 +132,11 @@ typedef enum
 s32 affine_reference_x[2];
 s32 affine_reference_y[2];
 
+// Texture pre-computation optimization: pre-calculate affine transformations
+static s32 affine_matrix_cache[2][4][4] __attribute__((aligned(16))); // 2 backgrounds x 4x4 matrix
+static u32 last_affine_update[2] = {0, 0};
+static bool affine_cache_valid[2] = {false, false};
+
 static inline s32 signext28(u32 value)
 {
   s32 ret = (s32)(value << 4);
@@ -654,6 +659,12 @@ static inline void render_affine_background(
   s32 dx = (s16)read_ioreg(REG_BGxPA(layer));
   s32 dy = (s16)read_ioreg(REG_BGxPC(layer));
 
+  // Use cached affine matrix if available
+  if (affine_cache_valid[layer - 2]) {
+    dx = affine_matrix_cache[layer - 2][0][0];
+    dy = affine_matrix_cache[layer - 2][1][0];
+  }
+
   s32 source_x = affine_reference_x[layer - 2] + (start * dx);
   s32 source_y = affine_reference_y[layer - 2] + (start * dy);
 
@@ -855,6 +866,13 @@ static inline void render_scanline_bitmap(
 ) {
   s32 dx = (s16)read_ioreg(REG_BG2PA);
   s32 dy = (s16)read_ioreg(REG_BG2PC);
+
+  // Use cached affine matrix if available
+  if (affine_cache_valid[0]) {
+    dx = affine_matrix_cache[0][0][0];
+    dy = affine_matrix_cache[0][1][0];
+  }
+
   s32 source_x = affine_reference_x[0] + (start * dx); // Always BG2
   s32 source_y = affine_reference_y[0] + (start * dy);
 
@@ -985,6 +1003,28 @@ static inline const u16* get_palette_ptr(u16 palette_index) {
   }
   
   return &palette_cache[palette_index];
+}
+
+// Fast affine matrix calculation with caching
+static inline void compute_affine_matrix(u32 bg_layer) {
+  u32 current_frame = frame_counter;
+  
+  // Check if we need to recompute matrix
+  if (!affine_cache_valid[bg_layer] || (current_frame - last_affine_update[bg_layer]) > 1) {
+    s32 dx = (s16)read_ioreg(REG_BGxPA(bg_layer));
+    s32 dy = (s16)read_ioreg(REG_BGxPC(bg_layer));
+    s32 dmx = (s16)read_ioreg(REG_BGxPB(bg_layer));
+    s32 dmy = (s16)read_ioreg(REG_BGxPD(bg_layer));
+    
+    // Store matrix elements for fast access
+    affine_matrix_cache[bg_layer][0][0] = dx;
+    affine_matrix_cache[bg_layer][0][1] = dmx;
+    affine_matrix_cache[bg_layer][1][0] = dy;
+    affine_matrix_cache[bg_layer][1][1] = dmy;
+    
+    last_affine_update[bg_layer] = current_frame;
+    affine_cache_valid[bg_layer] = true;
+  }
 }
 
 typedef struct {
