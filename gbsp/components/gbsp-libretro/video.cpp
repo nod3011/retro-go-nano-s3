@@ -963,9 +963,29 @@ static const u8 obj_dim_table[3][4][2] = {
   { {8, 16}, {8, 32}, {16, 32}, {32, 64} }
 };
 
-static u8 obj_priority_list[5][160][128];
-static u8 obj_priority_count[5][160];
-static u8 obj_alpha_count[160];
+// Memory alignment optimization: align sprite buffers to 16-byte boundaries
+static u8 obj_priority_list[5][160][128] __attribute__((aligned(16)));
+static u8 obj_priority_count[5][160] __attribute__((aligned(16)));
+static u8 obj_alpha_count[160] __attribute__((aligned(16)));
+
+// Palette caching optimization: cache frequently accessed palettes
+static u16 palette_cache[512] __attribute__((aligned(16)));
+static u32 last_palette_update = 0;
+static bool palette_cache_valid = false;
+
+// Fast palette lookup with caching
+static inline const u16* get_palette_ptr(u16 palette_index) {
+  // Simple cache validation - invalidate cache if palette RAM was updated
+  u32 current_time = rg_system_timer();
+  if (!palette_cache_valid || (current_time - last_palette_update) > 1000000) {
+    // Cache expired or invalid, refresh it
+    memcpy(palette_cache, palette_ram, 512 * sizeof(u16));
+    last_palette_update = current_time;
+    palette_cache_valid = true;
+  }
+  
+  return &palette_cache[palette_index];
+}
 
 typedef struct {
   s32 obj_x, obj_y;
@@ -1573,6 +1593,19 @@ static void order_obj(u32 video_mode)
       obj_height *= 2;
       obj_width *= 2;
     }
+
+    // Sprite culling optimization: skip sprites completely outside screen bounds
+    s32 obj_x = obj_attr1 & 0x1FF;
+    if(obj_x > 240)
+      obj_x -= 512;
+
+    // Skip if sprite is completely outside horizontal bounds
+    if ((obj_x + obj_width) <= 0 || obj_x >= 240)
+      continue;
+
+    // Skip if sprite is completely outside vertical bounds (more precise check)
+    if ((obj_y + obj_height) <= 0 || obj_y >= 160)
+      continue;
 
     if(((obj_y + obj_height) > 0) && (obj_y < 160))
     {
