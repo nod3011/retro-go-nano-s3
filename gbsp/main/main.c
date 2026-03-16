@@ -178,6 +178,12 @@ void app_main(void)
     
     gbsp_memory->gamepak_backup = rg_alloc(1024 * 128, MEM_ANY);
     
+    // Assign allocates into standalone naked pointers for fast access
+    vram = gbsp_memory->vram;
+    ewram = gbsp_memory->ewram;
+    iwram = gbsp_memory->iwram;
+    gamepak_backup = gbsp_memory->gamepak_backup;
+
     RG_LOGI("gbsp_memory=%p (vram=%p ewram=%p iwram=%p backup=%p)", 
         gbsp_memory, gbsp_memory->vram, gbsp_memory->ewram, gbsp_memory->iwram, gbsp_memory->gamepak_backup);
 

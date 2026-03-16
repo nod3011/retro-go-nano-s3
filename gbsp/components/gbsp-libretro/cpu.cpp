@@ -1453,7 +1453,13 @@ u32 reg_mode[7][7];
 u16 oam_ram[512];
 u16 palette_ram[512];
 u16 palette_ram_converted[512];
-#ifndef RETRO_GO
+#ifdef RETRO_GO
+// In Retro-Go, these are allocated and pointed dynamically to prevent static BSS overflow
+u8 *ewram = NULL;
+u8 *iwram = NULL;
+u8 *vram = NULL;
+u8 *gamepak_backup = NULL;
+#else
 u8 ewram[(1024 * 256) << SMC_DETECTION];
 u8 iwram[(1024 * 32) << SMC_DETECTION];
 u8 vram[1024 * 96];
@@ -1461,6 +1467,23 @@ u8 vram[1024 * 96];
 u8 *memory_map_read[8 * 1024];
 u16 io_registers[512];
 #endif
+
+// Hot path implementation for work RAM access
+#ifdef ESP32
+#define HOT_PATH __attribute__((hot)) ESP32S3_FAST_FUNC
+#else
+#define HOT_PATH
+#endif
+
+HOT_PATH static inline u32 fast_read_workram(u32 address) {
+    if (LIKELY(address >= 0x02000000 && address < 0x02040000)) {
+        return *(u32*)(ewram + (address & 0x3FFFF));
+    }
+    if (LIKELY(address >= 0x03000000 && address < 0x03008000)) {
+        return *(u32*)(iwram + (address & 0x7FFF));
+    }
+    return 0; // Not work RAM
+}
 
 IRAM_ATTR void execute_arm(u32 cycles)
 {

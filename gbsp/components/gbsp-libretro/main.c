@@ -52,7 +52,8 @@ void rand_seed(u32 data) {
 }
 
 
-static unsigned update_timers(irq_type *irq_raised, unsigned completed_cycles)
+// Hot path timer update function
+HOT_PATH static unsigned update_timers(irq_type *irq_raised, unsigned completed_cycles)
 {
    unsigned i, ret = 0;
    for (i = 0; i < 4; i++)
@@ -126,7 +127,14 @@ void init_main(void)
 #endif
 }
 
-u32 function_cc update_gba(int remaining_cycles)
+// Hot path CPU execution function - optimized for ESP32-S3
+#ifdef ESP32
+#define HOT_PATH __attribute__((hot)) ESP32S3_FAST_FUNC
+#else
+#define HOT_PATH
+#endif
+
+HOT_PATH u32 function_cc update_gba(int remaining_cycles)
 {
   u32 changed_pc = 0;
   u32 frame_complete = 0;

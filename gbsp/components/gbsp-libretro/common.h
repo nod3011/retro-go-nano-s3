@@ -26,6 +26,14 @@
 #define MAX(a,b)  ((a) > (b) ? (a) : (b))
 #define MIN(a,b)  ((a) < (b) ? (a) : (b))
 
+// Branch prediction macros for optimization
+#ifndef LIKELY
+  #define LIKELY(x)   __builtin_expect(!!(x), 1)
+#endif
+#ifndef UNLIKELY  
+  #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#endif
+
 #if defined(_WIN32)
   #define PATH_SEPARATOR "\\"
   #define PATH_SEPARATOR_CHAR '\\'

@@ -274,35 +274,90 @@ extern u16 palette_ram[512];
 extern u16 oam_ram[512];
 extern u16 palette_ram_converted[512];
 extern u16 io_registers[512];
+
+// Memory variables - different handling for Retro-Go vs standalone
+#ifdef RETRO_GO
+// In Retro-Go, these are direct pointers to dynamic memory allocated in main.c
+extern u8 *vram;
+extern u8 *ewram;
+extern u8 *iwram;
+extern u8 *gamepak_backup;
+#else
 extern u8 vram[1024 * 96];
 extern const u8 *bios_rom; // [1024 * 16];
 // Double buffer used for SMC detection
 extern u8 ewram[(1024 * 256) << SMC_DETECTION];
 extern u8 iwram[(1024 * 32) << SMC_DETECTION];
+#endif
 
 extern u8 *memory_map_read[8 * 1024];
 
 #define address16(base, offset)  *((u16 *)((u8 *)base + (offset)))
 #define address32(base, offset)  *((u32 *)((u8 *)base + (offset)))
 
-static inline u32 read_memory8(u32 address) {
-    u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
-    if (__builtin_expect(map != NULL, 1)) return map[address & 0x7FFF];
+// Hot path memory functions - optimized for ESP32-S3
+#ifdef ESP32
+#define HOT_PATH __attribute__((hot)) ESP32S3_FAST_FUNC
+#else
+#define HOT_PATH
+#endif
+
+// Fast path for work RAM (most common memory access) - declaration only
+HOT_PATH static inline u32 fast_read_workram(u32 address);
+
+HOT_PATH static inline u32 read_memory8(u32 address) {
+    // Ultra-fast path for work RAM
+    if (LIKELY(address >= 0x02000000 && address < 0x02040000)) {
+        return ewram[address & 0x3FFFF];
+    }
+    if (LIKELY(address >= 0x03000000 && address < 0x03008000)) {
+        return iwram[address & 0x7FFF];
+    }
+    
+    // Fast path for common memory regions
+    if (LIKELY(address < 0x08000000)) {
+        u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
+        if (LIKELY(map != NULL)) return map[address & 0x7FFF];
+    }
     return read_memory8_slow(address);
 }
 
-static inline u32 read_memory16(u32 address) {
-    if (__builtin_expect(!(address & 0x01), 1)) {
-        u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
-        if (__builtin_expect(map != NULL, 1)) return *((u16 *)(map + (address & 0x7FFF)));
+HOT_PATH static inline u32 read_memory16(u32 address) {
+    // Ultra-fast path for work RAM
+    if (LIKELY(!(address & 0x01))) {
+        if (LIKELY(address >= 0x02000000 && address < 0x02040000)) {
+            return *((u16*)(ewram + (address & 0x3FFFF)));
+        }
+        if (LIKELY(address >= 0x03000000 && address < 0x03008000)) {
+            return *((u16*)(iwram + (address & 0x7FFF)));
+        }
+    }
+    
+    if (LIKELY(!(address & 0x01))) {
+        if (LIKELY(address < 0x08000000)) {
+            u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
+            if (LIKELY(map != NULL)) return *((u16 *)(map + (address & 0x7FFF)));
+        }
     }
     return read_memory16_slow(address);
 }
 
-static inline u32 read_memory32(u32 address) {
-    if (__builtin_expect(!(address & 0x03), 1)) {
-        u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
-        if (__builtin_expect(map != NULL, 1)) return *((u32 *)(map + (address & 0x7FFF)));
+HOT_PATH static inline u32 read_memory32(u32 address) {
+    // Ultra-fast path for work RAM
+    if (LIKELY(!(address & 0x03))) {
+        if (LIKELY(address >= 0x02000000 && address < 0x02040000)) {
+            return *((u32*)(ewram + (address & 0x3FFFF)));
+        }
+        if (LIKELY(address >= 0x03000000 && address < 0x03008000)) {
+            return *((u32*)(iwram + (address & 0x7FFF)));
+        }
+    }
+    
+    if (LIKELY(!(address & 0x03))) {
+        if (LIKELY(address < 0x08000000)) {
+            u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
+            if (LIKELY(map != NULL)) return *((u32 *)(map + (address & 0x7FFF)));
+        }
     }
     return read_memory32_slow(address);
 }
@@ -343,7 +398,9 @@ extern u32 sram_bankcount;
 extern u32 flash_bank_cnt;
 extern u32 eeprom_size;
 
+#ifndef RETRO_GO
 extern u8 gamepak_backup[1024 * 128];
+#endif
 
 // Page sticky bit routines
 extern u32 gamepak_sticky_bit[1024/32];
@@ -377,11 +434,15 @@ typedef struct
 } gbsp_memory_t;
 
 extern gbsp_memory_t *gbsp_memory;
+
+// In Retro-Go mode, we use direct variables instead of macros
+#ifndef RETRO_GO
 #define vram gbsp_memory->vram
 #define ewram gbsp_memory->ewram
 #define iwram gbsp_memory->iwram
 // #define memory_map_read gbsp_memory->memory_map_read
 #define gamepak_backup gbsp_memory->gamepak_backup
+#endif
 #endif
 
 #ifdef __cplusplus
