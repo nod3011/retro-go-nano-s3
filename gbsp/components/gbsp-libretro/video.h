@@ -22,6 +22,8 @@
 
 void update_scanline(void);
 void video_reload_counters(void);
+void init_video_task(void);
+void wait_video_idle(void);
 
 extern s32 affine_reference_x[2];
 extern s32 affine_reference_y[2];

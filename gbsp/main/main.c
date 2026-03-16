@@ -7,6 +7,7 @@
 #include "../components/gbsp-libretro/sound.h"
 #include "../components/gbsp-libretro/gba_memory.h"
 #include "../components/gbsp-libretro/gba_cc_lut.h"
+#include "../components/gbsp-libretro/video.h"
 
 #define AUDIO_SAMPLE_RATE (GBA_SOUND_FREQUENCY)
 #define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 60 + 1)
@@ -98,22 +99,25 @@ void set_fastforward_override(bool fastforward)
 {
 }
 
-static rg_gui_event_t sound_toggle_cb(rg_gui_option_t *option, rg_gui_event_t event)
+
+
+static rg_gui_event_t frameskip_toggle_cb(rg_gui_option_t *option, rg_gui_event_t event)
 {
     if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
     {
-        sound_master_enable = !sound_master_enable;
-        rg_settings_set_number(NS_APP, SETTING_SOUND_EMULATION, sound_master_enable);
+        if (event == RG_DIALOG_PREV)
+            app->frameskip = (app->frameskip + 3) % 4;
+        else
+            app->frameskip = (app->frameskip + 1) % 4;
+        rg_settings_set_number(NS_APP, "Frameskip", app->frameskip);
     }
-
-    strcpy(option->value, sound_master_enable ? _("On") : _("Off"));
-
+    sprintf(option->value, "%d", app->frameskip);
     return RG_DIALOG_VOID;
 }
 
 static void options_handler(rg_gui_option_t *dest)
 {
-    *dest++ = (rg_gui_option_t){0, _("Audio enable"), "-", RG_DIALOG_FLAG_NORMAL, &sound_toggle_cb};
+    *dest++ = (rg_gui_option_t){0, _("Frameskip"),    "-", RG_DIALOG_FLAG_NORMAL, &frameskip_toggle_cb};
     *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -128,9 +132,11 @@ void app_main(void)
         .options = &options_handler,
     };
     app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
-    // rg_system_set_overclock(2);
+    init_video_task();
+    rg_system_set_overclock(2);
 
-    sound_master_enable = rg_settings_get_number(NS_APP, SETTING_SOUND_EMULATION, true);
+    sound_master_enable = true;
+    app->frameskip = rg_settings_get_number(NS_APP, "Frameskip", 1);
 
     updates[0] = rg_surface_create(GBA_SCREEN_WIDTH, GBA_SCREEN_HEIGHT + 1, RG_PIXEL_565_LE, MEM_FAST);
     updates[0]->height = GBA_SCREEN_HEIGHT;
@@ -193,11 +199,9 @@ void app_main(void)
         if (!skip_next_frame)
             rg_display_submit(currentUpdate, 0);
 
-        size_t frames_count = sound_read_samples((s16 *)mixbuffer, AUDIO_BUFFER_LENGTH);
-        // RG_TIMER_LAP("sound_read_samples");
-
         rg_system_tick(rg_system_timer() - startTime);
 
+        size_t frames_count = sound_read_samples((s16 *)mixbuffer, AUDIO_BUFFER_LENGTH);
         rg_audio_submit(mixbuffer, frames_count);
         // RG_TIMER_LAP("rg_audio_submit");
 

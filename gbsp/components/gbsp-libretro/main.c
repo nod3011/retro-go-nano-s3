@@ -195,6 +195,8 @@ u32 function_cc update_gba(int remaining_cycles)
           u32 i;
           dispstat |= 0x01;
 
+          wait_video_idle();
+
           // Reinit affine transformation counters for the next frame
           video_reload_counters();
 

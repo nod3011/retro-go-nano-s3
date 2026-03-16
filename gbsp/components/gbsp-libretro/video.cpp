@@ -22,6 +22,12 @@ extern "C" {
   #include "common.h"
 }
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+
+static QueueHandle_t scanlineQueue = NULL;
+
 u16* gba_screen_pixels = NULL;
 
 #define get_screen_pixels()   gba_screen_pixels
@@ -1539,6 +1545,12 @@ static void order_obj(u32 video_mode)
     if ((obj_shape == 0x3) || (obj_mode == OBJ_MOD_INVALID))
       continue;
 
+    // Early Y Sub-bounding box skip:
+    s32 early_y = obj_attr0 & 0xFF;
+    if (early_y > 160) early_y -= 256;
+    if (early_y >= 160 || (early_y + 128) < 0)
+      continue;
+
     u16 obj_attr2 = eswap16(oam_ptr->attr2);
 
     // On bitmap modes, objs 0-511 are not usable, ingore them.
@@ -2280,40 +2292,26 @@ static const u8 active_layers[] = {
   0,
 };
 
-void update_scanline(void)
+void render_scanline_for_vcount(u32 vcount)
 {
   u32 pitch = get_screen_pitch();
   u16 dispcnt = read_ioreg(REG_DISPCNT);
-  u32 vcount = read_ioreg(REG_VCOUNT);
   u16 *screen_offset = get_screen_pixels() + (vcount * pitch);
   u32 video_mode = dispcnt & 0x07;
 
-  if(skip_next_frame)
-    return;
-
-  // If OAM has been modified since the last scanline has been updated then
-  // reorder and reprofile the OBJ lists.
-  if(reg[OAM_UPDATED])
-  {
-    order_obj(video_mode);
-    reg[OAM_UPDATED] = 0;
-  }
-
+  // order_layers or window render
   order_layers((dispcnt >> 8) & active_layers[video_mode], vcount);
 
-  // If the screen is in in forced blank draw pure white.
   if(dispcnt & 0x80)
     memset(screen_offset, 0xff, 240*sizeof(u16));
   else
     render_scanline_window(screen_offset);
 
-  // Mode 0 does not use any affine params at all.
   if (video_mode) {
-    // Account for vertical mosaic effect, by correcting affine references.
     const u32 bgmosv = ((read_ioreg(REG_MOSAIC) >> 4) & 0xF) + 1;
 
-    if (read_ioreg(REG_BG2CNT) & 0x40) {   // Mosaic enabled for this BG
-      if ((vcount % bgmosv) == bgmosv-1) { // Correct after the last line
+    if (read_ioreg(REG_BG2CNT) & 0x40) {   
+      if ((vcount % bgmosv) == bgmosv-1) { 
         affine_reference_x[0] += (s16)read_ioreg(REG_BG2PB) * bgmosv;
         affine_reference_y[0] += (s16)read_ioreg(REG_BG2PD) * bgmosv;
       }
@@ -2331,6 +2329,53 @@ void update_scanline(void)
       affine_reference_x[1] += (s16)read_ioreg(REG_BG3PB);
       affine_reference_y[1] += (s16)read_ioreg(REG_BG3PD);
     }
+  }
+}
+
+void video_task(void *arg) {
+    while(1) {
+        u32 vcount;
+        if (xQueueReceive(scanlineQueue, &vcount, portMAX_DELAY) == pdTRUE) {
+            render_scanline_for_vcount(vcount);
+        }
+    }
+}
+
+void init_video_task(void) {
+    if (!scanlineQueue) {
+        scanlineQueue = xQueueCreate(160, sizeof(u32));
+        xTaskCreatePinnedToCore(video_task, "video_task", 4096, NULL, 5, NULL, 0); 
+    }
+}
+
+void wait_video_idle(void) {
+    if (scanlineQueue) {
+        while (uxQueueMessagesWaiting(scanlineQueue) > 0) {
+            // Tight spin
+        }
+    }
+}
+
+void update_scanline(void)
+{
+  u16 dispcnt = read_ioreg(REG_DISPCNT);
+  u32 video_mode = dispcnt & 0x07;
+
+  if(skip_next_frame)
+    return;
+
+  if(reg[OAM_UPDATED])
+  {
+    order_obj(video_mode);
+    reg[OAM_UPDATED] = 0;
+  }
+
+  u32 vcount = read_ioreg(REG_VCOUNT);
+  
+  if (scanlineQueue) {
+      xQueueSend(scanlineQueue, &vcount, portMAX_DELAY);
+  } else {
+      render_scanline_for_vcount(vcount);
   }
 }
 

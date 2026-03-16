@@ -21,6 +21,7 @@
 #include "streams/file_stream.h"
 #include "bios/open_gba_bios.h"
 
+
 /* Sound */
 #define gbc_sound_tone_control_low(channel, regn)                             \
 {                                                                             \
