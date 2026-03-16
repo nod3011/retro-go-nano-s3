@@ -216,12 +216,12 @@ typedef enum
 #define FLASH_MANUFACTURER_PANASONIC 0x32
 #define FLASH_MANUFACTURER_SST       0xBF
 
-u32 function_cc read_memory8(u32 address);
+u32 function_cc read_memory8_slow(u32 address);
+u32 function_cc read_memory16_slow(u32 address);
+u32 function_cc read_memory32_slow(u32 address);
 u32 function_cc read_memory8s(u32 address);
-u32 function_cc read_memory16(u32 address);
 u16 function_cc read_memory16_signed(u32 address);
 u32 function_cc read_memory16s(u32 address);
-u32 function_cc read_memory32(u32 address);
 cpu_alert_type function_cc write_memory8(u32 address, u8 value);
 cpu_alert_type function_cc write_memory16(u32 address, u16 value);
 cpu_alert_type function_cc write_memory32(u32 address, u32 value);
@@ -281,6 +281,31 @@ extern u8 ewram[(1024 * 256) << SMC_DETECTION];
 extern u8 iwram[(1024 * 32) << SMC_DETECTION];
 
 extern u8 *memory_map_read[8 * 1024];
+
+#define address16(base, offset)  *((u16 *)((u8 *)base + (offset)))
+#define address32(base, offset)  *((u32 *)((u8 *)base + (offset)))
+
+static inline u32 read_memory8(u32 address) {
+    u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
+    if (__builtin_expect(map != NULL, 1)) return map[address & 0x7FFF];
+    return read_memory8_slow(address);
+}
+
+static inline u32 read_memory16(u32 address) {
+    if (__builtin_expect(!(address & 0x01), 1)) {
+        u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
+        if (__builtin_expect(map != NULL, 1)) return *((u16 *)(map + (address & 0x7FFF)));
+    }
+    return read_memory16_slow(address);
+}
+
+static inline u32 read_memory32(u32 address) {
+    if (__builtin_expect(!(address & 0x03), 1)) {
+        u8 *map = memory_map_read[(address & 0x0FFFFFFF) >> 15];
+        if (__builtin_expect(map != NULL, 1)) return *((u32 *)(map + (address & 0x7FFF)));
+    }
+    return read_memory32_slow(address);
+}
 
 extern u32 reg[64];
 
@@ -345,16 +370,10 @@ unsigned memory_write_savestate(u8 *dst);
 // of any code treating them as fixed arrays. This results in very minimal code changes to the rest of gbSP.
 typedef struct
 {
-  // TODO: Evaluate what is best left in internal memory for performance reasons (for the few that could fit)
-  u8 vram[1024 * 96];
-  u8 ewram[(1024 * 256) << SMC_DETECTION];
-  u8 iwram[(1024 * 32) << SMC_DETECTION];
-  // u8 *memory_map_read[8 * 1024];
-  u8 gamepak_backup[1024 * 128];
-  // There's also stuff from video.cpp to consider:
-  // u8 obj_priority_list[5][160][128];
-  // u8 obj_priority_count[5][160];
-  // u8 obj_alpha_count[160];
+  u8 *vram;
+  u8 *ewram;
+  u8 *iwram;
+  u8 *gamepak_backup;
 } gbsp_memory_t;
 
 extern gbsp_memory_t *gbsp_memory;

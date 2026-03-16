@@ -1471,7 +1471,7 @@ void function_cc write_gpio(u32 address, u32 value) {
       break;                                                                  \
   }                                                                           \
 
-u32 function_cc read_memory8(u32 address)
+u32 function_cc read_memory8_slow(u32 address)
 {
   u8 value;
   read_memory(8);
@@ -1500,7 +1500,7 @@ u32 function_cc read_memory16s(u32 address) {
 
 // unaligned reads are actually 32bit
 
-u32 function_cc read_memory16(u32 address)
+u32 function_cc read_memory16_slow(u32 address)
 {
   u32 value;
   bool unaligned = (address & 0x01);
@@ -1514,7 +1514,7 @@ u32 function_cc read_memory16(u32 address)
 }
 
 
-u32 function_cc read_memory32(u32 address)
+u32 function_cc read_memory32_slow(u32 address)
 {
   u32 value;
   u32 rotate = (address & 0x03) * 8;
@@ -2275,10 +2275,10 @@ void init_memory(void)
   memset(io_registers, 0, sizeof(io_registers));
   memset(oam_ram, 0, sizeof(oam_ram));
   memset(palette_ram, 0, sizeof(palette_ram));
-  memset(iwram, 0, sizeof(iwram));
-  memset(ewram, 0, sizeof(ewram));
-  memset(vram, 0, sizeof(vram));
-
+  memset(iwram, 0, (1024 * 32) << SMC_DETECTION);
+  memset(ewram, 0, (1024 * 256) << SMC_DETECTION);
+  memset(vram, 0, 1024 * 96);
+  
   write_ioreg(REG_DISPCNT, 0x80);
   write_ioreg(REG_P1, 0x3FF);
   write_ioreg(REG_BG2PA, 0x100);

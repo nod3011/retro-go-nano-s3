@@ -154,8 +154,37 @@ void app_main(void)
 
     gba_screen_pixels = currentUpdate->data;
 
-    gbsp_memory = rg_alloc(sizeof(*gbsp_memory), MEM_ANY);
-    RG_LOGI("gbsp_memory=%p", gbsp_memory);
+    gbsp_memory = rg_alloc(sizeof(*gbsp_memory), MEM_FAST);
+    if (!gbsp_memory) {
+        RG_LOGW("Failed to allocate gbsp_memory in Internal RAM, falling back to any");
+        gbsp_memory = rg_alloc(sizeof(*gbsp_memory), MEM_ANY);
+    }
+    
+#undef vram
+#undef ewram
+#undef iwram
+#undef gamepak_backup
+
+    #define ALLOC_MEM(var, size) \
+        gbsp_memory->var = rg_alloc(size, MEM_FAST); \
+        if (!gbsp_memory->var) { \
+            RG_LOGW("Failed to allocate " #var " in Internal RAM, falling back to PSRAM"); \
+            gbsp_memory->var = rg_alloc(size, MEM_ANY); \
+        }
+        
+    ALLOC_MEM(iwram, (1024 * 32) << SMC_DETECTION);
+    ALLOC_MEM(ewram, (1024 * 256) << SMC_DETECTION);
+    ALLOC_MEM(vram, 1024 * 96);
+    
+    gbsp_memory->gamepak_backup = rg_alloc(1024 * 128, MEM_ANY);
+    
+    RG_LOGI("gbsp_memory=%p (vram=%p ewram=%p iwram=%p backup=%p)", 
+        gbsp_memory, gbsp_memory->vram, gbsp_memory->ewram, gbsp_memory->iwram, gbsp_memory->gamepak_backup);
+
+#define vram gbsp_memory->vram
+#define ewram gbsp_memory->ewram
+#define iwram gbsp_memory->iwram
+#define gamepak_backup gbsp_memory->gamepak_backup
 
     libretro_supports_bitmasks = true;
     retro_set_input_state(input_cb);
