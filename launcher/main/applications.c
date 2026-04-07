@@ -434,7 +434,13 @@ static void event_handler(gui_event_t event, tab_t *tab) {
     }
   } else if (event == TAB_REFRESH) {
     tab_refresh(tab, NULL);
-  } else if (event == TAB_ENTER || event == TAB_LEAVE || event == TAB_SCROLL) {
+  } else if (event == TAB_ENTER) {
+    if (strcmp(app->short_name, "wolf3d") == 0) {
+      rg_system_switch_app(app->partition, app->description, NULL, 0);
+    }
+    gui_set_status(tab, NULL, "");
+    gui_set_preview(tab, NULL);
+  } else if (event == TAB_LEAVE || event == TAB_SCROLL) {
     gui_set_status(tab, NULL, "");
     gui_set_preview(tab, NULL);
   } else if (event == TAB_IDLE) {
@@ -703,6 +709,7 @@ void applications_init(void) {
   application("Atari Lynx", "lnx", "lnx zip", "retro-core", 64);
   application("DOOM", "doom", "wad zip", "prboom-go", 0);
   application("Quake", "quake", "quake pak", "quake-go", 0);
+  application("Wolfenstein 3D", "wolf3d", "wl6 wl1 sod zip", "wolf4sdl", 0);
 
   application("Nintendo Game & Watch", "gw", "gw", "retro-core", 0);
   // application("Sega Master System", "sms", "sms sg zip", "retro-core", 0);

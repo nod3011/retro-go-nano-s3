@@ -26,10 +26,10 @@ PROJECT_APPS = {
   'prboom-go':    [0, 16, 1048576],  # 1.0 MB
   'gwenesis':     [0, 16, 1179648],  # 1.125 MB
   'fmsx':         [0, 16, 1048576],  # 1 MB
-  'ws':           [0, 16, 1048576],  # 1 MB
   'oswan':        [0, 16, 655360],   # 640 KB
   'ngp':          [0, 16, 720896],   # 704 KB
   'quake-go':     [0, 16, 2097152],  # 2 MB (Quake needs more space)
+  'wolf4sdl':     [0, 16, 1310720],  # 1.25 MB
 }
 
 # PROJECT_APPS = {}
