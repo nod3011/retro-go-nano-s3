@@ -187,6 +187,29 @@ static void options_handler(rg_gui_option_t *dest)
     *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
+static bool parse_w3d(const char *path, char *folder, size_t folder_sz)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) return false;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f))
+    {
+        char *p = strstr(line, "folder=");
+        if (p)
+        {
+            p += 7;
+            if (*p == '"') p++;
+            size_t i = 0;
+            while (*p && *p != '"' && *p != '\n' && *p != '\r' && i < folder_sz - 1)
+                folder[i++] = *p++;
+            folder[i] = 0;
+        }
+    }
+    fclose(f);
+    return true;
+}
+
 extern int wolf_main(int argc, char *argv[]);
 
 extern "C" void app_main()
@@ -218,42 +241,46 @@ extern "C" void app_main()
     extern void SDL_RG_SetSurface(rg_surface_t *surf);
     SDL_RG_SetSurface(update);
 
-    char current_datadir[350];
-    // Default data directory
-    strncpy(current_datadir, RG_BASE_PATH_ROMS "/wolf3d/", sizeof(current_datadir) - 1);
+    char current_datadir[512] = {0};
+    const char *base_path = RG_BASE_PATH_ROMS "/wolf3d/";
 
     const char *romPath = app->romPath;
     if (romPath && romPath[0])
     {
-        const char *lastSlash = strrchr(romPath, '/');
-        if (lastSlash)
+        if (rg_extension_match(romPath, "w3d"))
         {
-            size_t len = lastSlash - romPath + 1;
-            if (len < sizeof(current_datadir))
+            char folder[128] = {0};
+            if (parse_w3d(romPath, folder, sizeof(folder)))
             {
-                strncpy(current_datadir, romPath, len);
-                current_datadir[len] = 0;
+                snprintf(current_datadir, sizeof(current_datadir), "%s%s/", base_path, folder);
+            }
+        }
+        else if (rg_storage_exists(romPath))
+        {
+            // If it's a direct file (wl6, wl1, etc)
+            const char *lastSlash = strrchr(romPath, '/');
+            if (lastSlash)
+            {
+                size_t len = lastSlash - romPath + 1;
+                if (len < sizeof(current_datadir))
+                {
+                    strncpy(current_datadir, romPath, len);
+                    current_datadir[len] = 0;
+                }
             }
         }
     }
 
-    // Check if we should use a "data/" subfolder instead
-    char testPath[512];
-    snprintf(testPath, sizeof(testPath), "%sdata/vgahead.wl6", current_datadir);
-    if (rg_storage_exists(testPath))
+    // If still no path, try a "data" default if it exists, otherwise exit
+    if (current_datadir[0] == 0)
     {
-        strncat(current_datadir, "data/", sizeof(current_datadir) - strlen(current_datadir) - 1);
-    }
-    else
-    {
-        snprintf(testPath, sizeof(testPath), "%sdata/vgahead.wl1", current_datadir);
-        if (rg_storage_exists(testPath))
-            strncat(current_datadir, "data/", sizeof(current_datadir) - strlen(current_datadir) - 1);
-        else
+        snprintf(current_datadir, sizeof(current_datadir), "%sdata/", base_path);
+        
+        if (!rg_storage_exists(current_datadir))
         {
-            snprintf(testPath, sizeof(testPath), "%sdata/vgahead.sod", current_datadir);
-            if (rg_storage_exists(testPath))
-                strncat(current_datadir, "data/", sizeof(current_datadir) - strlen(current_datadir) - 1);
+            rg_gui_alert("No ROM selected", "Please launch a .w3d file from the menu.");
+            rg_system_exit();
+            return;
         }
     }
 
@@ -284,3 +311,4 @@ extern "C" void app_main()
 
     rg_system_exit();
 }
+
