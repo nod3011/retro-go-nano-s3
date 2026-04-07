@@ -1218,7 +1218,7 @@ void rg_system_set_overclock(int level)
 #define OC_DIV7_MULTIPLIER   5
 #else // CONFIG_IDF_TARGET_ESP32S3
 #define I2C_BBPLL            0x66
-#define I2C_BBPLL_HOSTID     1
+#define I2C_BBPLL_HOSTID     0
 #define I2C_BBPLL_OC_DIV_7_0 3
 #define OC
 #define OC_MAX_LEVEL       4
@@ -1230,32 +1230,57 @@ void rg_system_set_overclock(int level)
         RG_LOGW("Invalid level %d, min:%d max:%d", level, OC_MIN_LEVEL, OC_MAX_LEVEL);
         return;
     }
+    RG_LOGI("Setting overclock level %d...", level);
+
     static int original_div7_0 = -1;
     if (original_div7_0 == -1)
+    {
+        RG_LOGI("Reading BBPLL register (HostID %d)...", I2C_BBPLL_HOSTID);
         original_div7_0 = rom_i2c_readReg(I2C_BBPLL, I2C_BBPLL_HOSTID, I2C_BBPLL_OC_DIV_7_0);
+        RG_LOGI("BBPLL register value: %d", original_div7_0);
+    }
+
 #if CONFIG_IDF_TARGET_ESP32
     uint8_t div7_0 = original_div7_0 - (level - 1);
 #else // CONFIG_IDF_TARGET_ESP32S3
     uint8_t div7_0 = original_div7_0 + (level - 1);
+
+    if (level > 1)
+    {
+        // Compensate SPI Flash/PSRAM clock before overclocking PLL to prevent panic.
+        // Dividers (L:0-7, H:8-15, N:16-23): /7=0x060206, /8=0x070307
+        uint32_t spi_clk_val = (level == 2) ? 0x00060206 : 0x00070307;
+        *((volatile uint32_t *)0x60002058) = spi_clk_val; // SPI1 (Flash)
+        *((volatile uint32_t *)0x60003058) = spi_clk_val; // SPI0 (PSRAM)
+    }
 #endif
+
     rom_i2c_writeReg(I2C_BBPLL, I2C_BBPLL_HOSTID, I2C_BBPLL_OC_DIV_7_0, div7_0);
-    rg_task_delay(20);
+    
+    rg_task_delay(50);
 
     // RTC clock isn't affected by the CPU or APB clocks, so it remains our only reliable time measurement
-    uint64_t t = esp_rtc_get_time_us(); // The - 10000 is to account for time wasted on mutexes
-    uint32_t cc = xthal_get_ccount();   // Obtain it *after* calling esp_rtc_get_time_us because it is slow
+    uint64_t t = esp_rtc_get_time_us(); 
+    uint32_t cc = xthal_get_ccount();   
     rg_usleep(100000);
     int real_mhz = (double)(xthal_get_ccount() - cc) / (esp_rtc_get_time_us() - t);
-    // float factor = 240.f / real_mhz;
+
+    RG_LOGI("Measured MHz: %d", real_mhz);
 
 #if CONFIG_IDF_TARGET_ESP32
     // Most audio devices rely on either the APB or the CPU clocks, which we've just skewed. So we have to
     // compensate. The external DAC uses the APLL which is an independant clock source, no need to correct.
     if (strcmp(rg_audio_get_sink()->name, "Ext DAC") != 0)
         rg_audio_set_sample_rate(app.sampleRate * (240.0 / real_mhz));
+    
+    RG_LOGI("Updating UART baudrate...");
     uart_set_baudrate(0, 115200.0 * (240.0 / real_mhz));
     // esp_timer_impl_update_apb_freq(80.0 / 240.0 * real_mhz);
     // ets_update_cpu_frequency(real_mhz);
+#elif CONFIG_IDF_TARGET_ESP32S3
+    // On S3, we skip UART update for now as it may cause issues with USB-CDC console.
+    if (strcmp(rg_audio_get_sink()->name, "Ext DAC") != 0)
+        rg_audio_set_sample_rate(app.sampleRate * (240.0 / real_mhz));
 #endif
 
     app.frameskip = 0;
@@ -1263,7 +1288,7 @@ void rg_system_set_overclock(int level)
     overclockLevel = level;
     overclockMhz = real_mhz;
 
-    RG_LOGW("Overclock level %d applied: %dMhz", level, real_mhz);
+    RG_LOGI("Overclock level %d applied: %d MHz", level, real_mhz);
 #else
     RG_LOGE("Overclock not supported on this platform!");
 #endif

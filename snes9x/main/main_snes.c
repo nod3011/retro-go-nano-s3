@@ -297,7 +297,7 @@ void app_main(void) {
       .options = &options_handler,
   };
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(2);
+  rg_system_set_overclock(3);
   app->frameskip = 0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
 
   apu_enabled = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
