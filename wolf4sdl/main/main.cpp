@@ -46,125 +46,21 @@ static rg_bind_t binds[] = {
     {RG_KEY_L, SDL_SCANCODE_COMMA, SDLK_COMMA},   // Strafe left
     {RG_KEY_R, SDL_SCANCODE_PERIOD, SDLK_PERIOD}, // Strafe right
     {RG_KEY_START, SDL_SCANCODE_SPACE, SDLK_SPACE}, // Open/Use
-    {RG_KEY_OPTION, SDL_SCANCODE_UNKNOWN, (SDLKey)0},
+    {RG_KEY_SELECT, SDL_SCANCODE_Y, SDLK_y},      // Weapon Cycle
+    {RG_KEY_OPTION, SDL_SCANCODE_LSHIFT, SDLK_LSHIFT}, // Run
     {RG_KEY_MENU, SDL_SCANCODE_ESCAPE, SDLK_ESCAPE}, // Menu
     {0, SDL_SCANCODE_UNKNOWN, (SDLKey)0}
 };
 
 static uint32_t last_input = 0;
-static bool is_run_toggle_on = false;
-static bool is_select_pressed = false;
-static bool is_select_used = false;
-static SDL_Keycode pending_keyup = (SDLKey)0;
-static SDL_Scancode pending_scancode = SDL_SCANCODE_UNKNOWN;
-static uint32_t keyup_at = 0;
 
 extern "C" int SDL_RG_PollEvent(SDL_Event *event)
 {
-    // Handle pending KEYUP events from synthesized combinations with a small delay
-    if (pending_keyup != (SDLKey)0 && SDL_GetTicks() >= keyup_at) {
-        event->type = SDL_KEYUP;
-        event->key.keysym.scancode = pending_scancode;
-        event->key.keysym.sym = pending_keyup;
-        event->key.state = SDL_RELEASED;
-        pending_keyup = (SDLKey)0;
-        pending_scancode = SDL_SCANCODE_UNKNOWN;
-        return 1;
-    }
-
     uint32_t current_input = rg_input_read_gamepad();
     uint32_t changed = current_input ^ last_input;
-    uint32_t pressed = current_input & changed;
-    uint32_t released = last_input & changed;
     
-    // 1. Handle Select button state transitions
-    if (changed & RG_KEY_SELECT) {
-        if (pressed & RG_KEY_SELECT) {
-            is_select_pressed = true;
-            is_select_used = false;
-        } else {
-            // Select Released
-            is_select_pressed = false;
-            bool was_used = is_select_used;
-            last_input &= ~RG_KEY_SELECT; // Ensure last_input is updated
-            
-            if (!was_used) {
-                // Tapped Select -> Next Weapon (Y)
-                event->type = SDL_KEYDOWN;
-                event->key.keysym.scancode = SDL_SCANCODE_Y;
-                event->key.keysym.sym = SDLK_y;
-                event->key.state = SDL_PRESSED;
-                pending_keyup = SDLK_y; // Queue KEYUP for next poll
-                pending_scancode = SDL_SCANCODE_Y;
-                keyup_at = SDL_GetTicks() + 50;
-                return 1;
-            }
-            return 0; // Select was used for a combination, just consume the release
-        }
-    }
-
-    // 2. Handle Select combinations
-    if (is_select_pressed) {
-        if (pressed & RG_KEY_UP) { // Toggle Run ON
-            is_run_toggle_on = true;
-            is_select_used = true;
-            event->type = SDL_KEYDOWN;
-            event->key.keysym.scancode = SDL_SCANCODE_LSHIFT;
-            event->key.keysym.sym = SDLK_LSHIFT;
-            event->key.state = SDL_PRESSED;
-            last_input |= RG_KEY_UP; 
-            return 1;
-        }
-        if (pressed & RG_KEY_DOWN) { // Toggle Run OFF
-            is_run_toggle_on = false;
-            is_select_used = true;
-            event->type = SDL_KEYUP;
-            event->key.keysym.scancode = SDL_SCANCODE_LSHIFT;
-            event->key.keysym.sym = SDLK_LSHIFT;
-            event->key.state = SDL_RELEASED;
-            last_input |= RG_KEY_DOWN; 
-            return 1;
-        }
-        if (pressed & RG_KEY_LEFT) { // Prev Weapon (RCTRL)
-            is_select_used = true;
-            event->type = SDL_KEYDOWN;
-            event->key.keysym.scancode = SDL_SCANCODE_RCTRL;
-            event->key.keysym.sym = SDLK_RCTRL;
-            event->key.state = SDL_PRESSED;
-            pending_keyup = SDLK_RCTRL;
-            pending_scancode = SDL_SCANCODE_RCTRL;
-            keyup_at = SDL_GetTicks() + 50;
-            last_input |= RG_KEY_LEFT;
-            return 1;
-        }
-        if (pressed & RG_KEY_RIGHT) { // Next Weapon (Y)
-            is_select_used = true;
-            event->type = SDL_KEYDOWN;
-            event->key.keysym.scancode = SDL_SCANCODE_Y;
-            event->key.keysym.sym = SDLK_y;
-            event->key.state = SDL_PRESSED;
-            pending_keyup = SDLK_y;
-            pending_scancode = SDL_SCANCODE_Y;
-            keyup_at = SDL_GetTicks() + 50;
-            last_input |= RG_KEY_RIGHT;
-            return 1;
-        }
-        
-        // Suppress D-Pad releases if we are in Select mode
-        if (released & (RG_KEY_UP | RG_KEY_DOWN | RG_KEY_LEFT | RG_KEY_RIGHT)) {
-            last_input &= ~(RG_KEY_UP | RG_KEY_DOWN | RG_KEY_LEFT | RG_KEY_RIGHT);
-            return 0; // Skip this event
-        }
-    }
-
-    // 3. Handle standard binds
     if (changed) {
         for (int i = 0; binds[i].rg_key; i++) {
-            // When Select is held, we ignore D-Pad for standard movement
-            if (is_select_pressed && (binds[i].rg_key & (RG_KEY_UP | RG_KEY_DOWN | RG_KEY_LEFT | RG_KEY_RIGHT))) {
-                continue;
-            }
-            
             if (changed & binds[i].rg_key) {
                 event->type = (current_input & binds[i].rg_key) ? SDL_KEYDOWN : SDL_KEYUP;
                 event->key.keysym.scancode = binds[i].scancode;
@@ -176,7 +72,6 @@ extern "C" int SDL_RG_PollEvent(SDL_Event *event)
             }
         }
     }
-    
     return 0;
 }
 
