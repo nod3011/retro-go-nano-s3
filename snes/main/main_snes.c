@@ -17,8 +17,8 @@ static const keymap_t KEYMAPS[] = {
      {
          {SNES_A_MASK, RG_KEY_A, 0},
          {SNES_B_MASK, RG_KEY_B, 0},
-         {SNES_X_MASK, RG_KEY_START, 0},
-         {SNES_Y_MASK, RG_KEY_SELECT, 0},
+         {SNES_X_MASK, RG_KEY_X, 0},
+         {SNES_Y_MASK, RG_KEY_Y, 0},
          {SNES_TL_MASK, RG_KEY_B, RG_KEY_MENU},
          {SNES_TR_MASK, RG_KEY_A, RG_KEY_MENU},
          {SNES_START_MASK, RG_KEY_START, RG_KEY_MENU},
@@ -43,14 +43,14 @@ static const keymap_t KEYMAPS[] = {
          {SNES_LEFT_MASK, RG_KEY_LEFT, 0},
          {SNES_RIGHT_MASK, RG_KEY_RIGHT, 0},
      }},
-    {"Type C",
+    {"Custom",
      {
          {SNES_A_MASK, RG_KEY_A, 0},
          {SNES_B_MASK, RG_KEY_B, 0},
-         {SNES_X_MASK, 0, 0},
-         {SNES_Y_MASK, 0, 0},
-         {SNES_TL_MASK, 0, 0},
-         {SNES_TR_MASK, 0, 0},
+         {SNES_X_MASK, RG_KEY_X, 0},
+         {SNES_Y_MASK, RG_KEY_Y, 0},
+         {SNES_TL_MASK, RG_KEY_L, 0},
+         {SNES_TR_MASK, RG_KEY_R, 0},
          {SNES_START_MASK, RG_KEY_START, 0},
          {SNES_SELECT_MASK, RG_KEY_SELECT, 0},
          {SNES_UP_MASK, RG_KEY_UP, 0},
@@ -59,6 +59,29 @@ static const keymap_t KEYMAPS[] = {
          {SNES_RIGHT_MASK, RG_KEY_RIGHT, 0},
      }},
 };
+
+typedef struct {
+  uint32_t magic;
+  int keymap_id;
+  uint16_t custom_mapping[8]; // index into SNES_BUTTONS
+} snes_config_t;
+
+static const struct {
+  const char *name;
+  uint16_t local_mask;
+  uint16_t mod_mask;
+} PHYSICAL_BUTTONS[] = {
+    {"B", RG_KEY_B, 0},
+    {"A", RG_KEY_A, 0},
+    {"Select", RG_KEY_SELECT, 0},
+    {"Start", RG_KEY_START, 0},
+    {"Menu+B", RG_KEY_B, RG_KEY_MENU},
+    {"Menu+A", RG_KEY_A, RG_KEY_MENU},
+    {"Menu+Select", RG_KEY_SELECT, RG_KEY_MENU},
+    {"Menu+Start", RG_KEY_START, RG_KEY_MENU},
+};
+
+static uint16_t current_custom_mapping[8] = {15, 7, 13, 12, 5, 4, 6, 14}; // Default: B, A, Sel, Sta, L, R, X, Y
 
 static const size_t KEYMAPS_COUNT = (sizeof(KEYMAPS) / sizeof(keymap_t));
 
@@ -87,6 +110,56 @@ static const char *SETTING_APU_EMULATION = "apu";
 static void update_keymap(int id) {
   keymap_id = id % KEYMAPS_COUNT;
   keymap = KEYMAPS[keymap_id];
+
+  if (keymap_id == 2) { // Custom
+    for (int i = 0; i < 8; i++) {
+      int snes_idx = current_custom_mapping[i];
+      keymap.keys[i].snes9x_mask = (snes_idx > 0) ? (1 << snes_idx) : 0;
+      keymap.keys[i].local_mask = PHYSICAL_BUTTONS[i].local_mask;
+      keymap.keys[i].mod_mask = PHYSICAL_BUTTONS[i].mod_mask;
+    }
+    // D-Pad stays as defined in KEYMAPS[2] (Standard D-Pad)
+  }
+}
+
+static void save_config() {
+  char path[RG_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/snes/%s.cfg", RG_BASE_PATH_CONFIG,
+           rg_basename(app->romPath));
+
+  rg_storage_mkdir(rg_dirname(path));
+
+  snes_config_t cfg = {
+      .magic = 0x534E4553,
+      .keymap_id = keymap_id,
+  };
+  memcpy(cfg.custom_mapping, current_custom_mapping, sizeof(current_custom_mapping));
+
+  if (rg_storage_write_file(path, &cfg, sizeof(cfg), 0)) {
+    RG_LOGI("Config saved to %s\n", path);
+  }
+}
+
+static void load_config() {
+  char path[RG_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/snes/%s.cfg", RG_BASE_PATH_CONFIG,
+           rg_basename(app->romPath));
+
+  void *data = NULL;
+  size_t size = 0;
+  if (rg_storage_read_file(path, &data, &size, 0)) {
+    if (size >= sizeof(snes_config_t)) {
+      snes_config_t *cfg = (snes_config_t *)data;
+      if (cfg->magic == 0x534E4553) {
+        keymap_id = cfg->keymap_id;
+        memcpy(current_custom_mapping, cfg->custom_mapping,
+               sizeof(current_custom_mapping));
+        RG_LOGI("Config loaded from %s\n", path);
+      }
+    }
+    free(data);
+  }
+  update_keymap(keymap_id);
 }
 
 static bool screenshot_handler(const char *filename, int width, int height) {
@@ -170,6 +243,67 @@ static rg_gui_event_t lowpass_filter_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
+static rg_gui_event_t sub_btn_mapping_cb(rg_gui_option_t *option,
+                                         rg_gui_event_t event) {
+  int i = (int)option->arg;
+  uint16_t *val = &current_custom_mapping[i];
+
+  // Target SNES buttons: None (0), A(7), B(15), X(6), Y(14), L(5), R(4), Start(12), Select(13)
+  static const uint8_t TARGETS[] = {0, 7, 15, 6, 14, 5, 4, 12, 13};
+  int current_idx = 0;
+  for (int j = 0; j < 9; j++) {
+    if (TARGETS[j] == *val) {
+      current_idx = j;
+      break;
+    }
+  }
+
+  if (event == RG_DIALOG_PREV)
+    current_idx = (current_idx + 8) % 9;
+  if (event == RG_DIALOG_NEXT)
+    current_idx = (current_idx + 1) % 9;
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    *val = TARGETS[current_idx];
+    update_keymap(keymap_id);
+  }
+
+  strcpy(option->value, SNES_BUTTONS[*val]);
+
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t save_config_cb(rg_gui_option_t *option,
+                                     rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    save_config();
+    rg_gui_alert(_("Success"), _("Configuration saved."));
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option,
+                                     rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    if (keymap_id != 2) {
+      rg_gui_alert(_("Notice"), _("Please select 'Custom' profile first."));
+      return RG_DIALOG_VOID;
+    }
+    rg_gui_option_t options[10];
+    for (int i = 0; i < 8; i++) {
+      options[i] = (rg_gui_option_t){i, PHYSICAL_BUTTONS[i].name, "-",
+                                     RG_DIALOG_FLAG_NORMAL, &sub_btn_mapping_cb};
+    }
+    options[8] = (rg_gui_option_t){0, _("Save Config"), NULL,
+                                   RG_DIALOG_FLAG_NORMAL, &save_config_cb};
+    options[9] = (rg_gui_option_t)RG_DIALOG_END;
+
+    rg_gui_dialog(option->label, options, 0);
+    return RG_DIALOG_REDRAW;
+  }
+  return RG_DIALOG_VOID;
+}
+
 static rg_gui_event_t change_keymap_cb(rg_gui_option_t *option,
                                        rg_gui_event_t event) {
   if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
@@ -178,37 +312,12 @@ static rg_gui_event_t change_keymap_cb(rg_gui_option_t *option,
     if (event == RG_DIALOG_NEXT && ++keymap_id > KEYMAPS_COUNT - 1)
       keymap_id = 0;
     update_keymap(keymap_id);
-    rg_settings_set_number(NS_APP, SETTING_KEYMAP, keymap_id);
     return RG_DIALOG_REDRAW;
   }
 
-  if (event == RG_DIALOG_ENTER) {
-    return RG_DIALOG_CANCEL;
-  }
-
-  if (option->arg == -1) {
-    strcat(strcat(strcpy(option->value, "< "), keymap.name), " >");
-  } else if (option->arg >= 0) {
-    int local_button = keymap.keys[option->arg].local_mask;
-    int mod_button = keymap.keys[option->arg].mod_mask;
-    int snes9x_button = log2(
-        keymap.keys[option->arg].snes9x_mask); // convert bitmask to bit number
-
-    if (snes9x_button < 4 || (local_button & (RG_KEY_UP | RG_KEY_DOWN |
-                                              RG_KEY_LEFT | RG_KEY_RIGHT))) {
-      option->flags = RG_DIALOG_FLAG_HIDDEN;
-      return RG_DIALOG_VOID;
-    }
-
-    if (keymap.keys[option->arg].mod_mask)
-      sprintf(option->value, "%s + %s", rg_input_get_key_name(mod_button),
-              rg_input_get_key_name(local_button));
-    else
-      sprintf(option->value, "%s", rg_input_get_key_name(local_button));
-
-    option->label = SNES_BUTTONS[snes9x_button];
-    option->flags = RG_DIALOG_FLAG_NORMAL;
-  }
+  if (keymap_id == 0) strcpy(option->value, "A");
+  else if (keymap_id == 1) strcpy(option->value, "B");
+  else strcpy(option->value, "Custom");
 
   return RG_DIALOG_VOID;
 }
@@ -216,33 +325,18 @@ static rg_gui_event_t change_keymap_cb(rg_gui_option_t *option,
 static rg_gui_event_t menu_keymap_cb(rg_gui_option_t *option,
                                      rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
-    const rg_gui_option_t options[] = {
-        {-1, _("Profile"), "-", RG_DIALOG_FLAG_NORMAL, &change_keymap_cb},
-        {-2, "", NULL, RG_DIALOG_FLAG_MESSAGE, NULL},
-        {-3, "snes    ", "handheld", RG_DIALOG_FLAG_MESSAGE, NULL},
-        {0, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {1, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {2, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {3, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {4, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {5, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {6, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {7, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {8, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {9, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {10, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {11, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {12, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {13, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {14, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        {15, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
-        RG_DIALOG_END,
-    };
+    rg_gui_option_t options[5];
+    options[0] = (rg_gui_option_t){-1, _("Profile Type"), "-", RG_DIALOG_FLAG_NORMAL,
+                                   &change_keymap_cb};
+    options[1] = (rg_gui_option_t){0, _("Customize Buttons"), "...",
+                                   RG_DIALOG_FLAG_NORMAL, &btn_mapping_cb};
+    options[2] = (rg_gui_option_t){0, _("Save Config"), NULL,
+                                   RG_DIALOG_FLAG_NORMAL, &save_config_cb};
+    options[3] = (rg_gui_option_t)RG_DIALOG_END;
+
     rg_gui_dialog(option->label, options, 0);
     return RG_DIALOG_REDRAW;
   }
-
-  strcpy(option->value, keymap.name);
   return RG_DIALOG_VOID;
 }
 
@@ -319,7 +413,7 @@ static void options_handler(rg_gui_option_t *dest) {
                               &apu_toggle_cb};
   *dest++ = (rg_gui_option_t){0, _("Audio filter"), "-", RG_DIALOG_FLAG_NORMAL,
                               &lowpass_filter_cb};
-  *dest++ = (rg_gui_option_t){0, _("Controls"), "-", RG_DIALOG_FLAG_NORMAL,
+  *dest++ = (rg_gui_option_t){0, _("Controls"), "...", RG_DIALOG_FLAG_NORMAL,
                               &menu_keymap_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
@@ -355,7 +449,7 @@ void app_main(void) {
   if (!audioBuffer)
     RG_PANIC("Audio buffer allocation failed!");
 
-  update_keymap(rg_settings_get_number(NS_APP, SETTING_KEYMAP, 0));
+  load_config();
 
   Settings.CyclesPercentage = 100;
   Settings.H_Max = SNES_CYCLES_PER_SCANLINE;
