@@ -215,9 +215,10 @@ bool S9xInitDisplay(void) {
   GFX.ZPitch = SNES_WIDTH;
   GFX.Screen = currentUpdate->data;
 
+  // Attempt to allocate Z-Buffer in fast internal RAM for better performance
   GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST);
+  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST);
 
   return GFX.Screen && GFX.SubScreen && GFX.ZBuffer && GFX.SubZBuffer;
 }
@@ -423,8 +424,8 @@ void app_main(void) {
 
     if (drawFrame) {
       slowFrame = !rg_display_sync(false);
-      currentUpdate->width = IPPU.RenderedScreenWidth;
-      currentUpdate->height = IPPU.RenderedScreenHeight;
+      currentUpdate->width = (uint16_t)IPPU.RenderedScreenWidth;
+      currentUpdate->height = (uint16_t)IPPU.RenderedScreenHeight;
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 

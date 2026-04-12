@@ -138,7 +138,11 @@ static void Sanitize(char *str, size_t bufsize) {
 bool S9xInitMemory(void) {
   Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_SLOW);
   Memory.SRAM = (uint8_t *)rg_alloc(SRAM_SIZE, MEM_SLOW);
-  Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_SLOW);
+
+  // VRAM is 64KB, performance is critical here. Try Internal RAM first.
+  Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_FAST | MEM_NOPANIC);
+  if (!Memory.VRAM) Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_SLOW);
+
   Memory.FillRAM = (uint8_t *)rg_alloc(0x8000, MEM_SLOW);
 
   Memory.Map = (uint8_t **)rg_alloc(MEMMAP_NUM_BLOCKS * sizeof(uint8_t *), MEM_FAST | MEM_NOPANIC);

@@ -59,7 +59,7 @@
 #define SLASH_CHAR '/'
 
 #if defined(__i386__) || defined(__i486__) || defined(__i586__) ||             \
-    defined(_XBOX1) || defined(__alpha__)
+    defined(_XBOX1) || defined(__alpha__) || defined(__XTENSA__)
 #define FAST_LSB_WORD_ACCESS
 #elif defined(__MIPSEL__)
 /* On little-endian MIPS, a 16-bit word can be read directly from an address
