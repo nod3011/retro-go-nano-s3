@@ -9,6 +9,8 @@
 #include "snes9x.h"
 #include "soundux.h"
 #include "srtc.h"
+#include <rg_storage.h>
+#include <rg_utils.h>
 
 
 static const char header[16] = "SNES9X_000000002";
@@ -17,8 +19,20 @@ bool S9xSaveState(const char *filename) {
   int chunks = 0;
   FILE *fp = NULL;
 
-  if (!(fp = fopen(filename, "wb")))
+  printf("Saving state to: %s\n", filename);
+
+  // Ensure directory exists
+  char dirname[RG_PATH_MAX];
+  const char *dir = rg_dirname(filename);
+  if (dir) {
+    strcpy(dirname, dir);
+    rg_storage_mkdir(dirname);
+  }
+
+  if (!(fp = fopen(filename, "wb"))) {
+    printf("Failed to open file for writing: %s\n", filename);
     return false;
+  }
 
   chunks += fwrite(&header, sizeof(header), 1, fp);
   chunks += fwrite(&CPU, sizeof(CPU), 1, fp);
@@ -34,9 +48,13 @@ bool S9xSaveState(const char *filename) {
   chunks += fwrite(IAPU.RAM, 0x10000, 1, fp);
   chunks += fwrite(&SoundData, sizeof(SoundData), 1, fp);
 
-  printf("Saved chunks = %d\n", chunks);
+  printf("Saved chunks = %d / 13\n", chunks);
 
   fclose(fp);
+
+  if (chunks != 13) {
+    printf("Warning: Save state incomplete (%d/13 chunks written)\n", chunks);
+  }
 
   return chunks == 13;
 }
@@ -46,12 +64,16 @@ bool S9xLoadState(const char *filename) {
   int chunks = 0;
   FILE *fp = NULL;
 
-  if (!(fp = fopen(filename, "rb")))
+  printf("Loading state from: %s\n", filename);
+
+  if (!(fp = fopen(filename, "rb"))) {
+    printf("Failed to open file for reading: %s\n", filename);
     return false;
+  }
 
   if (!fread(buffer, 16, 1, fp) ||
       memcmp(header, buffer, sizeof(header)) != 0) {
-    printf("Wrong header found\n");
+    printf("Wrong header found or file empty\n");
     goto fail;
   }
 
@@ -76,7 +98,12 @@ bool S9xLoadState(const char *filename) {
   chunks += fread(IAPU.RAM, 0x10000, 1, fp);
   chunks += fread(&SoundData, sizeof(SoundData), 1, fp);
 
-  printf("Loaded chunks = %d\n", chunks);
+  printf("Loaded chunks = %d / 12 (excluding header)\n", chunks);
+
+  if (chunks != 12) {
+    printf("Warning: Loaded state might be incomplete (%d/12 chunks read)\n",
+           chunks);
+  }
 
   // Fixing up registers and pointers:
 

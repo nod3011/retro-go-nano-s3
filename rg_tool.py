@@ -14,7 +14,7 @@ import zlib
 DEFAULT_TARGET = os.getenv("RG_TOOL_TARGET", "odroid-go")
 DEFAULT_BAUD = os.getenv("RG_TOOL_BAUD", "1152000")
 DEFAULT_PORT = os.getenv("RG_TOOL_PORT", "COM3")
-DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core gnuboy snes9x prboom-go ngp gwenesis")
+DEFAULT_APPS = os.getenv("RG_TOOL_APPS", "launcher retro-core gnuboy snes prboom-go ngp gwenesis")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "Retro-Go")
 PROJECT_ICON = os.getenv("PROJECT_ICON", "assets/icon.raw")
 PROJECT_APPS = {
@@ -22,7 +22,7 @@ PROJECT_APPS = {
   'launcher':     [0, 16, 1441792],  # 1.375 MB
   'retro-core':   [0, 16, 1376256],  # 1.31 MB
   'gnuboy':       [0, 16, 1572864],  # 1.125 MB
-  'snes9x':       [0, 16, 851968],   # 832 KB
+  'snes':         [0, 16, 851968],   # 832 KB
   'prboom-go':    [0, 16, 1048576],  # 1.0 MB
   'gwenesis':     [0, 16, 1179648],  # 1.125 MB
   'fmsx':         [0, 16, 1048576],  # 1 MB
@@ -45,7 +45,7 @@ try:
 except:
     GIT_HASH = "unknown"
 
-PROJECT_VER = "nochii-1.00"
+PROJECT_VER = "nochii-1.02"
 FW_FORMAT = "none"
 
 TARGETS = []

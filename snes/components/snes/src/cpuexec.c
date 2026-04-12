@@ -10,7 +10,7 @@
 #include "dma.h"
 
 
-void S9xMainLoop()
+void IRAM_ATTR S9xMainLoop()
 {
    do
    {

@@ -141,6 +141,7 @@ bool S9xInitMemory(void) {
   if (!Memory.RAM) Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_SLOW);
 
   Memory.SRAM = (uint8_t *)rg_alloc(SRAM_SIZE, MEM_SLOW);
+  memset(Memory.SRAM, 0, SRAM_SIZE);
 
   // VRAM is 64KB, performance is critical here. Try Internal RAM first.
   Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_FAST | MEM_NOPANIC);

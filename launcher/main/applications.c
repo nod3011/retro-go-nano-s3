@@ -703,7 +703,7 @@ void applications_init(void) {
   application("WonderSwan", "ws", "ws wsc zip", "oswan", 0);
   application("NEC PC Engine", "pce", "pce zip", "retro-core", 0);
   application("Sega Mega Drive", "md", "md gen bin zip", "gwenesis", 0);
-  application("Super Nintendo", "snes", "smc sfc zip", "snes9x", 0);
+  application("Super Nintendo", "snes", "smc sfc zip", "snes", 0);
   application("Sega Master System", "sms", "sms sg zip", "retro-core", 0);
   application("Atari Lynx", "lnx", "lnx zip", "retro-core", 64);
   application("DOOM", "doom", "wad zip", "prboom-go", 0);

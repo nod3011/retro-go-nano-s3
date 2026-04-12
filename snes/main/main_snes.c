@@ -101,7 +101,41 @@ static bool load_state_handler(const char *filename) {
   return S9xLoadState(filename);
 }
 
+static void save_sram(bool force) {
+  if (app->romPath && (CPU.SRAMModified || force)) {
+    char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
+
+    char dirname[RG_PATH_MAX];
+    const char *dir = rg_dirname(path);
+    if (dir) {
+      strcpy(dirname, dir);
+      rg_storage_mkdir(dirname);
+    }
+
+    if (rg_storage_write_file(path, Memory.SRAM, SRAM_SIZE, 0)) {
+      CPU.SRAMModified = false;
+    } else {
+      RG_LOGE("Failed to save SRAM to: %s\n", path);
+    }
+    free(path);
+  }
+}
+
+static void load_sram() {
+  if (app->romPath) {
+    char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
+    size_t size = 0;
+    void *data = NULL;
+    if (rg_storage_read_file(path, &data, &size, 0)) {
+      memcpy(Memory.SRAM, data, size > SRAM_SIZE ? SRAM_SIZE : size);
+      free(data);
+    }
+    free(path);
+  }
+}
+
 static bool reset_handler(bool hard) {
+  save_sram(true);
   S9xReset();
   return true;
 }
@@ -109,6 +143,8 @@ static bool reset_handler(bool hard) {
 static void event_handler(int event, void *arg) {
   if (event == RG_EVENT_REDRAW) {
     rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
+  } else if (event == RG_EVENT_SHUTDOWN || event == RG_EVENT_SLEEP) {
+    save_sram(true);
   }
 }
 
@@ -183,7 +219,7 @@ static rg_gui_event_t menu_keymap_cb(rg_gui_option_t *option,
     const rg_gui_option_t options[] = {
         {-1, _("Profile"), "-", RG_DIALOG_FLAG_NORMAL, &change_keymap_cb},
         {-2, "", NULL, RG_DIALOG_FLAG_MESSAGE, NULL},
-        {-3, "snes9x  ", "handheld", RG_DIALOG_FLAG_MESSAGE, NULL},
+        {-3, "snes    ", "handheld", RG_DIALOG_FLAG_MESSAGE, NULL},
         {0, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
         {1, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
         {2, "-", "-", RG_DIALOG_FLAG_HIDDEN, &change_keymap_cb},
@@ -298,8 +334,9 @@ void app_main(void) {
       .options = &options_handler,
   };
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(2);
-  app->frameskip = 0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
+  rg_system_set_overclock(2); // Set to 3 for best performance on Nano-S3
+  app->frameskip =
+      0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
 
   // Force Full Screen Scaling for 240x240 Nano-S3
   rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
@@ -307,9 +344,9 @@ void app_main(void) {
   apu_enabled = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
 
   for (int i = 0; i < 3; i++) {
-    updates[i] =
-        rg_surface_create(SNES_WIDTH, SNES_HEIGHT_EXTENDED, RG_PIXEL_565_LE, MEM_SLOW);
-    updates[i]->height = SNES_HEIGHT;
+    updates[i] = rg_surface_create(SNES_WIDTH, SNES_HEIGHT_EXTENDED,
+                                   RG_PIXEL_565_LE, MEM_SLOW);
+    memset(updates[i]->data, 0, updates[i]->stride * updates[i]->height);
   }
   currentBufferIndex = 0;
   currentUpdate = updates[currentBufferIndex];
@@ -317,7 +354,6 @@ void app_main(void) {
   audioBuffer = (rg_audio_sample_t *)malloc(AUDIO_BUFFER_LENGTH * 8);
   if (!audioBuffer)
     RG_PANIC("Audio buffer allocation failed!");
-
 
   update_keymap(rg_settings_get_number(NS_APP, SETTING_KEYMAP, 0));
 
@@ -371,6 +407,8 @@ void app_main(void) {
   if (!LoadROM(filename))
     RG_PANIC("ROM loading failed!");
 
+  load_sram();
+
 #ifdef USE_BLARGG_APU
   S9xSetSamplesAvailableCallback(S9xAudioCallback);
 #else
@@ -388,9 +426,15 @@ void app_main(void) {
   bool menuPressed = false;
   bool slowFrame = false;
   int skipFrames = 0;
+  int64_t lastSramSave = rg_system_timer();
 
   while (1) {
     uint32_t joystick = rg_input_read_gamepad();
+
+    if (rg_system_timer() - lastSramSave > 5000000) { // Every 5 seconds
+      save_sram(false);
+      lastSramSave = rg_system_timer();
+    }
 
     if (menuPressed && !(joystick & RG_KEY_MENU)) {
       if (!menuCancelled) {
@@ -401,6 +445,7 @@ void app_main(void) {
     }
     if (joystick & RG_KEY_OPTION) {
       rg_gui_options_menu();
+      rg_display_submit(NULL, 0); // Force UI refresh and scaling update
     }
 
     menuPressed = joystick & RG_KEY_MENU;
@@ -441,9 +486,15 @@ void app_main(void) {
       for (int i = 0; i < AUDIO_BUFFER_LENGTH; i++) {
         int32_t left = (int32_t)audioBuffer[i].left << 1;
         int32_t right = (int32_t)audioBuffer[i].right << 1;
-        // Saturate to 16-bit
-        if (left > 32767) left = 32767; else if (left < -32768) left = -32768;
-        if (right > 32767) right = 32767; else if (right < -32768) right = -32768;
+#ifdef __XTENSA__
+        __asm__ __volatile__("clamps %0, %1, 15" : "=r"(left) : "r"(left));
+        __asm__ __volatile__("clamps %0, %1, 15" : "=r"(right) : "r"(right));
+#else
+        if (left > 32767) left = 32767;
+        else if (left < -32768) left = -32768;
+        if (right > 32767) right = 32767;
+        else if (right < -32768) right = -32768;
+#endif
         audioBuffer[i].left = (int16_t)left;
         audioBuffer[i].right = (int16_t)right;
       }

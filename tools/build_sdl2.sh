@@ -26,8 +26,6 @@ $CC $CFLAGS $INCLUDES \
 	-Iretro-core/components/handy \
 	-Iretro-core/components/nofrendo \
 	-Iretro-core/components/pce-go \
-	-Iretro-core/components/snes9x \
-	-Iretro-core/components/snes9x/src \
 	-Iretro-core/components/smsplus \
 	-Iretro-core/main \
 	$SRCFILES \
@@ -40,7 +38,6 @@ $CC $CFLAGS $INCLUDES \
 	retro-core/components/nofrendo/nes/*.c \
 	retro-core/components/nofrendo/*.c \
 	retro-core/components/pce-go/*.c \
-	retro-core/components/snes9x/src/*.c \
 	retro-core/components/smsplus/*.c \
 	retro-core/components/smsplus/cpu/*.c \
 	retro-core/components/smsplus/sound/*.c \
