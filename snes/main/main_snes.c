@@ -12,13 +12,16 @@ typedef struct {
   } keys[16];
 } keymap_t;
 
+// Physical buttons on Nano S3: B, A, Select, Start (+ Menu as modifier)
+// Type A: A=A, B=B, Start=X, Select=Y, Menu+B=L, Menu+A=R, Menu+Start=Start, Menu+Select=Select
+// Type B: A=B, B=Y, Start=A, Select=X, Menu+B=L, Menu+A=R, Menu+Start=Start, Menu+Select=Select
 static const keymap_t KEYMAPS[] = {
     {"Type A",
      {
          {SNES_A_MASK, RG_KEY_A, 0},
          {SNES_B_MASK, RG_KEY_B, 0},
-         {SNES_X_MASK, RG_KEY_X, 0},
-         {SNES_Y_MASK, RG_KEY_Y, 0},
+         {SNES_X_MASK, RG_KEY_START, 0},
+         {SNES_Y_MASK, RG_KEY_SELECT, 0},
          {SNES_TL_MASK, RG_KEY_B, RG_KEY_MENU},
          {SNES_TR_MASK, RG_KEY_A, RG_KEY_MENU},
          {SNES_START_MASK, RG_KEY_START, RG_KEY_MENU},
@@ -43,16 +46,18 @@ static const keymap_t KEYMAPS[] = {
          {SNES_LEFT_MASK, RG_KEY_LEFT, 0},
          {SNES_RIGHT_MASK, RG_KEY_RIGHT, 0},
      }},
+    // Custom: keys[0..7] are always overwritten by update_keymap() from current_custom_mapping.
+    // Only D-pad (keys[8..11]) is used as-is from this template.
     {"Custom",
      {
          {SNES_A_MASK, RG_KEY_A, 0},
          {SNES_B_MASK, RG_KEY_B, 0},
-         {SNES_X_MASK, RG_KEY_X, 0},
-         {SNES_Y_MASK, RG_KEY_Y, 0},
-         {SNES_TL_MASK, RG_KEY_L, 0},
-         {SNES_TR_MASK, RG_KEY_R, 0},
-         {SNES_START_MASK, RG_KEY_START, 0},
-         {SNES_SELECT_MASK, RG_KEY_SELECT, 0},
+         {SNES_X_MASK, RG_KEY_START, 0},
+         {SNES_Y_MASK, RG_KEY_SELECT, 0},
+         {SNES_TL_MASK, RG_KEY_B, RG_KEY_MENU},
+         {SNES_TR_MASK, RG_KEY_A, RG_KEY_MENU},
+         {SNES_START_MASK, RG_KEY_START, RG_KEY_MENU},
+         {SNES_SELECT_MASK, RG_KEY_SELECT, RG_KEY_MENU},
          {SNES_UP_MASK, RG_KEY_UP, 0},
          {SNES_DOWN_MASK, RG_KEY_DOWN, 0},
          {SNES_LEFT_MASK, RG_KEY_LEFT, 0},
@@ -85,8 +90,9 @@ static uint16_t current_custom_mapping[8] = {15, 7, 13, 12, 5, 4, 6, 14}; // Def
 
 static const size_t KEYMAPS_COUNT = (sizeof(KEYMAPS) / sizeof(keymap_t));
 
+// Indexed by bit position in the SNES joypad word. Bits 0-3 are unused in snes9x.
 static const char *SNES_BUTTONS[] = {
-    "None",  "None", "None", "None", "R",     "L",      "X", "A",
+    "None",  "---",  "---",  "---",  "R",     "L",      "X", "A",
     "Right", "Left", "Down", "Up",   "Start", "Select", "Y", "B"};
 
 #define AUDIO_LOW_PASS_RANGE ((60 * 65536) / 100)
@@ -103,7 +109,6 @@ static bool lowpass_filter = false;
 static int keymap_id = 0;
 static keymap_t keymap;
 
-static const char *SETTING_KEYMAP = "keymap";
 static const char *SETTING_APU_EMULATION = "apu";
 // --- MAIN
 
@@ -289,14 +294,12 @@ static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option,
       rg_gui_alert(_("Notice"), _("Please select 'Custom' profile first."));
       return RG_DIALOG_VOID;
     }
-    rg_gui_option_t options[10];
+    rg_gui_option_t options[9];
     for (int i = 0; i < 8; i++) {
       options[i] = (rg_gui_option_t){i, PHYSICAL_BUTTONS[i].name, "-",
                                      RG_DIALOG_FLAG_NORMAL, &sub_btn_mapping_cb};
     }
-    options[8] = (rg_gui_option_t){0, _("Save Config"), NULL,
-                                   RG_DIALOG_FLAG_NORMAL, &save_config_cb};
-    options[9] = (rg_gui_option_t)RG_DIALOG_END;
+    options[8] = (rg_gui_option_t)RG_DIALOG_END;
 
     rg_gui_dialog(option->label, options, 0);
     return RG_DIALOG_REDRAW;
@@ -325,7 +328,7 @@ static rg_gui_event_t change_keymap_cb(rg_gui_option_t *option,
 static rg_gui_event_t menu_keymap_cb(rg_gui_option_t *option,
                                      rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
-    rg_gui_option_t options[5];
+    rg_gui_option_t options[4];
     options[0] = (rg_gui_option_t){-1, _("Profile Type"), "-", RG_DIALOG_FLAG_NORMAL,
                                    &change_keymap_cb};
     options[1] = (rg_gui_option_t){0, _("Customize Buttons"), "...",
@@ -520,14 +523,12 @@ void app_main(void) {
   bool menuPressed = false;
   bool slowFrame = false;
   int skipFrames = 0;
-  int64_t lastSramSave = rg_system_timer();
 
   while (1) {
     uint32_t joystick = rg_input_read_gamepad();
 
-    if (rg_system_timer() - lastSramSave > 5000000) { // Every 5 seconds
+    if (CPU.SRAMModified) {
       save_sram(false);
-      lastSramSave = rg_system_timer();
     }
 
     if (menuPressed && !(joystick & RG_KEY_MENU)) {
