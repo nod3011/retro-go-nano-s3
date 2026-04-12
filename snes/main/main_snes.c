@@ -68,6 +68,7 @@ static const keymap_t KEYMAPS[] = {
 typedef struct {
   uint32_t magic;
   int keymap_id;
+  int overclock;              // Added per-game overclock
   uint16_t custom_mapping[8]; // index into SNES_BUTTONS
 } snes_config_t;
 
@@ -86,7 +87,8 @@ static const struct {
     {"Menu+Start", RG_KEY_START, RG_KEY_MENU},
 };
 
-static uint16_t current_custom_mapping[8] = {15, 7, 13, 12, 5, 4, 6, 14}; // Default: B, A, Sel, Sta, L, R, X, Y
+// Default Custom mapping: B, A, Y, X, L, R, Select, Start (Matching Type A logical mapping)
+static uint16_t current_custom_mapping[8] = {15, 7, 14, 6, 5, 4, 13, 12};
 
 static const size_t KEYMAPS_COUNT = (sizeof(KEYMAPS) / sizeof(keymap_t));
 
@@ -137,11 +139,12 @@ static void save_config() {
   snes_config_t cfg = {
       .magic = 0x534E4553,
       .keymap_id = keymap_id,
+      .overclock = rg_system_get_overclock(),
   };
   memcpy(cfg.custom_mapping, current_custom_mapping, sizeof(current_custom_mapping));
 
   if (rg_storage_write_file(path, &cfg, sizeof(cfg), 0)) {
-    RG_LOGI("Config saved to %s\n", path);
+    RG_LOGI("Config saved to %s (OC:%d)\n", path, cfg.overclock);
   }
 }
 
@@ -159,7 +162,10 @@ static void load_config() {
         keymap_id = cfg->keymap_id;
         memcpy(current_custom_mapping, cfg->custom_mapping,
                sizeof(current_custom_mapping));
-        RG_LOGI("Config loaded from %s\n", path);
+        if (cfg->overclock >= 0 && cfg->overclock <= 3) {
+          rg_system_set_overclock(cfg->overclock);
+        }
+        RG_LOGI("Config loaded from %s (OC:%d)\n", path, cfg->overclock);
       }
     }
     free(data);
@@ -248,6 +254,7 @@ static rg_gui_event_t lowpass_filter_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
+
 static rg_gui_event_t sub_btn_mapping_cb(rg_gui_option_t *option,
                                          rg_gui_event_t event) {
   int i = (int)option->arg;
@@ -278,14 +285,6 @@ static rg_gui_event_t sub_btn_mapping_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
-static rg_gui_event_t save_config_cb(rg_gui_option_t *option,
-                                     rg_gui_event_t event) {
-  if (event == RG_DIALOG_ENTER) {
-    save_config();
-    rg_gui_alert(_("Success"), _("Configuration saved."));
-  }
-  return RG_DIALOG_VOID;
-}
 
 static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option,
                                      rg_gui_event_t event) {
@@ -302,6 +301,7 @@ static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option,
     options[8] = (rg_gui_option_t)RG_DIALOG_END;
 
     rg_gui_dialog(option->label, options, 0);
+    save_config(); // Auto-save on exit
     return RG_DIALOG_REDRAW;
   }
   return RG_DIALOG_VOID;
@@ -315,6 +315,7 @@ static rg_gui_event_t change_keymap_cb(rg_gui_option_t *option,
     if (event == RG_DIALOG_NEXT && ++keymap_id > KEYMAPS_COUNT - 1)
       keymap_id = 0;
     update_keymap(keymap_id);
+    save_config(); // Save immediately on change
     return RG_DIALOG_REDRAW;
   }
 
@@ -328,14 +329,12 @@ static rg_gui_event_t change_keymap_cb(rg_gui_option_t *option,
 static rg_gui_event_t menu_keymap_cb(rg_gui_option_t *option,
                                      rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
-    rg_gui_option_t options[4];
+    rg_gui_option_t options[3];
     options[0] = (rg_gui_option_t){-1, _("Profile Type"), "-", RG_DIALOG_FLAG_NORMAL,
                                    &change_keymap_cb};
     options[1] = (rg_gui_option_t){0, _("Customize Buttons"), "...",
                                    RG_DIALOG_FLAG_NORMAL, &btn_mapping_cb};
-    options[2] = (rg_gui_option_t){0, _("Save Config"), NULL,
-                                   RG_DIALOG_FLAG_NORMAL, &save_config_cb};
-    options[3] = (rg_gui_option_t)RG_DIALOG_END;
+    options[2] = (rg_gui_option_t)RG_DIALOG_END;
 
     rg_gui_dialog(option->label, options, 0);
     return RG_DIALOG_REDRAW;
@@ -524,8 +523,17 @@ void app_main(void) {
   bool slowFrame = false;
   int skipFrames = 0;
 
+  int last_overclock = rg_system_get_overclock();
+
   while (1) {
     uint32_t joystick = rg_input_read_gamepad();
+
+    // Check for system overclock changes and save automatically
+    int current_overclock = rg_system_get_overclock();
+    if (current_overclock != last_overclock) {
+      last_overclock = current_overclock;
+      save_config();
+    }
 
     if (CPU.SRAMModified) {
       save_sram(false);
