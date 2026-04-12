@@ -297,8 +297,11 @@ void app_main(void) {
       .options = &options_handler,
   };
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(3);
+  rg_system_set_overclock(2);
   app->frameskip = 0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
+
+  // Force Full Screen Scaling for 240x240 Nano-S3
+  rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
 
   apu_enabled = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
 
@@ -394,7 +397,8 @@ void app_main(void) {
         rg_gui_game_menu();
       }
       menuCancelled = false;
-    } else if (joystick & RG_KEY_OPTION) {
+    }
+    if (joystick & RG_KEY_OPTION) {
       rg_gui_options_menu();
     }
 
@@ -419,6 +423,8 @@ void app_main(void) {
 
     if (drawFrame) {
       slowFrame = !rg_display_sync(false);
+      currentUpdate->width = IPPU.RenderedScreenWidth;
+      currentUpdate->height = IPPU.RenderedScreenHeight;
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
@@ -452,7 +458,7 @@ void app_main(void) {
       if (app->frameskip > 0)
         skipFrames = app->frameskip;
       else if (elapsed > app->frameTime + 1500) // Allow some jitter
-        skipFrames = 1;
+        skipFrames = 1;                         // (elapsed / frameTime)
       else if (drawFrame && slowFrame)
         skipFrames = 1;
     } else if (skipFrames > 0) {
