@@ -206,7 +206,7 @@ static void save_sram(bool force) {
 }
 
 static void load_sram() {
-  if (app->romPath) {
+  if (app->romPath && Memory.SRAM) {
     char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
     size_t size = 0;
     void *data = NULL;
@@ -246,8 +246,10 @@ static rg_gui_event_t apu_toggle_cb(rg_gui_option_t *option,
 
 static rg_gui_event_t lowpass_filter_cb(rg_gui_option_t *option,
                                         rg_gui_event_t event) {
-  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
     lowpass_filter = !lowpass_filter;
+    rg_settings_set_number(NS_APP, "lowpass", lowpass_filter);
+  }
 
   strcpy(option->value, lowpass_filter ? _("On") : _("Off"));
 
@@ -347,15 +349,16 @@ bool S9xInitDisplay(void) {
   GFX.ZPitch = SNES_WIDTH;
   GFX.Screen = currentUpdate->data;
 
-  // Allocate all GFX buffers in PSRAM (MEM_SLOW) for safety on ESP32-S3.
-  // Internal SRAM (MEM_FAST) is limited and fragmentation can corrupt sprite priority.
+  // SubScreen is large (~122KB) so it lives in PSRAM.
   GFX.SubScreen  = rg_alloc(GFX.Pitch  * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-  GFX.ZBuffer    = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
 
-  // Zero out all buffers to prevent dirty memory from causing graphics glitches.
-  // SNES9x uses ZBuffer/SubZBuffer for sprite priority — uninitialized data
-  // causes layer ordering errors (glitchy numbers/UI elements in games like Zelda).
+  // ZBuffer and SubZBuffer are each ~30KB and accessed every pixel during rendering.
+  // Keeping them in Internal SRAM (MEM_FAST) is critical for performance at all OC levels.
+  // The memset below (not the memory location) is what fixes the graphics glitch:
+  // SNES9x needs zeroed Z-Buffers to correctly resolve sprite/layer priority.
+  GFX.ZBuffer    = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST);
+  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST);
+
   if (GFX.SubScreen)  memset(GFX.SubScreen,  0, GFX.Pitch  * SNES_HEIGHT_EXTENDED);
   if (GFX.ZBuffer)    memset(GFX.ZBuffer,    0, GFX.ZPitch * SNES_HEIGHT_EXTENDED);
   if (GFX.SubZBuffer) memset(GFX.SubZBuffer, 0, GFX.ZPitch * SNES_HEIGHT_EXTENDED);
@@ -438,14 +441,17 @@ void app_main(void) {
       .options = &options_handler,
   };
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(2); // Set to 3 for best performance on Nano-S3
-  app->frameskip =
-      0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
+
+  // Load persisted settings before applying defaults
+  apu_enabled    = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
+  lowpass_filter = rg_settings_get_number(NS_APP, "lowpass", 0);
 
   // Force Full Screen Scaling for 240x240 Nano-S3
   rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
 
-  apu_enabled = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
+  // Set default overclock level (will be overridden by per-game config in load_config)
+  rg_system_set_overclock(2);
+  app->frameskip = 0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
 
   for (int i = 0; i < 3; i++) {
     updates[i] = rg_surface_create(SNES_WIDTH, SNES_HEIGHT_EXTENDED,
@@ -532,15 +538,19 @@ void app_main(void) {
   int skipFrames = 0;
 
   int last_overclock = rg_system_get_overclock();
+  int oc_poll_counter = 0;
 
   while (1) {
     uint32_t joystick = rg_input_read_gamepad();
 
-    // Check for system overclock changes and save automatically
-    int current_overclock = rg_system_get_overclock();
-    if (current_overclock != last_overclock) {
-      last_overclock = current_overclock;
-      save_config();
+    // Poll overclock changes at ~1Hz (every 60 frames) to reduce per-frame overhead.
+    if (++oc_poll_counter >= 60) {
+      oc_poll_counter = 0;
+      int current_overclock = rg_system_get_overclock();
+      if (current_overclock != last_overclock) {
+        last_overclock = current_overclock;
+        save_config();
+      }
     }
 
     if (CPU.SRAMModified) {
@@ -586,6 +596,8 @@ void app_main(void) {
     }
 
 #ifndef USE_BLARGG_APU
+    // Audio must be mixed every frame regardless of frame-skip.
+    // The SNES APU runs independently and continuous draining prevents buffer underruns.
     if (apu_enabled && lowpass_filter)
       S9xMixSamplesLowPass((void *)audioBuffer, AUDIO_BUFFER_LENGTH << 1,
                            AUDIO_LOW_PASS_RANGE);
