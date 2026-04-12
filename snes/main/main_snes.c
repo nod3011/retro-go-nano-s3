@@ -347,10 +347,18 @@ bool S9xInitDisplay(void) {
   GFX.ZPitch = SNES_WIDTH;
   GFX.Screen = currentUpdate->data;
 
-  // Attempt to allocate Z-Buffer in fast internal RAM for better performance
-  GFX.SubScreen = rg_alloc(GFX.Pitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
-  GFX.ZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST);
-  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_FAST);
+  // Allocate all GFX buffers in PSRAM (MEM_SLOW) for safety on ESP32-S3.
+  // Internal SRAM (MEM_FAST) is limited and fragmentation can corrupt sprite priority.
+  GFX.SubScreen  = rg_alloc(GFX.Pitch  * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.ZBuffer    = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+  GFX.SubZBuffer = rg_alloc(GFX.ZPitch * SNES_HEIGHT_EXTENDED, MEM_SLOW);
+
+  // Zero out all buffers to prevent dirty memory from causing graphics glitches.
+  // SNES9x uses ZBuffer/SubZBuffer for sprite priority — uninitialized data
+  // causes layer ordering errors (glitchy numbers/UI elements in games like Zelda).
+  if (GFX.SubScreen)  memset(GFX.SubScreen,  0, GFX.Pitch  * SNES_HEIGHT_EXTENDED);
+  if (GFX.ZBuffer)    memset(GFX.ZBuffer,    0, GFX.ZPitch * SNES_HEIGHT_EXTENDED);
+  if (GFX.SubZBuffer) memset(GFX.SubZBuffer, 0, GFX.ZPitch * SNES_HEIGHT_EXTENDED);
 
   return GFX.Screen && GFX.SubScreen && GFX.ZBuffer && GFX.SubZBuffer;
 }
