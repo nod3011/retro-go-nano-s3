@@ -111,20 +111,12 @@ static int16_t gauss[512] = {
 /* Gaussian interpolation */
 
 static INLINE int32_t dsp_interpolate(dsp_voice_t *v) {
-  int32_t offset, out, *in;
-  int16_t *fwd, *rev;
+  int32_t fract, out, *in;
 
-  /* Make pointers into gaussian based on fractional position between samples */
-  offset = v->interp_pos >> 4 & 0xFF;
-  fwd = gauss + 255 - offset;
-  rev = gauss + offset; /* mirror left half of gaussian */
+  fract = (v->interp_pos >> 4) & 0xFF;
+  in = &v->buf[(v->interp_pos >> 12) + v->buf_pos + 1];
 
-  in = &v->buf[(v->interp_pos >> 12) + v->buf_pos];
-  out = (fwd[0] * in[0]) >> 11;
-  out += (fwd[256] * in[1]) >> 11;
-  out += (rev[256] * in[2]) >> 11;
-  out = (int16_t)out;
-  out += (rev[0] * in[3]) >> 11;
+  out = (in[1] * fract + in[0] * (256 - fract)) >> 8;
 
   CLAMP16(out);
   out &= ~1;

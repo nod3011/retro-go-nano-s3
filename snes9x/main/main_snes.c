@@ -437,14 +437,13 @@ void app_main(void) {
       S9xMixSamples((void *)audioBuffer, AUDIO_BUFFER_LENGTH << 1);
 
     if (apu_enabled) {
-      // Optimized audio boost using hardware-accelerated saturating arithmetic
+      // Optimized audio boost using saturation logic
       for (int i = 0; i < AUDIO_BUFFER_LENGTH; i++) {
         int32_t left = (int32_t)audioBuffer[i].left << 1;
         int32_t right = (int32_t)audioBuffer[i].right << 1;
-        if (left < -32768) left = -32768;
-        else if (left > 32767) left = 32767;
-        if (right < -32768) right = -32768;
-        else if (right > 32767) right = 32767;
+        // Saturate to 16-bit
+        if (left > 32767) left = 32767; else if (left < -32768) left = -32768;
+        if (right > 32767) right = 32767; else if (right < -32768) right = -32768;
         audioBuffer[i].left = (int16_t)left;
         audioBuffer[i].right = (int16_t)right;
       }

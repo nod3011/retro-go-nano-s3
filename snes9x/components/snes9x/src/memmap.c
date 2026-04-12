@@ -136,7 +136,10 @@ static void Sanitize(char *str, size_t bufsize) {
 /* This function allocates and zeroes all the memory needed by the emulator */
 /**********************************************************************************************/
 bool S9xInitMemory(void) {
-  Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_SLOW);
+  // WRAM is 128KB. It's the most used memory by the CPU. Let's try to fit it in internal RAM.
+  Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_FAST | MEM_NOPANIC);
+  if (!Memory.RAM) Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_SLOW);
+
   Memory.SRAM = (uint8_t *)rg_alloc(SRAM_SIZE, MEM_SLOW);
 
   // VRAM is 64KB, performance is critical here. Try Internal RAM first.
