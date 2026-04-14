@@ -138,14 +138,24 @@ static void Sanitize(char *str, size_t bufsize) {
 bool S9xInitMemory(void) {
   // WRAM is 128KB. It's the most used memory by the CPU. Let's try to fit it in internal RAM.
   Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_FAST | MEM_NOPANIC);
-  if (!Memory.RAM) Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_SLOW);
+  if (!Memory.RAM) {
+    Memory.RAM = (uint8_t *)rg_alloc(RAM_SIZE, MEM_SLOW);
+    RG_LOGI("WRAM is in EXTERNAL RAM\n");
+  } else {
+    RG_LOGI("WRAM is in INTERNAL RAM\n");
+  }
 
   Memory.SRAM = (uint8_t *)rg_alloc(SRAM_SIZE, MEM_SLOW);
   memset(Memory.SRAM, 0, SRAM_SIZE);
 
   // VRAM is 64KB, performance is critical here. Try Internal RAM first.
   Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_FAST | MEM_NOPANIC);
-  if (!Memory.VRAM) Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_SLOW);
+  if (!Memory.VRAM) {
+    Memory.VRAM = (uint8_t *)rg_alloc(VRAM_SIZE, MEM_SLOW);
+    RG_LOGI("VRAM is in EXTERNAL RAM\n");
+  } else {
+    RG_LOGI("VRAM is in INTERNAL RAM\n");
+  }
 
   Memory.FillRAM = (uint8_t *)rg_alloc(0x8000, MEM_SLOW);
 

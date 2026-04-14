@@ -65,10 +65,14 @@ static const keymap_t KEYMAPS[] = {
      }},
 };
 
+#define FRAMESKIP_AUTO -1
+#define FRAMESKIP_OFF   0
+
 typedef struct {
   uint32_t magic;
   int keymap_id;
   int overclock;              // Added per-game overclock
+  int8_t frameskip;           // Added per-game frameskip (-1=Auto, 0=Off, 1..N=Fixed)
   uint16_t custom_mapping[8]; // index into SNES_BUTTONS
 } snes_config_t;
 
@@ -107,6 +111,7 @@ static rg_audio_sample_t *audioBuffer;
 
 static bool apu_enabled = true;
 static bool lowpass_filter = false;
+static int8_t current_frameskip = FRAMESKIP_AUTO;
 
 static int keymap_id = 0;
 static keymap_t keymap;
@@ -140,11 +145,12 @@ static void save_config() {
       .magic = 0x534E4553,
       .keymap_id = keymap_id,
       .overclock = rg_system_get_overclock(),
+      .frameskip = current_frameskip,
   };
   memcpy(cfg.custom_mapping, current_custom_mapping, sizeof(current_custom_mapping));
 
   if (rg_storage_write_file(path, &cfg, sizeof(cfg), 0)) {
-    RG_LOGI("Config saved to %s (OC:%d)\n", path, cfg.overclock);
+    RG_LOGI("Config saved to %s (OC:%d, FS:%d)\n", path, cfg.overclock, cfg.frameskip);
   }
 }
 
@@ -165,7 +171,10 @@ static void load_config() {
         if (cfg->overclock >= 0 && cfg->overclock <= 3) {
           rg_system_set_overclock(cfg->overclock);
         }
-        RG_LOGI("Config loaded from %s (OC:%d)\n", path, cfg->overclock);
+        if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
+          current_frameskip = cfg->frameskip;
+        }
+        RG_LOGI("Config loaded from %s (OC:%d, FS:%d)\n", path, cfg->overclock, cfg->frameskip);
       }
     }
     free(data);
@@ -256,6 +265,37 @@ static rg_gui_event_t lowpass_filter_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
+static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+  const int8_t modes[] = {0, -1, 1, 2, 3}; // Off, Auto, 1, 2, 3
+  int current_idx = 0;
+
+  for (int i = 0; i < 5; i++) {
+    if (modes[i] == current_frameskip) {
+      current_idx = i;
+      break;
+    }
+  }
+
+  if (event == RG_DIALOG_PREV)
+    current_idx = (current_idx + 4) % 5;
+  if (event == RG_DIALOG_NEXT)
+    current_idx = (current_idx + 1) % 5;
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    current_frameskip = modes[current_idx];
+    save_config();
+    return RG_DIALOG_REDRAW;
+  }
+
+  if (current_frameskip == -1)
+    strcpy(option->value, _("Auto"));
+  else if (current_frameskip == 0)
+    strcpy(option->value, _("Off"));
+  else
+    sprintf(option->value, "%d", current_frameskip);
+
+  return RG_DIALOG_VOID;
+}
 
 static rg_gui_event_t sub_btn_mapping_cb(rg_gui_option_t *option,
                                          rg_gui_event_t event) {
@@ -425,9 +465,11 @@ static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){0, _("Audio enable"), "-", RG_DIALOG_FLAG_NORMAL,
                               &apu_toggle_cb};
   *dest++ = (rg_gui_option_t){0, _("Audio filter"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &lowpass_filter_cb};
+                               &lowpass_filter_cb};
+  *dest++ = (rg_gui_option_t){0, _("Frameskip"), "-", RG_DIALOG_FLAG_NORMAL,
+                               &frameskip_cb};
   *dest++ = (rg_gui_option_t){0, _("Controls"), "...", RG_DIALOG_FLAG_NORMAL,
-                              &menu_keymap_cb};
+                               &menu_keymap_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -450,8 +492,8 @@ void app_main(void) {
   rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
   rg_display_set_filter(RG_DISPLAY_FILTER_OFF);
 
-  // Set default overclock level 3 (280MHz)
-  rg_system_set_overclock(3);
+  // Set default overclock level 2 (240MHz)
+  rg_system_set_overclock(2);
   app->frameskip = 0;
 
   for (int i = 0; i < 3; i++) {
@@ -629,13 +671,16 @@ void app_main(void) {
     rg_system_tick(rg_system_timer() - startTime);
 
     if (skipFrames == 0) {
-      int elapsed = rg_system_timer() - startTime;
-      if (app->frameskip > 0)
+      if (current_frameskip == FRAMESKIP_AUTO) {
+        int elapsed = rg_system_timer() - startTime;
         skipFrames = app->frameskip;
-      else if (elapsed > app->frameTime + 5000) // Allow more jitter (5ms)
-        skipFrames = 1;
-      else if (drawFrame && slowFrame)
-        skipFrames = 1;
+        if (skipFrames == 0 && elapsed > app->frameTime + 5000)
+          skipFrames = 1;
+        else if (drawFrame && slowFrame)
+          skipFrames = 1;
+      } else {
+        skipFrames = current_frameskip;
+      }
     } else if (skipFrames > 0) {
       skipFrames--;
     }

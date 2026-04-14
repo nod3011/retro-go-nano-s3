@@ -13,7 +13,14 @@
 extern const int32_t NoiseFreq[32];
 
 bool S9xInitAPU() {
-  IAPU.RAM = (uint8_t *)rg_alloc(0x10000, MEM_SLOW);
+  IAPU.RAM = (uint8_t *)rg_alloc(0x10000, MEM_FAST | MEM_NOPANIC);
+
+  if (!IAPU.RAM) {
+    IAPU.RAM = (uint8_t *)rg_alloc(0x10000, MEM_SLOW);
+    if (IAPU.RAM) RG_LOGI("APU RAM is in EXTERNAL RAM\n");
+  } else {
+    RG_LOGI("APU RAM is in INTERNAL RAM\n");
+  }
 
   if (!IAPU.RAM) {
     S9xDeinitAPU();

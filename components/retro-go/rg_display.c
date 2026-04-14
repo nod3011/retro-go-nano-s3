@@ -519,7 +519,7 @@ bool rg_display_sync(bool block)
     while (rg_task_messages_waiting(display_task_queue) > max_waiting)
     {
         if (!block) return false;
-        rg_task_delay(1);
+        rg_task_yield();
     }
     return true;
 }

@@ -85,7 +85,7 @@ static const uint32_t even[4][16] = {
 #endif
 };
 
-static uint8_t ConvertTile(uint8_t *pCache, uint32_t TileAddr) {
+static uint8_t IRAM_ATTR ConvertTile(uint8_t *pCache, uint32_t TileAddr) {
   uint8_t *tp = &Memory.VRAM[TileAddr];
   uint32_t *p = (uint32_t *)pCache;
   uint32_t non_zero = 0;
