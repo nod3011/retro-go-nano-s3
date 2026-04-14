@@ -2,6 +2,12 @@
 
 #include <math.h>
 #include <snes9x.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
+
+#include "apu.h"
+#include "apu_blargg.h"
 
 typedef struct {
   char name[16];
@@ -453,11 +459,51 @@ bool JustifierOffscreen(void) { return true; }
 void JustifierButtons(uint32_t *justifiers) { (void)justifiers; }
 
 #ifdef USE_BLARGG_APU
+typedef struct {
+  TaskHandle_t task;
+  SemaphoreHandle_t sem_start;
+  SemaphoreHandle_t sem_done;
+  rg_audio_sample_t *buffers[2];
+  volatile size_t sample_counts[2];
+  volatile int active_idx;
+  volatile bool active;
+} audio_async_ctx_t;
+
+static audio_async_ctx_t audio_ctx;
+
+static void audio_async_task(void *arg) {
+  while (1) {
+    if (xSemaphoreTake(audio_ctx.sem_start, portMAX_DELAY) == pdTRUE) {
+      int idx = 1 - audio_ctx.active_idx;
+      if (audio_ctx.sample_counts[idx] > 0) {
+        rg_audio_submit(audio_ctx.buffers[idx], audio_ctx.sample_counts[idx] >> 1);
+      }
+      xSemaphoreGive(audio_ctx.sem_done);
+    }
+  }
+}
+
 static void S9xAudioCallback(void) {
   S9xFinalizeSamples();
   size_t available_samples = S9xGetSampleCount();
-  S9xMixSamples((void *)audioBuffer, available_samples);
-  rg_audio_submit(audioBuffer, available_samples >> 1);
+
+  if (audio_ctx.active) {
+    // Wait for the previous submission to finish if Core 0 is slow
+    xSemaphoreTake(audio_ctx.sem_done, portMAX_DELAY);
+
+    // Mix into the current back-buffer
+    int idx = audio_ctx.active_idx;
+    S9xMixSamples((void *)audio_ctx.buffers[idx], available_samples);
+    audio_ctx.sample_counts[idx] = available_samples;
+
+    // Swap buffers and signal Core 0
+    audio_ctx.active_idx = 1 - audio_ctx.active_idx;
+    xSemaphoreGive(audio_ctx.sem_start);
+  } else {
+    // Synchronous fallback
+    S9xMixSamples((void *)audioBuffer, available_samples);
+    rg_audio_submit(audioBuffer, available_samples >> 1);
+  }
 }
 #endif
 
@@ -504,9 +550,40 @@ void app_main(void) {
   currentBufferIndex = 0;
   currentUpdate = updates[currentBufferIndex];
 
+#ifdef USE_BLARGG_APU
+  // Async audio setup with fallback
+  audio_ctx.active = false;
+  audio_ctx.sem_start = xSemaphoreCreateBinary();
+  audio_ctx.sem_done = xSemaphoreCreateBinary();
+  xSemaphoreGive(audio_ctx.sem_done); // Signal that we are ready for the first request
+
+  // Try to allocate dual buffers in Fast RAM (approx 2.5KB each)
+  size_t buf_size = AUDIO_BUFFER_LENGTH * 8;
+  audio_ctx.buffers[0] = rg_alloc(buf_size, MEM_FAST);
+  audio_ctx.buffers[1] = rg_alloc(buf_size, MEM_FAST);
+
+  if (audio_ctx.buffers[0] && audio_ctx.buffers[1]) {
+    // Priority 5 is higher than main loop (usually 1 or 2) to ensure timely submission
+    BaseType_t ret = xTaskCreatePinnedToCore(audio_async_task, "audio_async", 2048, NULL, 5, &audio_ctx.task, 0);
+    if (ret == pdPASS) {
+      audio_ctx.active = true;
+      RG_LOGI("Async audio enabled on Core 0\n");
+    }
+  }
+
+  if (!audio_ctx.active) {
+    RG_LOGW("Async audio failed to initialize, falling back to synchronous\n");
+    if (audio_ctx.buffers[0]) free(audio_ctx.buffers[0]);
+    if (audio_ctx.buffers[1]) free(audio_ctx.buffers[1]);
+    audioBuffer = (rg_audio_sample_t *)malloc(AUDIO_BUFFER_LENGTH * 8);
+    if (!audioBuffer)
+      RG_PANIC("Audio buffer allocation failed!");
+  }
+#else
   audioBuffer = (rg_audio_sample_t *)malloc(AUDIO_BUFFER_LENGTH * 8);
   if (!audioBuffer)
     RG_PANIC("Audio buffer allocation failed!");
+#endif
 
   load_config();
 

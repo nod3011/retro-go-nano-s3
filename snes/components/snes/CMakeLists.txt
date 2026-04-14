@@ -1,5 +1,5 @@
 set(COMPONENT_SRCDIRS "src")
-set(COMPONENT_ADD_INCLUDEDIRS ".")
+set(COMPONENT_ADD_INCLUDEDIRS "." "src")
 set(COMPONENT_REQUIRES "retro-go")
 register_component()
 rg_setup_compile_options(

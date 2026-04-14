@@ -291,6 +291,7 @@ void    S9xFinalizeSamples();
 void    S9xClearSamples();
 bool    S9xMixSamples(int16_t * buffer, uint32_t sample_count);
 void    S9xSetSamplesAvailableCallback(apu_callback);
+void    S9xSetAudioBuffer(int16_t *buffer, int size);
 
 #endif /* APU_BLARGG_H */
 #endif

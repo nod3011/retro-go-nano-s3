@@ -3042,6 +3042,12 @@ void S9xFinalizeSamples(void) {
   spc_set_output(landing_buffer, buffer_size);
 }
 
+void S9xSetAudioBuffer(int16_t *buffer, int size) {
+  landing_buffer = buffer;
+  buffer_size = size;
+  spc_set_output(landing_buffer, buffer_size);
+}
+
 void S9xClearSamples(void) {
   resampler_clear();
   lag = lag_master;
