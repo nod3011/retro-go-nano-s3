@@ -512,9 +512,16 @@ void rg_display_submit(const rg_surface_t *update, uint32_t flags)
 
 bool rg_display_sync(bool block)
 {
-    while (block && rg_task_messages_waiting(display_task_queue))
+    // For triple buffering, we allow 1 message in the queue. 
+    // This allows one frame to be in DMA/Transfer and one to be waiting in line,
+    // freeing up the third buffer for the CPU to start working on immediately.
+    int max_waiting = (block) ? 0 : 1;
+    while (rg_task_messages_waiting(display_task_queue) > max_waiting)
+    {
+        if (!block) return false;
         rg_task_delay(1);
-    return !rg_task_messages_waiting(display_task_queue);
+    }
+    return true;
 }
 
 void rg_display_write_rect(int left, int top, int width, int height, int stride, const uint16_t *buffer, uint32_t flags)

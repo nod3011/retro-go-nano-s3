@@ -446,10 +446,11 @@ void app_main(void) {
   apu_enabled    = rg_settings_get_number(NS_APP, SETTING_APU_EMULATION, 1);
   lowpass_filter = rg_settings_get_number(NS_APP, "lowpass", 0);
 
-  // Force Full Screen Scaling for 240x240 Nano-S3
+  // Use FULL scaling with point sampling (FILTER_OFF) for maximum speed
   rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
+  rg_display_set_filter(RG_DISPLAY_FILTER_OFF);
 
-  // Set default overclock level (will be overridden by per-game config in load_config)
+  // Set default overclock level 3 (280MHz)
   rg_system_set_overclock(3);
   app->frameskip = 0;
 
@@ -631,8 +632,8 @@ void app_main(void) {
       int elapsed = rg_system_timer() - startTime;
       if (app->frameskip > 0)
         skipFrames = app->frameskip;
-      else if (elapsed > app->frameTime + 3000) // Allow some jitter
-        skipFrames = 1;                         // (elapsed / frameTime)
+      else if (elapsed > app->frameTime + 5000) // Allow more jitter (5ms)
+        skipFrames = 1;
       else if (drawFrame && slowFrame)
         skipFrames = 1;
     } else if (skipFrames > 0) {
