@@ -577,7 +577,7 @@ static void task_wrapper(void *arg)
 {
     rg_task_t *task = arg;
     task->handle = xTaskGetCurrentTaskHandle();
-    task->queue = xQueueCreate(1, sizeof(rg_task_msg_t));
+    task->queue = xQueueCreate(3, sizeof(rg_task_msg_t));
     (task->func)(task->arg);
     vQueueDelete(task->queue);
     memset(task, 0, sizeof(rg_task_t));

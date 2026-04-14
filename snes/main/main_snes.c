@@ -450,8 +450,8 @@ void app_main(void) {
   rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
 
   // Set default overclock level (will be overridden by per-game config in load_config)
-  rg_system_set_overclock(2);
-  app->frameskip = 0; // Fix: rg_system_set_overclock sets frameskip to 1 internally
+  rg_system_set_overclock(3);
+  app->frameskip = 0;
 
   for (int i = 0; i < 3; i++) {
     updates[i] = rg_surface_create(SNES_WIDTH, SNES_HEIGHT_EXTENDED,
@@ -631,7 +631,7 @@ void app_main(void) {
       int elapsed = rg_system_timer() - startTime;
       if (app->frameskip > 0)
         skipFrames = app->frameskip;
-      else if (elapsed > app->frameTime + 1500) // Allow some jitter
+      else if (elapsed > app->frameTime + 3000) // Allow some jitter
         skipFrames = 1;                         // (elapsed / frameTime)
       else if (drawFrame && slowFrame)
         skipFrames = 1;
