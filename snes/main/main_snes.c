@@ -172,25 +172,36 @@ static void load_config() {
   void *data = NULL;
   size_t size = 0;
   if (rg_storage_read_file(path, &data, &size, 0)) {
-    if (size >= offsetof(snes_config_t, custom_mapping)) {
+    if (size >= 8) { // Magic + keymap_id
       snes_config_t *cfg = (snes_config_t *)data;
       if (cfg->magic == 0x534E4553) {
         keymap_id = cfg->keymap_id;
-        memcpy(current_custom_mapping, cfg->custom_mapping,
-               sizeof(current_custom_mapping));
-        if (cfg->overclock >= 0 && cfg->overclock <= 3) {
-          rg_system_set_overclock(cfg->overclock);
+
+        // Load overclock and frameskip if available
+        if (size >= offsetof(snes_config_t, snes_cpu_overclock)) {
+           if (cfg->overclock >= 0 && cfg->overclock <= 3) {
+             rg_system_set_overclock(cfg->overclock);
+           }
+           if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
+             current_frameskip = cfg->frameskip;
+           }
         }
-        if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
-          current_frameskip = cfg->frameskip;
-        }
+
+        // Load virtual CPU overclock if available
         if (size >= offsetof(snes_config_t, custom_mapping)) {
            if (cfg->snes_cpu_overclock >= 100 && cfg->snes_cpu_overclock <= 200) {
              Settings.CyclesPercentage = cfg->snes_cpu_overclock;
            }
         }
+
+        // Load custom mapping if available
+        if (size >= sizeof(snes_config_t)) {
+           memcpy(current_custom_mapping, cfg->custom_mapping,
+                  sizeof(current_custom_mapping));
+        }
+
         RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d)\n", path, 
-                cfg->overclock, cfg->frameskip, (int)Settings.CyclesPercentage);
+                rg_system_get_overclock(), current_frameskip, (int)Settings.CyclesPercentage);
       }
     }
     free(data);
@@ -258,6 +269,10 @@ static void event_handler(int event, void *arg) {
 }
 
 static void update_snes_timing() {
+  // Clamp CyclesPercentage to a safe range (100-150%) to prevent system starvation
+  if (Settings.CyclesPercentage < 100) Settings.CyclesPercentage = 100;
+  if (Settings.CyclesPercentage > 150) Settings.CyclesPercentage = 150;
+
   Settings.H_Max = (SNES_CYCLES_PER_SCANLINE * Settings.CyclesPercentage) / 100;
   Settings.HBlankStart = (256 * Settings.H_Max) / SNES_HCOUNTER_MAX;
   RG_LOGI("SNES Timing: CyclesPercentage=%d, H_Max=%d, HBlankStart=%d\n",
@@ -526,6 +541,10 @@ static void S9xAudioCallback(void) {
 
     // Mix into the current back-buffer
     int idx = audio_ctx.active_idx;
+    size_t max_samples = (AUDIO_BUFFER_LENGTH * 8) / 4;
+    if (available_samples > max_samples) {
+        available_samples = max_samples;
+    }
     S9xMixSamples((void *)audio_ctx.buffers[idx], available_samples);
     audio_ctx.sample_counts[idx] = available_samples;
 
@@ -781,6 +800,10 @@ void app_main(void) {
 #endif
 
     rg_system_tick(rg_system_timer() - startTime);
+
+    // Yield to the system briefly to prevent starving Core 1 background tasks
+    // especially at high Virtual CPU overclock levels.
+    rg_task_delay(0);
 
     if (skipFrames == 0) {
       if (current_frameskip == FRAMESKIP_AUTO) {
