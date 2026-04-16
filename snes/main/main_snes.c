@@ -1,6 +1,7 @@
 #include "shared.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <snes9x.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -79,6 +80,7 @@ typedef struct {
   int keymap_id;
   int overclock;              // Added per-game overclock
   int8_t frameskip;           // Added per-game frameskip (-1=Auto, 0=Off, 1..N=Fixed)
+  uint8_t snes_cpu_overclock; // Virtual SNES CPU overclock (100-130%)
   uint16_t custom_mapping[8]; // index into SNES_BUTTONS
 } snes_config_t;
 
@@ -152,11 +154,13 @@ static void save_config() {
       .keymap_id = keymap_id,
       .overclock = rg_system_get_overclock(),
       .frameskip = current_frameskip,
+      .snes_cpu_overclock = (uint8_t)Settings.CyclesPercentage,
   };
   memcpy(cfg.custom_mapping, current_custom_mapping, sizeof(current_custom_mapping));
 
   if (rg_storage_write_file(path, &cfg, sizeof(cfg), 0)) {
-    RG_LOGI("Config saved to %s (OC:%d, FS:%d)\n", path, cfg.overclock, cfg.frameskip);
+    RG_LOGI("Config saved to %s (OC:%d, FS:%d, CPU-OC:%d)\n", path, cfg.overclock,
+            cfg.frameskip, cfg.snes_cpu_overclock);
   }
 }
 
@@ -168,7 +172,7 @@ static void load_config() {
   void *data = NULL;
   size_t size = 0;
   if (rg_storage_read_file(path, &data, &size, 0)) {
-    if (size >= sizeof(snes_config_t)) {
+    if (size >= offsetof(snes_config_t, custom_mapping)) {
       snes_config_t *cfg = (snes_config_t *)data;
       if (cfg->magic == 0x534E4553) {
         keymap_id = cfg->keymap_id;
@@ -180,7 +184,13 @@ static void load_config() {
         if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
           current_frameskip = cfg->frameskip;
         }
-        RG_LOGI("Config loaded from %s (OC:%d, FS:%d)\n", path, cfg->overclock, cfg->frameskip);
+        if (size >= offsetof(snes_config_t, custom_mapping)) {
+           if (cfg->snes_cpu_overclock >= 100 && cfg->snes_cpu_overclock <= 200) {
+             Settings.CyclesPercentage = cfg->snes_cpu_overclock;
+           }
+        }
+        RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d)\n", path, 
+                cfg->overclock, cfg->frameskip, (int)Settings.CyclesPercentage);
       }
     }
     free(data);
@@ -245,6 +255,29 @@ static void event_handler(int event, void *arg) {
   } else if (event == RG_EVENT_SHUTDOWN || event == RG_EVENT_SLEEP) {
     save_sram(true);
   }
+}
+
+static void update_snes_timing() {
+  Settings.H_Max = (SNES_CYCLES_PER_SCANLINE * Settings.CyclesPercentage) / 100;
+  Settings.HBlankStart = (256 * Settings.H_Max) / SNES_HCOUNTER_MAX;
+  RG_LOGI("SNES Timing: CyclesPercentage=%d, H_Max=%d, HBlankStart=%d\n",
+          (int)Settings.CyclesPercentage, (int)Settings.H_Max, (int)Settings.HBlankStart);
+}
+
+static rg_gui_event_t cpu_overclock_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    int val = Settings.CyclesPercentage;
+    if (event == RG_DIALOG_PREV) val -= 5;
+    if (event == RG_DIALOG_NEXT) val += 5;
+    if (val < 100) val = 130;
+    if (val > 130) val = 100;
+    Settings.CyclesPercentage = val;
+    update_snes_timing();
+    save_config();
+    return RG_DIALOG_REDRAW;
+  }
+  sprintf(option->value, "%d%%", (int)Settings.CyclesPercentage);
+  return RG_DIALOG_VOID;
 }
 
 static rg_gui_event_t apu_toggle_cb(rg_gui_option_t *option,
@@ -514,6 +547,8 @@ static void options_handler(rg_gui_option_t *dest) {
                                &lowpass_filter_cb};
   *dest++ = (rg_gui_option_t){0, _("Frameskip"), "-", RG_DIALOG_FLAG_NORMAL,
                                &frameskip_cb};
+  *dest++ = (rg_gui_option_t){0, _("CPU Overclock"), "-", RG_DIALOG_FLAG_NORMAL,
+                               &cpu_overclock_cb};
   *dest++ = (rg_gui_option_t){0, _("Controls"), "...", RG_DIALOG_FLAG_NORMAL,
                                &menu_keymap_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
@@ -587,12 +622,12 @@ void app_main(void) {
 
   load_config();
 
-  Settings.CyclesPercentage = 100;
-  Settings.H_Max = SNES_CYCLES_PER_SCANLINE;
+  if (Settings.CyclesPercentage < 100 || Settings.CyclesPercentage > 200) {
+    Settings.CyclesPercentage = 100;
+  }
+  update_snes_timing();
+
   Settings.FrameTimePAL = 20000;
-  Settings.FrameTimeNTSC = 16667;
-  Settings.ControllerOption = SNES_JOYPAD;
-  Settings.HBlankStart = (256 * Settings.H_Max) / SNES_HCOUNTER_MAX;
   Settings.SoundPlaybackRate = AUDIO_SAMPLE_RATE;
   Settings.SoundInputRate = AUDIO_SAMPLE_RATE;
   Settings.DisableSoundEcho = true;
