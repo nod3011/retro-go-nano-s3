@@ -284,6 +284,8 @@ void nofrendo_main(void) {
     } else {
       skipFrames--;
     }
+
+    rg_system_sync_frame(startTime);
   }
 
   save_sram();

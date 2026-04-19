@@ -282,5 +282,7 @@ void gw_main(void)
         }
         rg_audio_submit(mixbuffer, GW_AUDIO_BUFFER_LENGTH);
         gw_audio_buffer_copied = true;
+
+        rg_system_sync_frame(startTime);
     } // end of loop
 }

@@ -287,6 +287,9 @@ extern "C" void lynx_main(void)
         {
             skipFrames--;
         }
+
+
+
         gAudioBufferPointer = 0;
     }
 }

@@ -4,7 +4,7 @@
 #include <time.h>
 
 #define AUDIO_SAMPLE_RATE (32000)
-#define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 50 + 1)
+#define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 25 + 2)
 
 static int skipFrames = 0;
 static bool slowFrame = false;
@@ -464,14 +464,12 @@ void app_main(void) {
     if (skipFrames == 0) {
       int elapsed = rg_system_timer() - startTime;
       if (app->frameskip > 0) skipFrames = app->frameskip;
-      else if (slowFrame || elapsed > app->frameTime) skipFrames = (elapsed > app->frameTime * 2) ? 2 : 1;
+      else if (elapsed > app->frameTime + 1500) skipFrames = 1;
+      else if (drawFrame && slowFrame) skipFrames = 1;
     } else if (skipFrames > 0) {
       skipFrames--;
     }
 
-    int64_t frameTime = rg_system_timer() - startTime;
-    if (frameTime < app->frameTime && skipFrames == 0) {
-      rg_usleep(app->frameTime - frameTime);
-    }
+    rg_system_sync_frame(startTime);
   }
 }

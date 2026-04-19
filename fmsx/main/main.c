@@ -259,6 +259,7 @@ unsigned int Joystick(void)
 void Keyboard(void)
 {
     // Keyboard() is a convenient place to do our vsync stuff :)
+
     rg_system_tick(rg_system_timer() - FrameStartTime);
     FrameStartTime = rg_system_timer();
 

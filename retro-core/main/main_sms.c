@@ -323,6 +323,9 @@ void sms_main(void)
         {
             skipFrames--;
         }
+
+
+
         joystick_old = joystick;
     }
 }

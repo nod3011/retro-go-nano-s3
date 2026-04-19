@@ -234,6 +234,7 @@ extern "C"
     void rg_system_set_log_level(rg_log_level_t level);
     int rg_system_get_log_level(void);
     void rg_system_tick(int busyTime);
+    void rg_system_sync_frame(int64_t startTime);
     void rg_system_vlog(int level, const char *context, const char *format, va_list va);
     void rg_system_log(int level, const char *context, const char *format, ...) __attribute__((format(printf, 3, 4)));
     bool rg_system_save_trace(const char *filename, bool append);

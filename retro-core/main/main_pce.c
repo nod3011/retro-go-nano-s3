@@ -80,7 +80,7 @@ void osd_vsync(void)
 
     if (sleep > frameTime)
     {
-        RG_LOGE("Our vsync timer seems to have overflowed! (%dus)", sleep);
+        // RG_LOGE("Our vsync timer seems to have overflowed! (%dus)", sleep);
     }
     else if (sleep > 0)
     {

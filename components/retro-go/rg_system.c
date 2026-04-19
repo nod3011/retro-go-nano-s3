@@ -874,6 +874,40 @@ void rg_system_tick(int busyTime)
     // WDT_RELOAD(WDT_TIMEOUT);
 }
 
+void rg_system_sync_frame(int64_t startTime)
+{
+    int64_t targetTime = startTime + app.frameTime;
+    int64_t now = rg_system_timer();
+
+    if (now < targetTime)
+    {
+        int64_t diff = targetTime - now;
+
+        // If we are significantly ahead (v-sync failed or frameskip), sleep briefly.
+        // We use 12ms as a safe threshold for a 10ms OS tick.
+        if (diff > 12000)
+        {
+            rg_task_delay(diff / 1000 - 2);
+            now = rg_system_timer();
+        }
+
+        // For medium intervals, yield to give others (like audio task) time to run,
+        // but stay active enough to catch our target time with high precision.
+        // We stop yielding earlier (1000us) to avoid OS oversleep issues.
+        while (now < targetTime - 1000)
+        {
+            rg_task_yield();
+            now = rg_system_timer();
+        }
+
+        // Final sub-millisecond busy-wait for perfect frame pacing
+        while (rg_system_timer() < targetTime)
+        {
+            // NOP
+        }
+    }
+}
+
 IRAM_ATTR int64_t rg_system_timer(void)
 {
 #if defined(ESP_PLATFORM)
@@ -1281,9 +1315,12 @@ void rg_system_set_overclock(int level)
     // On S3, we skip UART update for now as it may cause issues with USB-CDC console.
     if (strcmp(rg_audio_get_sink()->name, "Ext DAC") != 0)
         rg_audio_set_sample_rate(app.sampleRate * (240.0 / real_mhz));
+    
+    // Notify the system of the new APB frequency so internal drivers can calibrate correctly.
+    // esp_timer_impl_update_apb_freq(80.0 / 240.0 * real_mhz); 
 #endif
 
-    app.frameskip = 0;
+    app.frameskip = 0; // Keeping 60FPS as per user preference for smooth motion
 
     overclockLevel = level;
     overclockMhz = real_mhz;

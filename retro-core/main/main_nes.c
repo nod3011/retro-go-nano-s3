@@ -841,6 +841,7 @@ void fceumm_main(void) {
     }
 
     rg_system_tick(rg_system_timer() - startTime);
+    rg_system_sync_frame(startTime);
   }
 
   save_sram();
