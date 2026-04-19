@@ -177,6 +177,7 @@ extern "C"
         int frameskip;
         int overclock;
         int tickTimeout;
+        uint8_t screenSync;
         bool lowMemoryMode;
         bool enWatchdog;
         bool isColdBoot;

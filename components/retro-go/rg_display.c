@@ -515,7 +515,7 @@ bool rg_display_sync(bool block)
     // For triple buffering, we allow 1 message in the queue. 
     // This allows one frame to be in DMA/Transfer and one to be waiting in line,
     // freeing up the third buffer for the CPU to start working on immediately.
-    int max_waiting = (block) ? 0 : 1;
+    int max_waiting = (block) ? 0 : rg_system_get_app()->screenSync;
     while (rg_task_messages_waiting(display_task_queue) > max_waiting)
     {
         if (!block) return false;

@@ -592,8 +592,9 @@ void app_main(void) {
   rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
   rg_display_set_filter(RG_DISPLAY_FILTER_OFF);
 
-  // Set default overclock level 2 (240MHz)
+  // Set default overclock level 2 (240MHz) and enable Triple Buffering
   rg_system_set_overclock(2);
+  app->screenSync = 1;
   app->frameskip = 0;
 
   for (int i = 0; i < 3; i++) {

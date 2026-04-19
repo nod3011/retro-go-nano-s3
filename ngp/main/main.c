@@ -287,6 +287,7 @@ void app_main() {
   rg_system_set_tick_rate(60);
   rg_system_set_overclock(2);
   app = rg_system_get_app();
+  app->screenSync = 1;
   app->frameskip = 0;
   g_overclock = 0;
 
