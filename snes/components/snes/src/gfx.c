@@ -359,6 +359,9 @@ void S9xEndScreenRefresh(void) {
 }
 
 static INLINE void SelectTileRenderer(bool normal) {
+  if (!Settings.Transparency)
+    normal = true;
+
   if (normal) {
     if (IPPU.HalfWidthPixels) {
       DrawTilePtr = DrawTile16HalfWidth;

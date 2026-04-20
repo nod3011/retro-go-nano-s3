@@ -82,6 +82,7 @@ typedef struct {
   int8_t frameskip;           // Added per-game frameskip (-1=Auto, 0=Off, 1..N=Fixed)
   uint8_t snes_cpu_overclock; // Virtual SNES CPU overclock (100-130%)
   uint16_t custom_mapping[8]; // index into SNES_BUTTONS
+  uint8_t disable_transparency; // Added per-game transparency disable
 } snes_config_t;
 
 static const struct {
@@ -155,6 +156,7 @@ static void save_config() {
       .overclock = rg_system_get_overclock(),
       .frameskip = current_frameskip,
       .snes_cpu_overclock = (uint8_t)Settings.CyclesPercentage,
+      .disable_transparency = !Settings.Transparency,
   };
   memcpy(cfg.custom_mapping, current_custom_mapping, sizeof(current_custom_mapping));
 
@@ -195,13 +197,18 @@ static void load_config() {
         }
 
         // Load custom mapping if available
-        if (size >= sizeof(snes_config_t)) {
+        if (size >= offsetof(snes_config_t, disable_transparency)) {
            memcpy(current_custom_mapping, cfg->custom_mapping,
                   sizeof(current_custom_mapping));
         }
 
-        RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d)\n", path, 
-                rg_system_get_overclock(), current_frameskip, (int)Settings.CyclesPercentage);
+        // Load transparency if available
+        if (size >= sizeof(snes_config_t)) {
+           Settings.Transparency = (cfg->disable_transparency == 0);
+        }
+
+        RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d, Trans:%d)\n", path, 
+                rg_system_get_overclock(), current_frameskip, (int)Settings.CyclesPercentage, (int)Settings.Transparency);
       }
     }
     free(data);
@@ -559,6 +566,17 @@ static void S9xAudioCallback(void) {
 }
 #endif
 
+static rg_gui_event_t transparency_cb(rg_gui_option_t *option,
+                                      rg_gui_event_t event) {
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT || event == RG_DIALOG_ENTER) {
+    Settings.Transparency = !Settings.Transparency;
+    save_config();
+    return RG_DIALOG_REDRAW;
+  }
+  strcpy(option->value, Settings.Transparency ? "On" : "Off");
+  return RG_DIALOG_VOID;
+}
+
 static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){0, _("Audio enable"), "-", RG_DIALOG_FLAG_NORMAL,
                               &apu_toggle_cb};
@@ -568,6 +586,8 @@ static void options_handler(rg_gui_option_t *dest) {
                                &frameskip_cb};
   *dest++ = (rg_gui_option_t){0, _("CPU Overclock"), "-", RG_DIALOG_FLAG_NORMAL,
                                &cpu_overclock_cb};
+  *dest++ = (rg_gui_option_t){0, _("Transparency"), "-", RG_DIALOG_FLAG_NORMAL,
+                               &transparency_cb};
   *dest++ = (rg_gui_option_t){0, _("Controls"), "...", RG_DIALOG_FLAG_NORMAL,
                                &menu_keymap_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
@@ -639,6 +659,9 @@ void app_main(void) {
   if (!audioBuffer)
     RG_PANIC("Audio buffer allocation failed!");
 #endif
+
+  Settings.Transparency = true; // Default ON before load
+  Settings.CyclesPercentage = 100; // Default to 100%
 
   load_config();
 
