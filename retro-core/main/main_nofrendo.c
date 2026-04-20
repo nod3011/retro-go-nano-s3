@@ -165,7 +165,7 @@ void nofrendo_main(void) {
   };
 
   app = rg_system_reinit(32000, &handlers, NULL);
-  rg_system_set_overclock(-1);
+  rg_system_set_overclock(1);
 
   // Initialize NES
   nes = nes_init(SYS_NES_NTSC, app->sampleRate, true, NULL);

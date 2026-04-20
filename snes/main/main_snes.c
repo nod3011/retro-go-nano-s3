@@ -180,7 +180,7 @@ static void load_config() {
         // Load overclock and frameskip if available
         if (size >= offsetof(snes_config_t, snes_cpu_overclock)) {
            if (cfg->overclock >= 0 && cfg->overclock <= 3) {
-             rg_system_set_overclock(cfg->overclock);
+             rg_system_set_overclock(cfg->overclock == 0 ? 1 : cfg->overclock);
            }
            if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
              current_frameskip = cfg->frameskip;
@@ -592,8 +592,8 @@ void app_main(void) {
   rg_display_set_scaling(RG_DISPLAY_SCALING_FULL);
   rg_display_set_filter(RG_DISPLAY_FILTER_OFF);
 
-  // Set default overclock level 2 (240MHz) and enable Triple Buffering
-  rg_system_set_overclock(2);
+  // Set default overclock level 3 (280MHz) and enable Triple Buffering
+  rg_system_set_overclock(3);
   app->screenSync = 1;
   app->frameskip = 0;
 

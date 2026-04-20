@@ -327,5 +327,7 @@ void sms_main(void)
 
 
         joystick_old = joystick;
+
+        rg_system_sync_frame(startTime);
     }
 }

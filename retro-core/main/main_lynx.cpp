@@ -266,7 +266,12 @@ extern "C" void lynx_main(void)
         }
 
         // The Lynx has a variable tick rate, I don't know of a better way to guess than from audio stream
-        rg_system_set_tick_rate(AUDIO_SAMPLE_RATE / (gAudioBufferPointer / 2));
+        if (gAudioBufferPointer > 1) {
+            int lynxFps = AUDIO_SAMPLE_RATE / (gAudioBufferPointer / 2);
+            // Clamp to a safe range to avoid extreme values (Lynx hardware runs ~75Hz variable)
+            lynxFps = (lynxFps < 50) ? 50 : (lynxFps > 80) ? 80 : lynxFps;
+            rg_system_set_tick_rate(lynxFps);
+        }
         rg_system_tick(rg_system_timer() - startTime);
 
         rg_audio_submit((const rg_audio_frame_t *)gAudioBuffer, gAudioBufferPointer / 2);
@@ -291,5 +296,7 @@ extern "C" void lynx_main(void)
 
 
         gAudioBufferPointer = 0;
+
+        rg_system_sync_frame(startTime);
     }
 }

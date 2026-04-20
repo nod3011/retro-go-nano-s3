@@ -450,7 +450,7 @@ rg_app_t *rg_system_init(int sampleRate, const rg_handlers_t *handlers, void *_u
         .tickRate = 60,
         .frameTime = 1000000 / 60,
         .frameskip = 1, // This can be overriden on a per-app basis if needed, do not set 0 here!
-        .overclock = 0,
+        .overclock = 1,
         .tickTimeout = 3000000,
         .lowMemoryMode = false,
         .enWatchdog = true,
@@ -566,6 +566,10 @@ rg_app_t *rg_system_init(int sampleRate, const rg_handlers_t *handlers, void *_u
     RG_LOGI("Available memory: %d/%d + %d/%d", statistics.freeMemoryInt / 1024, statistics.totalMemoryInt / 1024,
             statistics.freeMemoryExt / 1024, statistics.totalMemoryExt / 1024);
     RG_LOGI("Retro-Go ready.\n\n");
+
+    // Apply default overclock level to hardware. Emulators that need a higher level
+    // will call rg_system_set_overclock() again themselves after init.
+    rg_system_set_overclock(app.overclock);
 
     return &app;
 }
