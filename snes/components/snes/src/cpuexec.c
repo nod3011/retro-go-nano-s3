@@ -74,7 +74,7 @@ void IRAM_ATTR S9xMainLoop()
    CPU.Flags &= ~SCAN_KEYS_FLAG;
 }
 
-void S9xSetIRQ(uint32_t source)
+void IRAM_ATTR S9xSetIRQ(uint32_t source)
 {
    CPU.IRQActive |= source;
    CPU.Flags |= IRQ_PENDING_FLAG;
@@ -89,12 +89,12 @@ void S9xSetIRQ(uint32_t source)
    }
 }
 
-void S9xClearIRQ(uint32_t source)
+void IRAM_ATTR S9xClearIRQ(uint32_t source)
 {
    CLEAR_IRQ_SOURCE(source);
 }
 
-void S9xDoHBlankProcessing()
+void IRAM_ATTR S9xDoHBlankProcessing()
 {
    CPU.WaitCounter++;
    switch (CPU.WhichEvent)

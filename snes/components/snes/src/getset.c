@@ -7,7 +7,7 @@
 
 extern uint8_t OpenBus;
 
-uint8_t S9xGetByte(uint32_t Address)
+uint8_t IRAM_ATTR S9xGetByte(uint32_t Address)
 {
    int32_t block = (Address >> MEMMAP_SHIFT) & MEMMAP_MASK;
    uint8_t* GetAddress = Memory.Map [block];
@@ -53,7 +53,7 @@ uint8_t S9xGetByte(uint32_t Address)
    }
 }
 
-uint16_t S9xGetWord(uint32_t Address)
+uint16_t IRAM_ATTR S9xGetWord(uint32_t Address)
 {
    if ((Address & 0x0fff) == 0x0fff)
    {
@@ -113,7 +113,7 @@ uint16_t S9xGetWord(uint32_t Address)
    }
 }
 
-void S9xSetByte(uint8_t Byte, uint32_t Address)
+void IRAM_ATTR S9xSetByte(uint8_t Byte, uint32_t Address)
 {
    int32_t block = (Address >> MEMMAP_SHIFT) & MEMMAP_MASK;
    uint8_t* SetAddress = Memory.Map[block];
@@ -176,7 +176,7 @@ void S9xSetByte(uint8_t Byte, uint32_t Address)
    }
 }
 
-void S9xSetWord(uint16_t Word, uint32_t Address)
+void IRAM_ATTR S9xSetWord(uint16_t Word, uint32_t Address)
 {
    if ((Address & 0x0FFF) == 0x0FFF)
    {
@@ -263,7 +263,7 @@ void S9xSetWord(uint16_t Word, uint32_t Address)
    }
 }
 
-uint8_t* GetBasePointer(uint32_t Address)
+uint8_t* IRAM_ATTR GetBasePointer(uint32_t Address)
 {
    uint8_t* GetAddress = Memory.Map [(Address >> MEMMAP_SHIFT) & MEMMAP_MASK];
    if (GetAddress >= (uint8_t*) MAP_LAST)
@@ -291,7 +291,7 @@ uint8_t* GetBasePointer(uint32_t Address)
    }
 }
 
-uint8_t* S9xGetMemPointer(uint32_t Address)
+uint8_t* IRAM_ATTR S9xGetMemPointer(uint32_t Address)
 {
    uint8_t* GetAddress = Memory.Map [(Address >> MEMMAP_SHIFT) & MEMMAP_MASK];
    if (GetAddress >= (uint8_t*) MAP_LAST)
@@ -323,7 +323,7 @@ uint8_t* S9xGetMemPointer(uint32_t Address)
    }
 }
 
-void S9xSetPCBase(uint32_t Address)
+void IRAM_ATTR S9xSetPCBase(uint32_t Address)
 {
    int32_t block = (Address >> MEMMAP_SHIFT) & MEMMAP_MASK;
    uint8_t* GetAddress = Memory.Map [block];
