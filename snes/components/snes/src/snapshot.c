@@ -115,6 +115,8 @@ bool S9xLoadState(const char *filename) {
   FixROMSpeed();
   IPPU.ColorsChanged = true;
   IPPU.OBJChanged = true;
+  memset(IPPU.TileCached, 0, MAX_2BIT_TILES);
+  PPU.RecomputeClipWindows = true;
   CPU.InDMA = false;
   CPU.PCAtOpcodeStart = NULL; // Invalidate stale pointers
   CPU.WaitAddress = NULL;
