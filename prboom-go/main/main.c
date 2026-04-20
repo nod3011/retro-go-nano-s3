@@ -506,6 +506,42 @@ void I_StartTic(void)
             while (*cheat) M_FindCheats(*cheat++);
             option_interrupted = true;
         }
+        else if (pressed & RG_KEY_UP)
+        {
+            const char *cheat = "idclip";
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
+        else if (pressed & RG_KEY_DOWN)
+        {
+            const char *cheat = "iddt"; // Full map / enemies
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
+        else if (pressed & RG_KEY_A)
+        {
+            const char *cheat = "idbeholdv"; // Invulnerability
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
+        else if (pressed & RG_KEY_B)
+        {
+            const char *cheat = "idbeholdr"; // Rad suit
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
+        else if (pressed & RG_KEY_LEFT)
+        {
+            const char *cheat = "idbeholdl"; // Light amp
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
+        else if (pressed & RG_KEY_RIGHT)
+        {
+            const char *cheat = "idchoppers"; // Chainsaw
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
 
         if ((joystick & RG_KEY_ALL) & ~RG_KEY_OPTION)
         {
