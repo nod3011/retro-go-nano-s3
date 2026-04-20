@@ -217,7 +217,29 @@ static void load_config() {
 }
 
 static bool screenshot_handler(const char *filename, int width, int height) {
-  return rg_surface_save_image_file(currentUpdate, filename, width, height);
+  if (!currentUpdate) {
+    RG_LOGE("Screenshot failed: currentUpdate is NULL\n");
+    return false;
+  }
+
+  // Ensure the directory exists before saving
+  char dir_path[256];
+  strncpy(dir_path, filename, sizeof(dir_path) - 1);
+  char *last_slash = strrchr(dir_path, '/');
+  if (last_slash) {
+    *last_slash = 0;
+    rg_storage_mkdir(dir_path);
+  }
+
+  RG_LOGI("Saving screenshot (%dx%d) to %s...\n", currentUpdate->width, currentUpdate->height, filename);
+
+  bool success = rg_surface_save_image_file(currentUpdate, filename, width, height);
+  if (!success) {
+    RG_LOGE("Failed to save screenshot to '%s'\n", filename);
+  } else {
+    RG_LOGI("Screenshot saved successfully.\n");
+  }
+  return success;
 }
 
 static bool save_state_handler(const char *filename) {

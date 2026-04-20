@@ -21,6 +21,7 @@ register_component()
 component_compile_options(
     -DLODEPNG_NO_COMPILE_ANCILLARY_CHUNKS
     -DLODEPNG_NO_COMPILE_ERROR_TEXT
+    -DLODEPNG_NO_COMPILE_ALLOCATORS
     -Os
     -Wno-unused-function
 )

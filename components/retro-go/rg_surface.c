@@ -4,6 +4,29 @@
 #include <lodepng.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
+
+#ifdef ESP_PLATFORM
+#include <esp_heap_caps.h>
+// Force LodePNG allocations into slower memory (PSRAM) to avoid OOM in emulators.
+void* lodepng_malloc(size_t size) {
+    return rg_alloc(size, MEM_SLOW | MEM_NOPANIC);
+}
+void* lodepng_realloc(void* ptr, size_t new_size) {
+    if (new_size == 0) {
+        free(ptr);
+        return NULL;
+    }
+    return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+void lodepng_free(void* ptr) {
+    free(ptr);
+}
+#else
+void* lodepng_malloc(size_t size) { return malloc(size); }
+void* lodepng_realloc(void* ptr, size_t new_size) { return realloc(ptr, new_size); }
+void lodepng_free(void* ptr) { free(ptr); }
+#endif
 
 #define CHECK_SURFACE(surface, retval)                                                                     \
     if (!surface || !surface->data)                                                                        \
