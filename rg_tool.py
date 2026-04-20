@@ -45,7 +45,7 @@ try:
 except:
     GIT_HASH = "unknown"
 
-PROJECT_VER = "nochii-1.021"
+PROJECT_VER = "nochii-1.022"
 FW_FORMAT = "none"
 
 TARGETS = []

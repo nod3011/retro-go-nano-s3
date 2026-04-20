@@ -90,13 +90,11 @@ static const struct {int mask; int *key;} keymap[] = {
     {RG_KEY_RIGHT, &key_right},
     {RG_KEY_A, &key_fire},
     {RG_KEY_A, &key_enter},
+    {RG_KEY_START, &key_use},
+    {RG_KEY_SELECT, &key_weapontoggle},
     {RG_KEY_B, &key_speed},
     {RG_KEY_B, &key_strafe},
     {RG_KEY_B, &key_backspace},
-    {RG_KEY_MENU, &key_escape},
-    {RG_KEY_OPTION, &key_map},
-    {RG_KEY_START, &key_use},
-    {RG_KEY_SELECT, &key_weapontoggle},
 };
 
 static const char *SETTING_GAMMA = "Gamma";
@@ -415,45 +413,149 @@ void I_SetMusicVolume(int volume)
     music_player->setvolume(volume);
 }
 
+extern boolean M_FindCheats(int key);
+
 void I_StartTic(void)
 {
     static int64_t last_time = 0;
-    static int32_t prev_joystick = 0x0000;
-    static int32_t rg_menu_delay = 0;
+    static uint32_t prev_joystick = 0;
+    static bool menu_interrupted = false;
+    static bool option_interrupted = false;
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t changed = prev_joystick ^ joystick;
+    uint32_t pressed = joystick & changed;
+    uint32_t released = prev_joystick & changed;
     event_t event = {0};
 
-    // Long press on menu will open retro-go's menu if needed, instead of DOOM's.
-    // This is still needed to quit (DOOM 2) and for the debug menu. We'll unify that mess soon...
-    if (joystick & (RG_KEY_MENU|RG_KEY_OPTION))
+    if (joystick & RG_KEY_MENU)
     {
-        if (joystick & RG_KEY_OPTION)
+        if (pressed & RG_KEY_START)
         {
-            Z_FreeTags(PU_CACHE, PU_CACHE); // At this point the heap is usually full. Let's reclaim some!
-            rg_gui_options_menu();
-            changed = 0;
+            event.type = ev_keydown;
+            event.data1 = key_quicksave;
+            D_PostEvent(&event);
+            event.type = ev_keyup;
+            D_PostEvent(&event);
+            menu_interrupted = true;
         }
-        else if (rg_menu_delay++ == TICRATE / 2)
+        else if (pressed & RG_KEY_SELECT)
         {
-            Z_FreeTags(PU_CACHE, PU_CACHE); // At this point the heap is usually full. Let's reclaim some!
-            rg_gui_game_menu();
+            event.type = ev_keydown;
+            event.data1 = key_quickload;
+            D_PostEvent(&event);
+            event.type = ev_keyup;
+            D_PostEvent(&event);
+            menu_interrupted = true;
         }
-        realtic_clock_rate = app->speed * 100;
-        R_InitInterpolation();
+        else if (pressed & RG_KEY_B)
+        {
+            event.type = ev_keydown;
+            event.data1 = key_map;
+            D_PostEvent(&event);
+            event.type = ev_keyup;
+            D_PostEvent(&event);
+            menu_interrupted = true;
+        }
+        else if (pressed & RG_KEY_UP)
+        {
+            autorun = !autorun;
+            menu_interrupted = true;
+        }
+        else if (pressed & RG_KEY_LEFT)
+        {
+            if (usegamma > 0) usegamma--;
+            V_SetPalette(0);
+            menu_interrupted = true;
+        }
+        else if (pressed & RG_KEY_RIGHT)
+        {
+            if (usegamma < 4) usegamma++;
+            V_SetPalette(0);
+            menu_interrupted = true;
+        }
+
+        if ((joystick & RG_KEY_ALL) & ~RG_KEY_MENU)
+        {
+            menu_interrupted = true;
+        }
     }
-    else
+    else if (prev_joystick & RG_KEY_MENU)
     {
-        rg_menu_delay = 0;
+        if (!menu_interrupted)
+        {
+            event.type = ev_keydown;
+            event.data1 = key_escape;
+            D_PostEvent(&event);
+            event.type = ev_keyup;
+            D_PostEvent(&event);
+        }
+        menu_interrupted = false;
+    }
+
+    if (joystick & RG_KEY_OPTION)
+    {
+        if (pressed & RG_KEY_SELECT)
+        {
+            const char *cheat = "iddqd";
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
+        else if (pressed & RG_KEY_START)
+        {
+            const char *cheat = "idkfa";
+            while (*cheat) M_FindCheats(*cheat++);
+            option_interrupted = true;
+        }
+
+        if ((joystick & RG_KEY_ALL) & ~RG_KEY_OPTION)
+        {
+            option_interrupted = true;
+        }
+    }
+    else if (prev_joystick & RG_KEY_OPTION)
+    {
+        if (!option_interrupted)
+        {
+            Z_FreeTags(PU_CACHE, PU_CACHE);
+            rg_gui_options_menu();
+            realtic_clock_rate = app->speed * 100;
+            R_InitInterpolation();
+        }
+        option_interrupted = false;
     }
 
     if (changed)
     {
+        // When a modifier is pressed, release all currently held standard keys to prevent stuck movement.
+        if (pressed & (RG_KEY_MENU | RG_KEY_OPTION))
+        {
+            for (int i = 0; i < RG_COUNT(keymap); i++)
+            {
+                if (prev_joystick & keymap[i].mask)
+                {
+                    event.type = ev_keyup;
+                    event.data1 = *keymap[i].key;
+                    D_PostEvent(&event);
+                }
+            }
+        }
+
         for (int i = 0; i < RG_COUNT(keymap); i++)
         {
             if (changed & keymap[i].mask)
             {
-                event.type = (joystick & keymap[i].mask) ? ev_keydown : ev_keyup;
+                bool is_down = (joystick & keymap[i].mask);
+
+                // If a modifier is held, suppress new key presses for standard actions.
+                if (is_down && (joystick & (RG_KEY_MENU | RG_KEY_OPTION))) continue;
+
+                // Special handling for B button and Always Run to avoid speed inversion.
+                if (keymap[i].mask == RG_KEY_B && *keymap[i].key == key_speed)
+                {
+                    if (is_down && autorun) continue;
+                }
+
+                event.type = is_down ? ev_keydown : ev_keyup;
                 event.data1 = *keymap[i].key;
                 D_PostEvent(&event);
             }
