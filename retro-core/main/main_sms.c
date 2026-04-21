@@ -2,9 +2,14 @@
 
 #include <smsplus.h>
 
+#undef AUDIO_SAMPLE_RATE
+#define AUDIO_SAMPLE_RATE 44100
+#define MIX_BUFFER_SIZE 2048
+
 static rg_app_t *app;
 static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
+static rg_audio_sample_t *mixbuffer = NULL;
 
 const rg_keyboard_layout_t coleco_keyboard = {
     .layout = "123" "456" "789" "*0#",
@@ -106,6 +111,11 @@ void sms_main(void)
     };
 
     app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+
+    if (!mixbuffer)
+    {
+        mixbuffer = rg_alloc(MIX_BUFFER_SIZE * sizeof(rg_audio_sample_t), MEM_FAST);
+    }
 
     updates[0] = rg_surface_create(SMS_WIDTH, SMS_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);
     updates[1] = rg_surface_create(SMS_WIDTH, SMS_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);
@@ -295,11 +305,18 @@ void sms_main(void)
 
         // The emulator's sound buffer isn't in a very convenient format, we must remix it.
         size_t sample_count = snd.sample_count;
-        rg_audio_sample_t mixbuffer[sample_count];
+        if (sample_count > MIX_BUFFER_SIZE) sample_count = MIX_BUFFER_SIZE;
+
         for (size_t i = 0; i < sample_count; i++)
         {
-            mixbuffer[i].left = snd.stream[0][i] * 2.75f;
-            mixbuffer[i].right = snd.stream[1][i] * 2.75f;
+            // Fixed-point scaling: 2.75 * 256 = 704
+            int32_t left = (snd.stream[0][i] * 704) >> 8;
+            int32_t right = (snd.stream[1][i] * 704) >> 8;
+            // Saturation/clipping
+            if (left > 32767) left = 32767; else if (left < -32768) left = -32768;
+            if (right > 32767) right = 32767; else if (right < -32768) right = -32768;
+            mixbuffer[i].left = (int16_t)left;
+            mixbuffer[i].right = (int16_t)right;
         }
 
         // Tick before submitting audio/syncing

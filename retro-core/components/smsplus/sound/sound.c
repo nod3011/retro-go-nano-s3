@@ -88,16 +88,19 @@ int sound_init(void)
   /* Allocate emulated sound streams */
   for(i = 0; i < STREAM_MAX; i++)
   {
-    snd.stream[i] = calloc(snd.buffer_size, 1);
+    snd.stream[i] = rg_alloc(snd.buffer_size, MEM_FAST);
     if(!snd.stream[i]) abort();
+    memset(snd.stream[i], 0, snd.buffer_size);
   }
 
   /* Allocate sound output streams for the generic mixer */
   if (snd.mixer_callback == sound_mixer_callback)
   {
-    snd.output[0] = calloc(snd.buffer_size, 1);
-    snd.output[1] = calloc(snd.buffer_size, 1);
+    snd.output[0] = rg_alloc(snd.buffer_size, MEM_FAST);
+    snd.output[1] = rg_alloc(snd.buffer_size, MEM_FAST);
     if(!snd.output[0] || !snd.output[1]) abort();
+    memset(snd.output[0], 0, snd.buffer_size);
+    memset(snd.output[1], 0, snd.buffer_size);
   }
 
   /* Set up buffer pointers */
@@ -237,10 +240,9 @@ void sound_mixer_callback(int16 **stream, int16 **output, int length)
   int i;
   for(i = 0; i < length; i++)
   {
-    //int16 temp = (fm_buffer[0][i] + fm_buffer[1][i]) / 2;
-    //int16 temp = psg_buffer[1][i];
-    output[0][i] = psg_buffer[0][i] * 2.75f;
-    output[1][i] = psg_buffer[1][i] * 2.75f;
+    // Fixed-point scaling: 2.75 * 256 = 704
+    output[0][i] = (psg_buffer[0][i] * 704) >> 8;
+    output[1][i] = (psg_buffer[1][i] * 704) >> 8;
   }
 }
 
