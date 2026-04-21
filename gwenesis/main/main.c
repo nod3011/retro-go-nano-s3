@@ -20,6 +20,9 @@ int ym2612_index;
 int ym2612_clock;
 rg_audio_frame_t gwenesis_mix_buffer[AUDIO_BUFFER_LENGTH];
 
+// DC blocker state - declared at file scope so it can be reset when game resets
+static int32_t audio_dc_offset = 0;
+
 static FILE *savestate_fp = NULL;
 static int savestate_errors = 0;
 
@@ -259,6 +262,7 @@ static bool load_state_handler(const char *filename) {
 }
 
 static bool reset_handler(bool hard) {
+  audio_dc_offset = 0; // Clear DC blocker state to prevent pop on reset
   reset_emulation();
   return true;
 }
@@ -266,6 +270,12 @@ static bool reset_handler(bool hard) {
 static void event_handler(int event, void *arg) {
   if (event == RG_EVENT_REDRAW) {
     rg_display_submit(currentUpdate, 0);
+  }
+  // After overclock change, the I2S driver may have been told a wrong sample rate.
+  // Force it back to the Gwenesis fixed rate so audio doesn't disappear.
+  if (event == RG_EVENT_SPEEDUP) {
+    rg_audio_set_sample_rate(AUDIO_SAMPLE_RATE);
+    audio_dc_offset = 0;
   }
 }
 
@@ -369,8 +379,10 @@ void app_main(void) {
   }
 
   RG_LOGI("load_cartridge(%p, %zu)\n", rom_data, rom_size);
+  // In RETRO_GO mode, ROM_DATA = buffer (takes direct ownership, do NOT free).
+  // If not RETRO_GO, load_cartridge does memcpy internally so buffer can be freed after.
   load_cartridge(rom_data, rom_size);
-  // free(rom_data); // load_cartridge takes ownership
+  // rom_data is now owned by ROM_DATA pointer in gwenesis_bus.c — do not free!
 
   RG_LOGI("power_on()\n");
   power_on();
@@ -559,10 +571,16 @@ void app_main(void) {
       size_t count = (ym2612_index > sn76489_index) ? ym2612_index : sn76489_index;
       if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
 
+      static int32_t dc_offset = 0;
+
       for (size_t i = 0; i < count; i++) {
         int32_t sample = 0;
         if (yfm_enabled && i < ym2612_index) sample += gwenesis_ym2612_buffer[i];
         if (sn76489_enabled && i < sn76489_index) sample += gwenesis_sn76489_buffer[i];
+
+        // DC Blocker (High-pass filter ~2Hz) — removes DC offset/static tail
+        audio_dc_offset += (sample - (audio_dc_offset >> 12));
+        sample -= (audio_dc_offset >> 12);
 
         if (sample > 32767) sample = 32767;
         else if (sample < -32768) sample = -32768;

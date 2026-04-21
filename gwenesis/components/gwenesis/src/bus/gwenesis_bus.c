@@ -79,6 +79,9 @@ extern unsigned short gwenesis_vdp_status;
 int tmss_state = 0;
 int tmss_count = 0;
 
+// Z80 bank register: Z80 maps 32KB window into M68K space at 0x6000-0x7FFF
+static unsigned int z80_bank_reg = 0; // 9-bit bank address (bits 23-15 of M68K addr)
+
 /******************************************************************************
  *
  *   Load a Sega Genesis Cartridge into CPU Memory
@@ -197,6 +200,8 @@ void power_on() {
  *
  ******************************************************************************/
 void reset_emulation() {
+  // Reset Z80 bank register
+  z80_bank_reg = 0;
   // Send a reset pulse to Z80 CPU
   z80_pulse_reset();
   // Send a reset pulse to Z80 M68K
@@ -431,8 +436,11 @@ IRAM_ATTR unsigned int gwenesis_bus_read_memory_8(unsigned int address) {
   case Z80_SN76489_ADDR:
     return 0xff;
 
-  case Z80_BANK_ADDR:
-    return 0xff;
+  case Z80_BANK_ADDR: {
+    // Z80 reads from M68K banked window (0x6000-0x7FFF maps to bank_reg << 15)
+    unsigned int m68k_addr = (z80_bank_reg << 15) | (address & 0x7FFF);
+    return gwenesis_bus_read_memory_8(m68k_addr);
+  }
 
   case TMSS_CTRL:
     bus_log(__FUNCTION__,"TMS");
@@ -484,8 +492,11 @@ IRAM_ATTR unsigned int gwenesis_bus_read_memory_16(unsigned int address) {
   case Z80_SN76489_ADDR:
     return 0xff;
 
-  case Z80_BANK_ADDR:
-    return 0xff;
+  case Z80_BANK_ADDR: {
+    // Z80 reads 16-bit from M68K banked window
+    unsigned int m68k_addr = (z80_bank_reg << 15) | (address & 0x7FFE);
+    return gwenesis_bus_read_memory_16(m68k_addr);
+  }
 
   default:
     bus_log(__FUNCTION__,"read mem 16 default %x", address);
@@ -539,7 +550,8 @@ IRAM_ATTR void gwenesis_bus_write_memory_8(unsigned int address,
     return;
 
   case Z80_BANK_ADDR:
-  //TODO
+    // Bit 0 of data shifts the 9-bit bank register (serial shift register)
+    z80_bank_reg = ((z80_bank_reg >> 1) | ((value & 1) << 8)) & 0x1FF;
     return;
 
   case TMSS_CTRL:

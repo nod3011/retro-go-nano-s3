@@ -2064,9 +2064,10 @@ static inline IRAM_ATTR void YM2612Update(int16_t *buffer, int length)
     }
     else
     {
-      /* DAC Mode */
-      out_fm[5] = ym2612.dacout;
+      /* DAC Mode: calculate only 5 FM channels (ch3 is replaced by DAC) */
       chan_calc(&ym2612.CH[0],5);
+      /* Set DAC output AFTER chan_calc so it isn't cleared by it */
+      out_fm[5] = ym2612.dacout;
     }
 
     /* advance LFO */

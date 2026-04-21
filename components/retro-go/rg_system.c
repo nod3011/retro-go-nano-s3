@@ -569,7 +569,10 @@ rg_app_t *rg_system_init(int sampleRate, const rg_handlers_t *handlers, void *_u
 
     // Apply default overclock level to hardware. Emulators that need a higher level
     // will call rg_system_set_overclock() again themselves after init.
-    rg_system_set_overclock(app.overclock);
+    // Load per-ROM setting (NS_FILE), fall back to per-app (NS_APP), then hardware default.
+    double app_oc = rg_settings_get_number(NS_APP, "overclock", app.overclock);
+    int saved_overclock = (int)rg_settings_get_number(NS_FILE, "overclock", app_oc);
+    rg_system_set_overclock(saved_overclock);
 
     return &app;
 }
@@ -1330,6 +1333,9 @@ void rg_system_set_overclock(int level)
     overclockMhz = real_mhz;
 
     RG_LOGI("Overclock level %d applied: %d MHz", level, real_mhz);
+
+    // Notify apps that timing has changed so they can re-sync their audio drivers
+    rg_system_event(RG_EVENT_SPEEDUP, NULL);
 #else
     RG_LOGE("Overclock not supported on this platform!");
 #endif

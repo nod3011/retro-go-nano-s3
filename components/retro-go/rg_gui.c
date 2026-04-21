@@ -1612,12 +1612,14 @@ static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event
         if (--level < min)
             level = max;
         rg_system_set_overclock(level);
+        rg_settings_set_number(NS_FILE, "overclock", level);
     }
     else if (event == RG_DIALOG_NEXT)
     {
         if (++level > max)
             level = min;
         rg_system_set_overclock(level);
+        rg_settings_set_number(NS_FILE, "overclock", level);
     }
 
     if (event == RG_DIALOG_INIT || event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
