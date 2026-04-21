@@ -13,23 +13,23 @@
 #define s1_freq()                                                              \
   {                                                                            \
     int d = 2048 - (((R_NR14 & 7) << 8) + R_NR13);                             \
-    S1.freq = (snd.rate > (d << 4)) ? 0 : (snd.rate << 17) / d;                \
+    S1.freq = (snd.rate > (d << (4 + 8))) ? 0 : ((uint64_t)snd.rate << 17) / d; \
   }
 #define s2_freq()                                                              \
   {                                                                            \
     int d = 2048 - (((R_NR24 & 7) << 8) + R_NR23);                             \
-    S2.freq = (snd.rate > (d << 4)) ? 0 : (snd.rate << 17) / d;                \
+    S2.freq = (snd.rate > (d << (4 + 8))) ? 0 : ((uint64_t)snd.rate << 17) / d; \
   }
 #define s3_freq()                                                              \
   {                                                                            \
     int d = 2048 - (((R_NR34 & 7) << 8) + R_NR33);                             \
-    S3.freq = (snd.rate > (d << 3)) ? 0 : (snd.rate << 21) / d;                \
+    S3.freq = (snd.rate > (d << (3 + 8))) ? 0 : ((uint64_t)snd.rate << 21) / d; \
   }
 #define s4_freq()                                                              \
   {                                                                            \
-    S4.freq = (freqtab[R_NR43 & 7] >> (R_NR43 >> 4)) * snd.rate;               \
-    if (S4.freq >> 18)                                                         \
-      S4.freq = 1 << 18;                                                       \
+    S4.freq = (freqtab[R_NR43 & 7] >> (R_NR43 >> 4)) * (uint64_t)snd.rate;      \
+    if (S4.freq >> (18 + 8))                                                  \
+      S4.freq = 1 << (18 + 8);                                                \
   }
 
 static gb_snd_t snd;
@@ -93,7 +93,7 @@ void gb_sound_reset(bool hard) {
   memset(&snd, 0, sizeof(snd));
   memcpy(snd.wave, IS_CGB ? cgbwave : dmgwave, 16);
   memcpy(GB.ioregs + 0x30, snd.wave, 16);
-  snd.rate = (int)(((1 << 21) / (double)host.audio.samplerate) + 0.5);
+  snd.rate = (int)(((uint64_t)(1 << 21) << 8) / host.audio.samplerate);
   GB.audio.pos = 0;
   sound_off();
   R_NR52 = 0xF1;
@@ -112,13 +112,13 @@ void IRAM_ATTR gb_sound_emulate(void) {
     int r = 0;
 
     if (S1.on) {
-      int s = sqwave[R_NR11 >> 6][(S1.pos >> 18) & 7] & S1.envol;
+      int s = sqwave[R_NR11 >> 6][(S1.pos >> (18 + 8)) & 7] & S1.envol;
       S1.pos += S1.freq;
 
-      if ((R_NR14 & 64) && ((S1.cnt += snd.rate) >= S1.len))
+      if ((R_NR14 & 64) && ((S1.cnt += (snd.rate >> 8)) >= S1.len))
         S1.on = 0;
 
-      if (S1.enlen && (S1.encnt += snd.rate) >= S1.enlen) {
+      if (S1.enlen && (S1.encnt += (snd.rate >> 8)) >= S1.enlen) {
         S1.encnt -= S1.enlen;
         S1.envol += S1.endir;
         if (S1.envol < 0)
@@ -127,7 +127,7 @@ void IRAM_ATTR gb_sound_emulate(void) {
           S1.envol = 15;
       }
 
-      if (S1.swlen && (S1.swcnt += snd.rate) >= S1.swlen) {
+      if (S1.swlen && (S1.swcnt += (snd.rate >> 8)) >= S1.swlen) {
         S1.swcnt -= S1.swlen;
         int f = S1.swfreq;
 
@@ -153,13 +153,13 @@ void IRAM_ATTR gb_sound_emulate(void) {
     }
 
     if (S2.on) {
-      int s = sqwave[R_NR21 >> 6][(S2.pos >> 18) & 7] & S2.envol;
+      int s = sqwave[R_NR21 >> 6][(S2.pos >> (18 + 8)) & 7] & S2.envol;
       S2.pos += S2.freq;
 
-      if ((R_NR24 & 64) && ((S2.cnt += snd.rate) >= S2.len))
+      if ((R_NR24 & 64) && ((S2.cnt += (snd.rate >> 8)) >= S2.len))
         S2.on = 0;
 
-      if (S2.enlen && (S2.encnt += snd.rate) >= S2.enlen) {
+      if (S2.enlen && (S2.encnt += (snd.rate >> 8)) >= S2.enlen) {
         S2.encnt -= S2.enlen;
         S2.envol += S2.endir;
         if (S2.envol < 0)
@@ -175,9 +175,9 @@ void IRAM_ATTR gb_sound_emulate(void) {
     }
 
     if (S3.on) {
-      int s = snd.wave[(S3.pos >> 22) & 15];
+      int s = snd.wave[(S3.pos >> (22 + 8)) & 15];
 
-      if (S3.pos & (1 << 21))
+      if (S3.pos & (1 << (21 + 8)))
         s &= 15;
       else
         s >>= 4;
@@ -185,7 +185,7 @@ void IRAM_ATTR gb_sound_emulate(void) {
       s -= 8;
       S3.pos += S3.freq;
 
-      if ((R_NR34 & 64) && ((S3.cnt += snd.rate) >= S3.len))
+      if ((R_NR34 & 64) && ((S3.cnt += (snd.rate >> 8)) >= S3.len))
         S3.on = 0;
 
       if (R_NR32 & 96)
@@ -203,17 +203,17 @@ void IRAM_ATTR gb_sound_emulate(void) {
       int s;
 
       if (R_NR43 & 8)
-        s = 1 & (noise7[(S4.pos >> 20) & 15] >> (7 - ((S4.pos >> 17) & 7)));
+        s = 1 & (noise7[(S4.pos >> (20 + 8)) & 15] >> (7 - ((S4.pos >> (17 + 8)) & 7)));
       else
-        s = 1 & (noise15[(S4.pos >> 20) & 4095] >> (7 - ((S4.pos >> 17) & 7)));
+        s = 1 & (noise15[(S4.pos >> (20 + 8)) & 4095] >> (7 - ((S4.pos >> (17 + 8)) & 7)));
 
       s = (-s) & S4.envol;
       S4.pos += S4.freq;
 
-      if ((R_NR44 & 64) && ((S4.cnt += snd.rate) >= S4.len))
+      if ((R_NR44 & 64) && ((S4.cnt += (snd.rate >> 8)) >= S4.len))
         S4.on = 0;
 
-      if (S4.enlen && (S4.encnt += snd.rate) >= S4.enlen) {
+      if (S4.enlen && (S4.encnt += (snd.rate >> 8)) >= S4.enlen) {
         S4.encnt -= S4.enlen;
         S4.envol += S4.endir;
         if (S4.envol < 0)

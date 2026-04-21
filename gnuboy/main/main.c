@@ -3,7 +3,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define AUDIO_SAMPLE_RATE (32000)
+#define AUDIO_SAMPLE_RATE (44100)
 #define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 25 + 2)
 
 static int skipFrames = 0;
@@ -334,7 +334,7 @@ void app_main(void) {
 #endif
 
   gnuboy_set_framebuffer(currentUpdate->data);
-  gnuboy_set_soundbuffer(rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_SLOW), AUDIO_BUFFER_LENGTH);
+  gnuboy_set_soundbuffer(rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_FAST), AUDIO_BUFFER_LENGTH);
 
   void *rom_data = NULL;
   size_t rom_size = 0;
