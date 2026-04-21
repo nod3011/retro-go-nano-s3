@@ -914,8 +914,10 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
         selected_index += options_count;
 
     rg_gui_event_t event = RG_DIALOG_VOID;
-    uint32_t joystick = 0, joystick_old;
-    uint64_t joystick_last = 0;
+    uint32_t joystick = 0, joystick_old = 0;
+    uint64_t joystick_last = 0;   // time of last key-state change
+    int64_t  joystick_repeat = 0; // time when next auto-repeat fires
+    int      joystick_repeats = 0;
     bool redraw = false;
     int sel = RG_MIN(RG_MAX(0, selected_index), options_count - 1);
     int sel_old = -1;
@@ -928,12 +930,32 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
     while (event != RG_DIALOG_SELECT && event != RG_DIALOG_CANCEL)
     {
 
-        // TO DO: Add acceleration!
-        joystick_old = ((rg_system_timer() - joystick_last) > 300000) ? 0 : joystick;
+        // 2-stage key repeat: 250ms initial delay, then 100ms per tick
+        // joystick_old tracks what key was active at the last event so that
+        // a NEW press always fires immediately regardless of timing.
+        int64_t now = rg_system_timer();
         joystick = rg_input_read_gamepad();
         event = RG_DIALOG_VOID;
+        bool key_changed = (joystick ^ joystick_old) != 0;
+        bool repeat_ready = joystick && !key_changed && (now >= joystick_repeat);
 
-        if (joystick ^ joystick_old)
+        if (key_changed)
+        {
+            joystick_old = joystick;
+            joystick_last = now;
+            joystick_repeats = 0;
+            joystick_repeat = now + 250000; // 250ms before first repeat
+        }
+        else if (repeat_ready)
+        {
+            joystick_repeats++;
+            joystick_repeat = now + 100000; // 100ms between subsequent repeats
+        }
+
+        // Only dispatch the event if this is a new press or a repeat tick
+        bool dispatch = key_changed || repeat_ready;
+
+        if (dispatch)
         {
             bool active_selection = options_count && options[sel].flags == RG_DIALOG_FLAG_NORMAL;
             rg_gui_callback_t callback = active_selection ? options[sel].update_cb : NULL;
@@ -972,7 +994,7 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
                 event = RG_DIALOG_SELECT;
             }
 
-            joystick_last = rg_system_timer();
+            joystick_last = rg_system_timer(); // update timestamp on every dispatch
         }
 
         if (sel_old != sel)

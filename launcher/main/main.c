@@ -230,11 +230,11 @@ static void retro_loop(void) {
       if (prev_joystick != gui.joystick) {
         joystick = gui.joystick;
         repeats = 0;
-        next_repeat = rg_system_timer() + 400000;
+        next_repeat = rg_system_timer() + 250000; // 250ms initial delay
       } else if ((rg_system_timer() - next_repeat) >= 0) {
         joystick = gui.joystick;
         repeats++;
-        next_repeat = rg_system_timer() + 400000 / (repeats + 1);
+        next_repeat = rg_system_timer() + 200000 / (repeats + 1); // accelerating repeat
       }
     }
 
