@@ -76,6 +76,9 @@ void gwenesis_SN76489_Init( int PSGClockValue, int SamplingRate,int freq_divisor
 {
     gwenesis_SN76489.dClock=(float)PSGClockValue/16/SamplingRate;
     gwenesis_SN76489.divisor = freq_divisor;
+    gwenesis_SN76489.Clock = gwenesis_SN76489.dClock;
+    gwenesis_SN76489.NumClocksForSample = (int)gwenesis_SN76489.Clock;
+    gwenesis_SN76489.Clock -= gwenesis_SN76489.NumClocksForSample;
 
     gwenesis_SN76489_Reset();
 }
@@ -135,6 +138,8 @@ int gwenesis_SN76489_GetContextSize(void)
 static inline IRAM_ATTR void gwenesis_SN76489_Update(INT16 *buffer, int length)
 {
     int i, j;
+
+    if (gwenesis_SN76489.dClock <= 0.0f) return;
 
     for(j = 0; j < length; j++)
     {

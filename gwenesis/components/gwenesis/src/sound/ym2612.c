@@ -2111,18 +2111,8 @@ static inline IRAM_ATTR void YM2612Update(int16_t *buffer, int length)
     lt += ((out_fm[5]) & ym2612.OPN.pan[10]);
     rt += ((out_fm[5]) & ym2612.OPN.pan[11]);
     #endif
-    lt  = out_fm[0];
-   // rt  = out_fm[0];
-    lt += out_fm[1];
-   // rt += out_fm[1];
-    lt += out_fm[2];
-   // rt += out_fm[2];
-    lt += out_fm[3];
-   // rt += out_fm[3];
-    lt += out_fm[4];
-    //rt += out_fm[4];
-    lt += out_fm[5];
-   // rt += out_fm[5];
+    lt  = out_fm[0] + out_fm[1] + out_fm[2] + out_fm[3] + out_fm[4] + out_fm[5];
+    lt >>= 1; // Prevent overflow (6 * 8192 = 49152 > 32767)
 
     *buffer++ = lt;
 

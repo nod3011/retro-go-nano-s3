@@ -18,6 +18,7 @@ int sn76489_clock;
 int16_t gwenesis_ym2612_buffer[AUDIO_BUFFER_LENGTH];
 int ym2612_index;
 int ym2612_clock;
+rg_audio_frame_t gwenesis_mix_buffer[AUDIO_BUFFER_LENGTH];
 
 static FILE *savestate_fp = NULL;
 static int savestate_errors = 0;
@@ -158,6 +159,11 @@ static rg_gui_event_t z80_update_cb(rg_gui_option_t *option,
   if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
     z80_enabled = !z80_enabled;
     rg_settings_set_number(NS_APP, SETTING_Z80_EMULATION, z80_enabled);
+    if (!z80_enabled) {
+      zclk = 0x1000000;
+    } else {
+      zclk = 0;
+    }
   }
   strcpy(option->value, z80_enabled ? _("On") : _("Off"));
 
@@ -324,7 +330,7 @@ void app_main(void) {
       .options = &options_handler,
   };
 
-  app = rg_system_init(AUDIO_SAMPLE_RATE / 2, &handlers, NULL);
+  app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
   app->screenSync = 1;
   rg_system_set_overclock(2);
 
@@ -549,9 +555,25 @@ void app_main(void) {
 
     rg_system_tick(rg_system_timer() - startTime);
 
-    if (yfm_enabled || z80_enabled) {
-      // TODO: Mix in gwenesis_sn76489_buffer
-      rg_audio_submit((void *)gwenesis_ym2612_buffer, AUDIO_BUFFER_LENGTH >> 1);
+    if (yfm_enabled || sn76489_enabled) {
+      size_t count = (ym2612_index > sn76489_index) ? ym2612_index : sn76489_index;
+      if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
+
+      for (size_t i = 0; i < count; i++) {
+        int32_t sample = 0;
+        if (yfm_enabled && i < ym2612_index) sample += gwenesis_ym2612_buffer[i];
+        if (sn76489_enabled && i < sn76489_index) sample += gwenesis_sn76489_buffer[i];
+
+        if (sample > 32767) sample = 32767;
+        else if (sample < -32768) sample = -32768;
+
+        gwenesis_mix_buffer[i].left = (int16_t)sample;
+        gwenesis_mix_buffer[i].right = (int16_t)sample;
+      }
+      
+      if (count > 0) {
+        rg_audio_submit(gwenesis_mix_buffer, count);
+      }
     }
 
     if (skipFrames == 0) {
