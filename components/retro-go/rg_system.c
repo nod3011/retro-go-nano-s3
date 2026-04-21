@@ -1320,11 +1320,6 @@ void rg_system_set_overclock(int level)
     // ets_update_cpu_frequency(real_mhz);
 #elif CONFIG_IDF_TARGET_ESP32S3
     // On S3, we skip UART update for now as it may cause issues with USB-CDC console.
-    if (strcmp(rg_audio_get_sink()->name, "Ext DAC") != 0)
-        rg_audio_set_sample_rate(app.sampleRate * (240.0 / real_mhz));
-    
-    // Notify the system of the new APB frequency so internal drivers can calibrate correctly.
-    // esp_timer_impl_update_apb_freq(80.0 / 240.0 * real_mhz); 
 #endif
 
     app.frameskip = 0; // Keeping 60FPS as per user preference for smooth motion
@@ -1333,9 +1328,6 @@ void rg_system_set_overclock(int level)
     overclockMhz = real_mhz;
 
     RG_LOGI("Overclock level %d applied: %d MHz", level, real_mhz);
-
-    // Notify apps that timing has changed so they can re-sync their audio drivers
-    rg_system_event(RG_EVENT_SPEEDUP, NULL);
 #else
     RG_LOGE("Overclock not supported on this platform!");
 #endif

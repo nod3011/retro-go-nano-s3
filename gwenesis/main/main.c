@@ -12,13 +12,19 @@ extern int zclk;
 int system_clock;
 int scan_line;
 
-int16_t gwenesis_sn76489_buffer[AUDIO_BUFFER_LENGTH];
+// Audio buffers MUST be in internal DRAM (not PSRAM) because:
+// 1. I2S DMA accesses them directly; if in PSRAM, the SPI clock divider at OC3+
+//    (/8 instead of /7) causes DMA stalls and complete audio silence.
+// 2. DRAM_ATTR forces placement in .dram0.data (fast internal SRAM, writable).
+//    NOTE: Do NOT use IRAM_ATTR here — that targets .iram0.text (instruction RAM),
+//    which is read-only on ESP32-S3 and would cause a CPU exception on writes.
+DRAM_ATTR int16_t gwenesis_sn76489_buffer[AUDIO_BUFFER_LENGTH];
 int sn76489_index;
 int sn76489_clock;
-int16_t gwenesis_ym2612_buffer[AUDIO_BUFFER_LENGTH];
+DRAM_ATTR int16_t gwenesis_ym2612_buffer[AUDIO_BUFFER_LENGTH];
 int ym2612_index;
 int ym2612_clock;
-rg_audio_frame_t gwenesis_mix_buffer[AUDIO_BUFFER_LENGTH];
+static DRAM_ATTR rg_audio_frame_t gwenesis_mix_buffer[AUDIO_BUFFER_LENGTH];
 
 // DC blocker state - declared at file scope so it can be reset when game resets
 static int32_t audio_dc_offset = 0;
@@ -271,12 +277,6 @@ static void event_handler(int event, void *arg) {
   if (event == RG_EVENT_REDRAW) {
     rg_display_submit(currentUpdate, 0);
   }
-  // After overclock change, the I2S driver may have been told a wrong sample rate.
-  // Force it back to the Gwenesis fixed rate so audio doesn't disappear.
-  if (event == RG_EVENT_SPEEDUP) {
-    rg_audio_set_sample_rate(AUDIO_SAMPLE_RATE);
-    audio_dc_offset = 0;
-  }
 }
 
 static void options_handler(rg_gui_option_t *dest) {
@@ -340,9 +340,13 @@ void app_main(void) {
       .options = &options_handler,
   };
 
-  app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
+  app = rg_system_init(AUDIO_SAMPLE_RATE / 2, &handlers, NULL);
   app->screenSync = 1;
-  rg_system_set_overclock(2);
+  // Only set default overclock=2 if the user hasn't saved a per-ROM preference.
+  // NS_FILE overclock was already loaded by rg_system_init — don't override it.
+  if (!rg_settings_exists(NS_FILE, "overclock")) {
+    rg_system_set_overclock(2);
+  }
 
   yfm_enabled = rg_settings_get_number(NS_APP, SETTING_YFM_EMULATION, 1);
   sn76489_enabled =
@@ -571,26 +575,32 @@ void app_main(void) {
       size_t count = (ym2612_index > sn76489_index) ? ym2612_index : sn76489_index;
       if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
 
-      static int32_t dc_offset = 0;
+      for (size_t i = 0; i < count / 2; i++) {
+        int32_t left = 0, right = 0;
+        
+        // Sample pair (2*i, 2*i+1) to convert 53kHz mono to 26kHz stereo
+        if (yfm_enabled) {
+          if (2 * i < ym2612_index) left += gwenesis_ym2612_buffer[2 * i];
+          if (2 * i + 1 < ym2612_index) right += gwenesis_ym2612_buffer[2 * i + 1];
+        }
+        if (sn76489_enabled) {
+          if (2 * i < sn76489_index) left += gwenesis_sn76489_buffer[2 * i];
+          if (2 * i + 1 < sn76489_index) right += gwenesis_sn76489_buffer[2 * i + 1];
+        }
 
-      for (size_t i = 0; i < count; i++) {
-        int32_t sample = 0;
-        if (yfm_enabled && i < ym2612_index) sample += gwenesis_ym2612_buffer[i];
-        if (sn76489_enabled && i < sn76489_index) sample += gwenesis_sn76489_buffer[i];
+        // DC Blocker & Clamping
+        audio_dc_offset += (left - (audio_dc_offset >> 12));
+        left -= (audio_dc_offset >> 12);
+        
+        if (left > 32767) left = 32767; else if (left < -32768) left = -32768;
+        if (right > 32767) right = 32767; else if (right < -32768) right = -32768;
 
-        // DC Blocker (High-pass filter ~2Hz) — removes DC offset/static tail
-        audio_dc_offset += (sample - (audio_dc_offset >> 12));
-        sample -= (audio_dc_offset >> 12);
-
-        if (sample > 32767) sample = 32767;
-        else if (sample < -32768) sample = -32768;
-
-        gwenesis_mix_buffer[i].left = (int16_t)sample;
-        gwenesis_mix_buffer[i].right = (int16_t)sample;
+        gwenesis_mix_buffer[i].left = (int16_t)left;
+        gwenesis_mix_buffer[i].right = (int16_t)right;
       }
       
       if (count > 0) {
-        rg_audio_submit(gwenesis_mix_buffer, count);
+        rg_audio_submit(gwenesis_mix_buffer, count / 2);
       }
     }
 

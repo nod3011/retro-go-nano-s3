@@ -1613,6 +1613,7 @@ static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event
             level = max;
         rg_system_set_overclock(level);
         rg_settings_set_number(NS_FILE, "overclock", level);
+        rg_settings_commit(); // Write to disk immediately so it persists on reboot
     }
     else if (event == RG_DIALOG_NEXT)
     {
@@ -1620,6 +1621,7 @@ static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event
             level = min;
         rg_system_set_overclock(level);
         rg_settings_set_number(NS_FILE, "overclock", level);
+        rg_settings_commit(); // Write to disk immediately so it persists on reboot
     }
 
     if (event == RG_DIALOG_INIT || event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT)
