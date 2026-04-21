@@ -1,6 +1,7 @@
 #include <rg_system.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <gwenesis.h>
 
@@ -407,6 +408,7 @@ void app_main(void) {
   extern int screen_width, screen_height;
   extern int hint_pending;
   extern int zclk;
+  extern bool gwenesis_cram_dirty;
 
   zclk = z80_enabled ? 0 : 0x1000000;
 
@@ -561,8 +563,18 @@ void app_main(void) {
     if (z80_enabled) zclk -= system_clock;
 
     if (drawFrame) {
-      for (int i = 0; i < 256; ++i)
-        currentUpdate->palette[i] = (CRAM565[i] << 8) | (CRAM565[i] >> 8);
+      // Palette optimization: CRAM565 stores 4 identical mirrors of 64 real colors.
+      // Only update the display palette when CRAM was actually written this frame.
+      if (gwenesis_cram_dirty) {
+        // Byte-swap 64 real colors from CRAM565[0..63] into palette[0..63]
+        for (int i = 0; i < 64; ++i)
+          currentUpdate->palette[i] = (CRAM565[i] << 8) | (CRAM565[i] >> 8);
+        // Replicate to the 3 mirror sections (palette[64..255]) via memcpy
+        memcpy(&currentUpdate->palette[64],  &currentUpdate->palette[0], 64 * sizeof(uint16_t));
+        memcpy(&currentUpdate->palette[128], &currentUpdate->palette[0], 64 * sizeof(uint16_t));
+        memcpy(&currentUpdate->palette[192], &currentUpdate->palette[0], 64 * sizeof(uint16_t));
+        gwenesis_cram_dirty = false;
+      }
       slowFrame = !rg_display_sync(false);
       currentUpdate->width = screen_width;
       currentUpdate->height = screen_height;

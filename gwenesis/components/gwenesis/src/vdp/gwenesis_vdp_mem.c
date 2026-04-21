@@ -98,6 +98,7 @@ static int hvcounter_latch = 0;
 static int hvcounter_latched = 0;
 
 int hint_pending;
+bool gwenesis_cram_dirty = false; // Set whenever CRAM565 is written; cleared by main loop after palette update
 
 
 // Define VIDEO MODE
@@ -462,6 +463,7 @@ IRAM_ATTR void gwenesis_vdp_dma_fill(unsigned short value)
       CRAM565[0x40 + ((address_reg & 0x7f) >> 1)] = pixel;
       CRAM565[0x80 + ((address_reg & 0x7f) >> 1)] = pixel;
       CRAM565[0xC0 + ((address_reg & 0x7f) >> 1)] = pixel;
+      gwenesis_cram_dirty = true;
 
       address_reg += REG15_DMA_INCREMENT;
       src_addr_low++;
@@ -562,6 +564,7 @@ IRAM_ATTR void gwenesis_vdp_dma_m68k()
           CRAM565[0x40 + ((address_reg & 0x7f) >> 1)] = pixel;
           CRAM565[0x80 + ((address_reg & 0x7f) >> 1)] = pixel;
           CRAM565[0xC0 + ((address_reg & 0x7f) >> 1)] = pixel;
+          gwenesis_cram_dirty = true;
 
           address_reg += REG15_DMA_INCREMENT;
           src_addr += 2;
@@ -626,6 +629,7 @@ IRAM_ATTR void gwenesis_vdp_dma_m68k()
           CRAM565[0x40 + ((address_reg & 0x7f) >> 1)] = pixel;
           CRAM565[0x80 + ((address_reg & 0x7f) >> 1)] = pixel;
           CRAM565[0xC0 + ((address_reg & 0x7f) >> 1)] = pixel;
+          gwenesis_cram_dirty = true;
 
           address_reg += REG15_DMA_INCREMENT;
           src_addr += 2;
@@ -869,6 +873,7 @@ IRAM_ATTR void gwenesis_vdp_write_data_port_16(unsigned int value)
             CRAM565[0x40 + ((address_reg & 0x7f) >> 1)] = pixel;
             CRAM565[0x80 + ((address_reg & 0x7f) >> 1)] = pixel;
             CRAM565[0xC0 + ((address_reg & 0x7f) >> 1)] = pixel;
+            gwenesis_cram_dirty = true;
 
             address_reg += REG15_DMA_INCREMENT;
             address_reg &= 0xFFFF;
