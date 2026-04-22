@@ -71,8 +71,8 @@ void vdpm_log(const char *subs, const char *fmt, ...) {
 
 unsigned short *CRAM;           // CRAM - Palettes
 unsigned char *SAT_CACHE;  // Sprite cache
-unsigned char gwenesis_vdp_regs[REG_SIZE];    // Registers
-unsigned short fifo[FIFO_SIZE];               // Fifo
+DRAM_ATTR unsigned char gwenesis_vdp_regs[REG_SIZE];    // Registers
+DRAM_ATTR unsigned short fifo[FIFO_SIZE];               // Fifo
 unsigned short *CRAM565;    // CRAM - Palettes
 unsigned short *VSRAM;         // VSRAM - Scrolling
 
@@ -83,7 +83,7 @@ static unsigned short address_reg = 0;
 // Define VDP control pending and set initial state
 int command_word_pending = 0;
 // Define VDP status and set initial status value
-unsigned short gwenesis_vdp_status = 0x3C00;
+DRAM_ATTR unsigned short gwenesis_vdp_status = 0x3C00;
 
 extern int scan_line;
 

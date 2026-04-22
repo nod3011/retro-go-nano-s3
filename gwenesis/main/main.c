@@ -6,7 +6,7 @@
 #include <gwenesis.h>
 
 #define AUDIO_SAMPLE_RATE (53267)
-#define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 60 + 1)
+#define AUDIO_BUFFER_LENGTH (1068) // Enough for 53kHz at 50Hz (PAL) plus jitter
 
 extern unsigned char *VRAM;
 extern int zclk;
@@ -27,8 +27,9 @@ int ym2612_index;
 int ym2612_clock;
 static DRAM_ATTR rg_audio_frame_t gwenesis_mix_buffer[AUDIO_BUFFER_LENGTH];
 
-// DC blocker state - declared at file scope so it can be reset when game resets
-static int32_t audio_dc_offset = 0;
+// DC blocker state in fast DRAM
+static DRAM_ATTR int32_t audio_dc_left = 0;
+static DRAM_ATTR int32_t audio_dc_right = 0;
 
 static FILE *savestate_fp = NULL;
 static int savestate_errors = 0;
@@ -72,6 +73,45 @@ static bool turbo_a_toggled = false;
 static bool turbo_b_toggled = false;
 static bool menu_cancelled = false;
 static int turbo_counter = 0;
+
+IRAM_ATTR static void gwenesis_audio_mix_and_submit(size_t count) {
+  if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
+  
+  for (size_t i = 0; i < count / 2; i++) {
+    int32_t mono = 0;
+    
+    // Downsample 53kHz to 26kHz by averaging pairs (Simple LPF)
+    if (yfm_enabled) {
+      int32_t s1 = (2 * i < ym2612_index) ? gwenesis_ym2612_buffer[2 * i] : 0;
+      int32_t s2 = (2 * i + 1 < ym2612_index) ? gwenesis_ym2612_buffer[2 * i + 1] : s1;
+      mono += (s1 + s2) >> 1;
+    }
+    if (sn76489_enabled) {
+      int32_t s1 = (2 * i < sn76489_index) ? gwenesis_sn76489_buffer[2 * i] : 0;
+      int32_t s2 = (2 * i + 1 < sn76489_index) ? gwenesis_sn76489_buffer[2 * i + 1] : s1;
+      mono += (s1 + s2) >> 1;
+    }
+
+    int32_t left = mono, right = mono;
+
+    // DC Blocker (Stereo) to prevent pops and ensure balanced output
+    audio_dc_left += (left - (audio_dc_left >> 12));
+    left -= (audio_dc_left >> 12);
+    audio_dc_right += (right - (audio_dc_right >> 12));
+    right -= (audio_dc_right >> 12);
+    
+    // Clamping to 16-bit range
+    if (left > 32767) left = 32767; else if (left < -32768) left = -32768;
+    if (right > 32767) right = 32767; else if (right < -32768) right = -32768;
+
+    gwenesis_mix_buffer[i].left = (int16_t)left;
+    gwenesis_mix_buffer[i].right = (int16_t)right;
+  }
+  
+  if (count > 0) {
+    rg_audio_submit(gwenesis_mix_buffer, count / 2);
+  }
+}
 
 static void load_config();
 static void save_config();
@@ -269,7 +309,8 @@ static bool load_state_handler(const char *filename) {
 }
 
 static bool reset_handler(bool hard) {
-  audio_dc_offset = 0; // Clear DC blocker state to prevent pop on reset
+  audio_dc_left = 0;
+  audio_dc_right = 0;
   reset_emulation();
   return true;
 }
@@ -585,35 +626,7 @@ void app_main(void) {
 
     if (yfm_enabled || sn76489_enabled) {
       size_t count = (ym2612_index > sn76489_index) ? ym2612_index : sn76489_index;
-      if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
-
-      for (size_t i = 0; i < count / 2; i++) {
-        int32_t left = 0, right = 0;
-        
-        // Sample pair (2*i, 2*i+1) to convert 53kHz mono to 26kHz stereo
-        if (yfm_enabled) {
-          if (2 * i < ym2612_index) left += gwenesis_ym2612_buffer[2 * i];
-          if (2 * i + 1 < ym2612_index) right += gwenesis_ym2612_buffer[2 * i + 1];
-        }
-        if (sn76489_enabled) {
-          if (2 * i < sn76489_index) left += gwenesis_sn76489_buffer[2 * i];
-          if (2 * i + 1 < sn76489_index) right += gwenesis_sn76489_buffer[2 * i + 1];
-        }
-
-        // DC Blocker & Clamping
-        audio_dc_offset += (left - (audio_dc_offset >> 12));
-        left -= (audio_dc_offset >> 12);
-        
-        if (left > 32767) left = 32767; else if (left < -32768) left = -32768;
-        if (right > 32767) right = 32767; else if (right < -32768) right = -32768;
-
-        gwenesis_mix_buffer[i].left = (int16_t)left;
-        gwenesis_mix_buffer[i].right = (int16_t)right;
-      }
-      
-      if (count > 0) {
-        rg_audio_submit(gwenesis_mix_buffer, count / 2);
-      }
+      gwenesis_audio_mix_and_submit(count);
     }
 
     if (skipFrames == 0) {

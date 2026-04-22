@@ -575,7 +575,7 @@ IRAM_ATTR int ExecZ80(register Z80 *R,register int RunCycles)
 /** IntZ80() *************************************************/
 /** This function will generate interrupt of given vector.  **/
 /*************************************************************/
-void IntZ80(Z80 *R,word Vector)
+IRAM_ATTR void IntZ80(Z80 *R,word Vector)
 {
   /* If HALTed, take CPU off HALT instruction */
   if(R->IFF&IFF_HALT) { R->PC.W++;R->IFF&=~IFF_HALT; }

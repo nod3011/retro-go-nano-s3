@@ -93,7 +93,7 @@ static int Window_lastcol;
 
 // 16 bits access to VRAM
 // #define FETCH16VRAM(A)  ({size_t addr = (A); (VRAM[addr+1]) | (VRAM[addr] << 8);})
-#define FETCH16VRAM(A)  ( (VRAM[(A)+1]) | (VRAM[(A)] << 8) )
+#define FETCH16VRAM(A)  ( __builtin_bswap16(*(uint16_t *)(VRAM + (A))) )
 #define VDP_GFX_DISABLE_LOGGING 1
 
 #if !VDP_GFX_DISABLE_LOGGING
@@ -567,7 +567,7 @@ unsigned int get_hscroll_vram(int line)
  *
  ******************************************************************************/
  //__attribute__((optimize("unroll-loops")))
-static inline __attribute__((always_inline))
+static inline __attribute__((always_inline)) IRAM_ATTR
 void draw_line_b(int line)
 {
   uint8_t *scr  = &render_buffer[PIX_OVERFLOW];
@@ -613,7 +613,7 @@ void draw_line_b(int line)
  *
  ******************************************************************************/
 //_attribute__((optimize("unroll-loops")))
-static inline __attribute__((always_inline))
+static inline __attribute__((always_inline)) IRAM_ATTR
 void draw_line_aw(int line) {
 
   uint8_t *scr  = &render_buffer[PIX_OVERFLOW];
@@ -707,7 +707,7 @@ void draw_line_aw(int line) {
  ******************************************************************************/
 
 //__attribute__((optimize("unroll-loops")))
-static inline __attribute__((always_inline)) 
+static inline __attribute__((always_inline)) IRAM_ATTR 
 void draw_sprites_over_planes(int line)
 {
     uint8_t *scr;
@@ -815,7 +815,7 @@ void draw_sprites_over_planes(int line)
   //  if (overdraw)
   //      sprite_collision = true;
 }
-static inline __attribute__((always_inline)) 
+static inline __attribute__((always_inline)) IRAM_ATTR 
 void draw_sprites(int line)
 {
   uint8_t *scr;
