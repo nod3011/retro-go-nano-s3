@@ -142,27 +142,18 @@ static void update_audio(int32_t *samples, size_t count) {
   if (count > 2048)
     count = 2048;
 
-  // DC blocker state (High-Pass Filter)
-  static int32_t prev_in = 0;
-  static int32_t prev_out = 0;
-  // Smoothing state (Low-Pass Filter)
-  static int32_t prev_s = 0;
+  // DC blocker state (Using high-precision leaky integrator)
+  static int32_t audio_dc_left = 0;
 
   for (size_t i = 0; i < count; i++) {
-    // 1. High-pass filter to remove DC offset
-    // y[n] = x[n] - x[n-1] + R * y[n-1] (R = 1016/1024 ~= 0.992)
     int32_t in = samples[i];
-    int32_t out = in - prev_in + (prev_out * 1016 >> 10);
-    prev_in = in;
-    prev_out = out;
+    
+    // 1. High-pass filter to remove DC offset (Megadrive-style stable logic)
+    audio_dc_left += (in - (audio_dc_left >> 13));
+    int32_t s = in - (audio_dc_left >> 13);
 
-    // 2. 1.5x gain for safer headroom
-    int32_t s = out + (out >> 1);
-
-    // 3. Weighted smoothing (from Nofrendo original) for better clarity
-    // y[n] = (3 * x[n] + y[n-1]) / 4
-    s = (s + s + s + prev_s) >> 2;
-    prev_s = s;
+    // 2. Unity gain (1.0x) to prevent clipping and keep sound "Direct"
+    // No extra smoothing filters to maintain crispness
 
     if (s > 32767) s = 32767;
     if (s < -32768) s = -32768;
@@ -699,8 +690,7 @@ void fceumm_main(void) {
   extern void FCEUI_DisableSpriteLimitation(int a);
   FCEUI_DisableSpriteLimitation(1); // Always disable by default
 
-  FSettings.soundq =
-      0; // Use LQ sound path for TARGET_GNW compatibility (FlushEmulateSound)
+  FSettings.soundq = 0; // Restore LQ mode for FPS stability
   FCEUI_Sound(app->sampleRate);
   FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
 

@@ -995,20 +995,16 @@ static int32 inbuf = 0;
 int FlushEmulateSound(void) {
   int x;
   int32 end;
-#ifndef TARGET_GNW
   int32 left;
-#endif
 
   if (!sound_timestamp)
     return (0);
 
-#ifndef TARGET_GNW
   if (!FSettings.SndRate) {
     left = 0;
     end = 0;
     goto nosoundo;
   }
-#endif
 
   DoSQ1();
   DoSQ2();
@@ -1016,7 +1012,6 @@ int FlushEmulateSound(void) {
   DoNoise();
   DoPCM();
 
-#ifndef TARGET_GNW
   if (FSettings.soundq >= 1) {
     int32 *tmpo = &WaveHi[soundtsoffs];
 
@@ -1039,37 +1034,27 @@ int FlushEmulateSound(void) {
 
     for (x = 0; x < 5; x++)
       ChannelBC[x] = left;
-  } else
-#endif
-  {
-#ifndef TARGET_GNW
-    end = (SOUNDTS << 16) / soundtsinc;
-#else
+  } else {
     // We need precise 50 or 60Hz on the G&W
     end = (FSettings.SndRate / (PAL ? 50 : 60)) << 4;
-#endif
+
     if (GameExpSound.Fill)
       GameExpSound.Fill(end & 0xF);
 
     SexyFilter(Wave, WaveFinal, end >> 4);
 
-#ifndef TARGET_GNW
     if (FSettings.lowpass)
       SexyFilter2(WaveFinal, end >> 4);
-#endif
 
     if (end & 0xF)
       Wave[0] = Wave[(end >> 4)];
     Wave[end >> 4] = 0;
   }
-#ifndef TARGET_GNW
-nosoundo:
 
+nosoundo:
   if (FSettings.soundq >= 1) {
     soundtsoffs = left;
-  } else
-#endif
-  {
+  } else {
     for (x = 0; x < 5; x++)
       ChannelBC[x] = end & 0xF;
     soundtsoffs = (soundtsinc * (end & 0xF)) >> 16;
@@ -1220,14 +1205,12 @@ void FCEUI_Sound(int Rate) {
   SetSoundVariables();
 }
 
-#ifndef TARGET_GNW
 void FCEUI_SetLowPass(int q) { FSettings.lowpass = q; }
 
 void FCEUI_SetSoundQuality(int quality) {
   FSettings.soundq = quality;
   SetSoundVariables();
 }
-#endif
 
 void FCEUI_SetSoundVolume(uint32 volume) { FSettings.SoundVolume = volume; }
 

@@ -91,7 +91,7 @@ void SexyFilter(int32 *in, int32 *out, int32 count) {
 	code to be higher, or you *might* overflow the FIR code.
 */
 
-#ifndef TARGET_GNW
+
 int32 NeoFilterSound(int32 *in, int32 *out, uint32 inlen, int32 *leftover) {
 	uint32 x;
 	int32 *outsave = out;
@@ -151,43 +151,35 @@ int32 NeoFilterSound(int32 *in, int32 *out, uint32 inlen, int32 *leftover) {
 
 	return(count);
 }
-#endif
+
 
 void MakeFilters(int32 rate) {
 	int32 *tabs[6] = { C44100NTSC, C44100PAL, C48000NTSC, C48000PAL, C96000NTSC,
 					   C96000PAL };
-#ifndef TARGET_GNW
 	int32 *sq2tabs[6] = { SQ2C44100NTSC, SQ2C44100PAL, SQ2C48000NTSC, SQ2C48000PAL,
 						  SQ2C96000NTSC, SQ2C96000PAL };
-#endif
 
 	int32 *tmp;
 	int32 x;
 	uint32 nco;
 
-#ifndef TARGET_GNW
 	if (FSettings.soundq == 2)
 		nco = SQ2NCOEFFS;
 	else
-#endif
 		nco = NCOEFFS;
 
 	mrindex = (nco + 1) << 16;
 	mrratio = (PAL ? ((int64)PAL_CPU * 65536) : ((int64)NTSC_CPU * 65536)) / rate;
 
-#ifndef TARGET_GNW
 	if (FSettings.soundq == 2)
 		tmp = sq2tabs[(PAL ? 1 : 0) | (rate == 48000 ? 2 : 0) | (rate == 96000 ? 4 : 0)];
 	else
-#endif
 		tmp = tabs[(PAL ? 1 : 0) | (rate == 48000 ? 2 : 0) | (rate == 96000 ? 4 : 0)];
 
-#ifndef TARGET_GNW
 	if (FSettings.soundq == 2)
 		for (x = 0; x < (SQ2NCOEFFS >> 1); x++)
 			sq2coeffs[x] = sq2coeffs[SQ2NCOEFFS - 1 - x] = tmp[x];
 	else
-#endif
 		for (x = 0; x < (NCOEFFS >> 1); x++)
 			coeffs[x] = coeffs[NCOEFFS - 1 - x] = tmp[x];
 }
