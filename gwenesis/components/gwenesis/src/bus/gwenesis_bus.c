@@ -628,7 +628,10 @@ IRAM_ATTR void gwenesis_bus_write_memory_16(unsigned int address,
  ******************************************************************************/
 IRAM_ATTR unsigned int m68k_read_memory_8(unsigned int address)
 {
-      //  if ((address &  0xFF0000 ) == 0xFF0000) return FETCH8RAM(address);
+    // Fast path for ROM (0x000000-0x3FFFFF) and RAM (0xFF0000-0xFFFFFF)
+    if (address < 0x400000) return FETCH8ROM(address);
+    if ((address & 0xFF0000) == 0xFF0000) return FETCH8RAM(address);
+    
     return gwenesis_bus_read_memory_8(address);
 }
 
@@ -638,9 +641,12 @@ IRAM_ATTR unsigned int m68k_read_memory_8(unsigned int address)
  *   Read an address from memory mapped and return value as word
  *
  ******************************************************************************/
- IRAM_ATTR unsigned int m68k_read_memory_16(unsigned int address)
+IRAM_ATTR unsigned int m68k_read_memory_16(unsigned int address)
 {
-     //   if ((address &  0xFF0000 ) == 0xFF0000) return FETCH16RAM(address);
+    // Fast path for ROM (0x000000-0x3FFFFF) and RAM (0xFF0000-0xFFFFFF)
+    if (address < 0x400000) return FETCH16ROM(address);
+    if ((address & 0xFF0000) == 0xFF0000) return FETCH16RAM(address);
+
     return gwenesis_bus_read_memory_16(address);
 }
 
@@ -650,9 +656,16 @@ IRAM_ATTR unsigned int m68k_read_memory_8(unsigned int address)
  *   Read an address from memory mapped and return value as long
  *
  ******************************************************************************/
- IRAM_ATTR unsigned int m68k_read_memory_32(unsigned int address)
+IRAM_ATTR unsigned int m68k_read_memory_32(unsigned int address)
 {
-  //  if ((address &  0xFF0000 ) == 0xFF0000) return FETCH32RAM(address);
+    // Fast path for ROM (0x000000-0x3FFFFF) and RAM (0xFF0000-0xFFFFFF)
+    if (address < 0x400000) {
+        return (FETCH16ROM(address) << 16) | FETCH16ROM(address + 2);
+    }
+    if ((address & 0xFF0000) == 0xFF0000) {
+        return (FETCH16RAM(address) << 16) | FETCH16RAM(address + 2);
+    }
+
     return (gwenesis_bus_read_memory_16(address) << 16) | gwenesis_bus_read_memory_16(address + 2);
 }
 
@@ -663,12 +676,12 @@ IRAM_ATTR unsigned int m68k_read_memory_8(unsigned int address)
  *
  ******************************************************************************/
 IRAM_ATTR void m68k_write_memory_8(unsigned int address, unsigned int value) {
-  // if ((address & 0xFF0000) == 0xFF0000) {
-  //   WRITE8RAM(address, value);
-  //   return;
-  // }
-  gwenesis_bus_write_memory_8(address, value);
-  return;
+    // Fast path for RAM (0xFF0000-0xFFFFFF)
+    if ((address & 0xFF0000) == 0xFF0000) {
+        WRITE8RAM(address, value);
+        return;
+    }
+    gwenesis_bus_write_memory_8(address, value);
 }
 
 /******************************************************************************
@@ -678,12 +691,12 @@ IRAM_ATTR void m68k_write_memory_8(unsigned int address, unsigned int value) {
  *
  ******************************************************************************/
 IRAM_ATTR void m68k_write_memory_16(unsigned int address, unsigned int value) {
-  // if ((address & 0xFF0000) == 0xFF0000) {
-  //   WRITE16RAM(address, value);
-  //   return;
-  // }
-  gwenesis_bus_write_memory_16(address, value);
-  return;
+    // Fast path for RAM (0xFF0000-0xFFFFFF)
+    if ((address & 0xFF0000) == 0xFF0000) {
+        WRITE16RAM(address, value);
+        return;
+    }
+    gwenesis_bus_write_memory_16(address, value);
 }
 /******************************************************************************
  *
@@ -692,15 +705,14 @@ IRAM_ATTR void m68k_write_memory_16(unsigned int address, unsigned int value) {
  *
  ******************************************************************************/
 IRAM_ATTR void m68k_write_memory_32(unsigned int address, unsigned int value) {
-
-  // if ((address & 0xFF0000) == 0xFF0000) {
-  //   WRITE32RAM(address, value);
-  //   return;
-  // }
-  gwenesis_bus_write_memory_16(address, (value >> 16) & 0xffff);
-  gwenesis_bus_write_memory_16(address + 2, (value)&0xffff);
-
-  return;
+    // Fast path for RAM (0xFF0000-0xFFFFFF)
+    if ((address & 0xFF0000) == 0xFF0000) {
+        WRITE16RAM(address, (value >> 16) & 0xffff);
+        WRITE16RAM(address + 2, (value)&0xffff);
+        return;
+    }
+    gwenesis_bus_write_memory_16(address, (value >> 16) & 0xffff);
+    gwenesis_bus_write_memory_16(address + 2, (value)&0xffff);
 }
 
 unsigned int m68k_read_disassembler_16(unsigned int address)
