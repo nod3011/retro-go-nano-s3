@@ -915,7 +915,6 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
 
     rg_gui_event_t event = RG_DIALOG_VOID;
     uint32_t joystick = 0, joystick_old = 0;
-    uint64_t joystick_last = 0;   // time of last key-state change
     int64_t  joystick_repeat = 0; // time when next auto-repeat fires
     int      joystick_repeats = 0;
     bool redraw = false;
@@ -942,7 +941,6 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
         if (key_changed)
         {
             joystick_old = joystick;
-            joystick_last = now;
             joystick_repeats = 0;
             joystick_repeat = now + 250000; // 250ms before first repeat
         }
@@ -993,8 +991,6 @@ intptr_t rg_gui_dialog(const char *title, const rg_gui_option_t *options_const, 
             {
                 event = RG_DIALOG_SELECT;
             }
-
-            joystick_last = rg_system_timer(); // update timestamp on every dispatch
         }
 
         if (sel_old != sel)

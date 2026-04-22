@@ -424,7 +424,6 @@ void I_StartTic(void)
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t changed = prev_joystick ^ joystick;
     uint32_t pressed = joystick & changed;
-    uint32_t released = prev_joystick & changed;
     event_t event = {0};
 
     if (joystick & RG_KEY_MENU)
