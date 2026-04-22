@@ -18,7 +18,6 @@
 
 static rg_app_t *app;
 
-
 #define SETTING_WEBUI "HTTPFileServer"
 
 static rg_gui_event_t toggle_tab_cb(rg_gui_option_t *option,
@@ -212,6 +211,43 @@ static void retro_loop(void) {
     gui.selected_tab = 0;
   tab = gui_set_current_tab(gui.selected_tab);
 
+  // --- WARM-UP PHASE: Splash Screen & Pre-caching ---
+  rg_image_t *splash_logo = rg_surface_load_image_file(RG_STORAGE_ROOT "/logo.png", 0);
+  
+  for (int i = 0; i < gui.tabs_count; i++) {
+    tab_t *t = gui.tabs[i];
+    if (!t->enabled) continue;
+
+    // Redraw splash screen with current progress
+    rg_display_sync(true);
+    rg_gui_set_surface(gui.surface);
+    rg_gui_draw_rect(0, 0, gui.width, gui.height, 0, 0, C_BLACK);
+    
+    if (splash_logo) {
+       rg_gui_draw_image(RG_GUI_CENTER, RG_GUI_CENTER, 0, 0, true, splash_logo);
+    } else {
+       rg_gui_draw_text(RG_GUI_CENTER, RG_GUI_CENTER - 10, 0, _("LOADING..."), C_WHITE, C_TRANSPARENT, RG_TEXT_ALIGN_CENTER);
+    }
+    
+    char progress_text[128];
+    snprintf(progress_text, sizeof(progress_text), _("Initializing %s..."), t->desc);
+    rg_gui_draw_text(RG_GUI_CENTER, gui.height - 40, 0, progress_text, C_LIGHT_GRAY, C_TRANSPARENT, RG_TEXT_ALIGN_CENTER);
+
+    rg_gui_set_surface(NULL);
+    rg_display_submit(gui.surface, 0);
+
+    // Force initialization (Scanning ROMs/Saves)
+    gui_init_tab(t);
+    
+    // Pre-load assets into PSRAM cache
+    if (!t->background) t->background = gui_get_image("background", t->name);
+    if (!t->banner) t->banner = gui_get_image("banner", t->name);
+    if (!t->logo) t->logo = gui_get_image("logo", t->name);
+  }
+
+  if (splash_logo) rg_surface_free(splash_logo);
+  // --- END WARM-UP ---
+
   while (true) {
     // At the moment the HTTP server has absolute priority because it may change
     // UI elements. It's also risky to let the user do file accesses at the same
@@ -234,7 +270,8 @@ static void retro_loop(void) {
       } else if ((rg_system_timer() - next_repeat) >= 0) {
         joystick = gui.joystick;
         repeats++;
-        next_repeat = rg_system_timer() + 200000 / (repeats + 1); // accelerating repeat
+        next_repeat =
+            rg_system_timer() + 200000 / (repeats + 1); // accelerating repeat
       }
     }
 

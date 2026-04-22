@@ -175,11 +175,9 @@ tab_t *gui_set_current_tab(int index)
 
     if (prev_tab && prev_tab != curr_tab)
     {
-        // FIXME: We should recompress the images rather than fully free them, because if a custom theme is
-        //        used then it means that we're constantly reloading from SD Card which is very slow...
-        rg_surface_free(prev_tab->background), prev_tab->background = NULL;
-        // rg_surface_free(prev_tab->banner), prev_tab->banner = NULL;
-        // rg_surface_free(prev_tab->logo), prev_tab->logo = NULL;
+        // On Nano S3 we have enough PSRAM (8MB) to cache all backgrounds.
+        // This avoids the 'lag' when switching tabs caused by reloading from SD Card.
+        // rg_surface_free(prev_tab->background), prev_tab->background = NULL;
     }
 
     return curr_tab;
@@ -230,9 +228,10 @@ void gui_update_theme(void)
     for (size_t i = 0; i < gui.tabs_count; ++i)
     {
         tab_t *tab = gui.tabs[i];
-        rg_surface_free(tab->background), tab->background = NULL;
-        rg_surface_free(tab->banner), tab->banner = NULL;
-        rg_surface_free(tab->logo), tab->logo = NULL;
+        // On Nano S3 we don't need to free these as we have enough PSRAM
+        // rg_surface_free(tab->background), tab->background = NULL;
+        // rg_surface_free(tab->banner), tab->banner = NULL;
+        // rg_surface_free(tab->logo), tab->logo = NULL;
     }
 }
 

@@ -92,11 +92,15 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg) {
 static int scan_saves_cb(const rg_scandir_t *entry, void *arg) {
   if (entry->is_file && rg_extension_match(entry->basename, "sav")) {
     retro_app_t *app = (retro_app_t *)arg;
+    size_t name_len = strlen(entry->basename);
+
+    if (name_len < 4) return RG_SCANDIR_CONTINUE;
+
     for (size_t i = 0; i < app->files_count; i++) {
       retro_file_t *file = &app->files[i];
-      // Saves are the rom name with possibly `.sav` or `-0.sav` appended.
-      if (strncmp(entry->basename, file->name, strlen(file->name)) == 0) {
-        // FIXME: Check if folder matches first
+      // Optimization: Only do heavy strncmp if the first characters match.
+      // This is safe because save names usually match the ROM name prefix.
+      if (entry->basename[0] == file->name[0] && strncmp(entry->basename, file->name, strlen(file->name)) == 0) {
         file->saves++;
         break;
       }
