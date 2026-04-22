@@ -20,10 +20,18 @@ static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static bool slowFrame = false;
+static int8_t current_frameskip = -1; // Default to Auto
 
 #ifndef RG_ATTR_EXT_RAM
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
 #endif
+
+typedef struct {
+  uint32_t magic;
+  int overclock;
+  int8_t frameskip;
+  int palette;
+} nes_config_t;
 
 static uint16_t palette565[256];
 static int palette_dirty = 0;
@@ -132,6 +140,50 @@ static bool save_sram(void) {
   }
   free(path);
   return false;
+}
+
+static void save_config() {
+  char path[RG_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/nes/%s.cfg", RG_BASE_PATH_CONFIG,
+           rg_basename(app->romPath));
+
+  rg_storage_mkdir(rg_dirname(path));
+
+  nes_config_t cfg = {
+      .magic = 0x46434555, // "FCEU"
+      .overclock = rg_system_get_overclock(),
+      .frameskip = current_frameskip,
+      .palette = rg_settings_get_number(app->configNs, SETTING_PALETTE, 0),
+  };
+
+  if (rg_storage_write_file(path, &cfg, sizeof(cfg), 0)) {
+    RG_LOGI("Config saved to %s (OC:%d, FS:%d, PAL:%d)\n", path, cfg.overclock,
+            cfg.frameskip, cfg.palette);
+  }
+}
+
+static void load_config() {
+  char path[RG_PATH_MAX];
+  snprintf(path, sizeof(path), "%s/nes/%s.cfg", RG_BASE_PATH_CONFIG,
+           rg_basename(app->romPath));
+
+  void *data = NULL;
+  size_t size = 0;
+  if (rg_storage_read_file(path, &data, &size, 0)) {
+    if (size >= sizeof(nes_config_t)) {
+      nes_config_t *cfg = (nes_config_t *)data;
+      if (cfg->magic == 0x46434555) {
+        if (cfg->overclock >= 0 && cfg->overclock <= 3) {
+          rg_system_set_overclock(cfg->overclock);
+        }
+        current_frameskip = cfg->frameskip;
+        rg_settings_set_number(app->configNs, SETTING_PALETTE, cfg->palette);
+        RG_LOGI("Config loaded from %s (OC:%d, FS:%d, PAL:%d)\n", path,
+                rg_system_get_overclock(), current_frameskip, cfg->palette);
+      }
+    }
+    free(data);
+  }
 }
 
 static void update_audio(int32_t *samples, size_t count) {
@@ -566,6 +618,7 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
     rg_settings_set_number(config_ns, SETTING_PALETTE, palette);
     rg_settings_commit();
     update_palette((nespal_t)palette);
+    save_config();
     return RG_DIALOG_REDRAW;
   }
 
@@ -576,9 +629,45 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
 
   return RG_DIALOG_VOID;
 }
+  
+static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+  const int8_t modes[] = {0, -1, 1, 2, 3}; // Off, Auto, 1, 2, 3
+  int current_idx = 0;
+
+  for (int i = 0; i < 5; i++) {
+    if (modes[i] == current_frameskip) {
+      current_idx = i;
+      break;
+    }
+  }
+
+  if (event == RG_DIALOG_PREV)
+    current_idx = (current_idx + 4) % 5;
+  if (event == RG_DIALOG_NEXT)
+    current_idx = (current_idx + 1) % 5;
+
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    current_frameskip = modes[current_idx];
+    rg_settings_set_number(NS_APP, "frameskip", current_frameskip);
+    return RG_DIALOG_REDRAW;
+  }
+
+  if (current_frameskip == -1)
+    strcpy(option->value, _("Auto"));
+  else if (current_frameskip == 0)
+    strcpy(option->value, _("Off"));
+  else
+    sprintf(option->value, "%d", current_frameskip);
+
+  return RG_DIALOG_VOID;
+}
 
 // --- GUI CALLBACKS
 static void options_handler(rg_gui_option_t *dest) {
+  *dest++ = (rg_gui_option_t){.label = "Frameskip",
+                              .value = "-",
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = frameskip_cb};
   *dest++ = (rg_gui_option_t){.label = "Load Cheats",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = handle_load_cheats_cb};
@@ -621,6 +710,9 @@ void fceumm_main(void) {
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
   rg_system_set_overclock(1);
+  current_frameskip = -1;
+  
+  load_config();
 
   if (!FCEUI_Initialize()) {
     RG_PANIC("FCEUI_Initialize failed");
@@ -795,6 +887,15 @@ void fceumm_main(void) {
     joystick_old = joystick;
     fceu_joystick = input_buf;
 
+    // Save config if OC changed from system menu
+    static int last_oc = -1;
+    if (last_oc == -1) last_oc = rg_system_get_overclock();
+    int cur_oc = rg_system_get_overclock();
+    if (cur_oc != last_oc) {
+        last_oc = cur_oc;
+        save_config();
+    }
+
     int64_t startTime = rg_system_timer();
 
     static int skipFrames = 0;
@@ -833,15 +934,22 @@ void fceumm_main(void) {
     update_audio(sound, sound_samples);
 
     // Dynamic frame skipping logic
-    if (skipFrames == 0) {
-      int64_t elapsed = rg_system_timer() - startTime;
-      if (elapsed > app->frameTime + 1000) { // Slight jitter allowed
-        skipFrames = 1;
-      } else if (drawFrame && slowFrame) {
-        skipFrames = 1;
+    if (current_frameskip == 0) {
+       skipFrames = 0;
+    } else if (current_frameskip > 0) {
+       if (skipFrames == 0) skipFrames = current_frameskip;
+       else skipFrames--;
+    } else { // Auto
+      if (skipFrames == 0) {
+        int64_t elapsed = rg_system_timer() - startTime;
+        if (elapsed > app->frameTime + 1000) { // Slight jitter allowed
+          skipFrames = 1;
+        } else if (drawFrame && slowFrame) {
+          skipFrames = 1;
+        }
+      } else {
+        skipFrames--;
       }
-    } else {
-      skipFrames--;
     }
 
     rg_system_tick(rg_system_timer() - startTime);

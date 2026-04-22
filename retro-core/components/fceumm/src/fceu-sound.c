@@ -1041,13 +1041,19 @@ int FlushEmulateSound(void) {
     if (GameExpSound.Fill)
       GameExpSound.Fill(end & 0xF);
 
+    // We need precise 50 or 60Hz on the G&W
+    end = (FSettings.SndRate / (PAL ? 50 : 60)) << 4;
+
+    if (GameExpSound.Fill)
+      GameExpSound.Fill(end & 0xF);
+
     SexyFilter(Wave, WaveFinal, end >> 4);
 
     if (FSettings.lowpass)
       SexyFilter2(WaveFinal, end >> 4);
 
     if (end & 0xF)
-      Wave[0] = Wave[(end >> 4)];
+      Wave[0] = Wave[end >> 4];
     Wave[end >> 4] = 0;
   }
 
