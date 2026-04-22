@@ -177,7 +177,7 @@ void power_on() {
   z80_start();
   // Initialize YM2612 chip
   YM2612Init();
-  YM2612Config(9);
+  YM2612Config(14); // Increase precision to 14-bit for cleaner Nano S3 output
   // Initialize PSG SN76489 chip
   //CLOCK_NTSC      = 3579545,
   //CLOCK_PAL       = 3546895,
@@ -189,7 +189,7 @@ void power_on() {
 //     gwenesis_SN76489_Init(3579545, GWENESIS_AUDIO_BUFFER_LENGTH_NTSC*60,AUDIO_FREQ_DIVISOR);
 //   }
   
-  gwenesis_SN76489_Init(3579545, 888*60,AUDIO_FREQ_DIVISOR);
+  gwenesis_SN76489_Init(3579545, 44100, AUDIO_FREQ_DIVISOR);
 
 }
 

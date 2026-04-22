@@ -5,8 +5,8 @@
 
 #include <gwenesis.h>
 
-#define AUDIO_SAMPLE_RATE (53267)
-#define AUDIO_BUFFER_LENGTH (1068) // Enough for 53kHz at 50Hz (PAL) plus jitter
+#define AUDIO_SAMPLE_RATE (44100)
+#define AUDIO_BUFFER_LENGTH (1024) // Enough for 44.1kHz at 50Hz (882) plus jitter
 
 extern unsigned char *VRAM;
 extern int zclk;
@@ -77,39 +77,26 @@ static int turbo_counter = 0;
 IRAM_ATTR static void gwenesis_audio_mix_and_submit(size_t count) {
   if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
   
-  for (size_t i = 0; i < count / 2; i++) {
+  for (size_t i = 0; i < count; i++) {
     int32_t mono = 0;
     
-    // Downsample 53kHz to 26kHz by averaging pairs (Simple LPF)
+    // Direct 44.1kHz mixing (Native hardware rate)
     if (yfm_enabled) {
-      int32_t s1 = (2 * i < ym2612_index) ? gwenesis_ym2612_buffer[2 * i] : 0;
-      int32_t s2 = (2 * i + 1 < ym2612_index) ? gwenesis_ym2612_buffer[2 * i + 1] : s1;
-      mono += (s1 + s2) >> 1;
+      mono += (i < ym2612_index) ? gwenesis_ym2612_buffer[i] : 0;
     }
     if (sn76489_enabled) {
-      int32_t s1 = (2 * i < sn76489_index) ? gwenesis_sn76489_buffer[2 * i] : 0;
-      int32_t s2 = (2 * i + 1 < sn76489_index) ? gwenesis_sn76489_buffer[2 * i + 1] : s1;
-      mono += (s1 + s2) >> 1;
+      mono += (i < sn76489_index) ? gwenesis_sn76489_buffer[i] : 0;
     }
 
-    int32_t left = mono, right = mono;
+    // Direct output without extra filtering for maximum transparency
+    if (mono > 32767) mono = 32767; else if (mono < -32768) mono = -32768;
 
-    // DC Blocker (Stereo) to prevent pops and ensure balanced output
-    audio_dc_left += (left - (audio_dc_left >> 12));
-    left -= (audio_dc_left >> 12);
-    audio_dc_right += (right - (audio_dc_right >> 12));
-    right -= (audio_dc_right >> 12);
-    
-    // Clamping to 16-bit range
-    if (left > 32767) left = 32767; else if (left < -32768) left = -32768;
-    if (right > 32767) right = 32767; else if (right < -32768) right = -32768;
-
-    gwenesis_mix_buffer[i].left = (int16_t)left;
-    gwenesis_mix_buffer[i].right = (int16_t)right;
+    gwenesis_mix_buffer[i].left = (int16_t)mono;
+    gwenesis_mix_buffer[i].right = (int16_t)mono;
   }
   
   if (count > 0) {
-    rg_audio_submit(gwenesis_mix_buffer, count / 2);
+    rg_audio_submit(gwenesis_mix_buffer, count);
   }
 }
 
@@ -382,7 +369,7 @@ void app_main(void) {
       .options = &options_handler,
   };
 
-  app = rg_system_init(AUDIO_SAMPLE_RATE / 2, &handlers, NULL);
+  app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
   app->screenSync = 1;
   // Only set default overclock=2 if the user hasn't saved a per-ROM preference.
   // NS_FILE overclock was already loaded by rg_system_init — don't override it.
