@@ -7,11 +7,12 @@
 #include "nes/state.h"
 #include "nes_palettes.h"
 #include "nofrendo.h"
+#include "shared.h"
 
 // --- GLOBALS
 static rg_app_t *app;
 static nes_t *nes;
-static rg_surface_t *updates[3];
+static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static bool nofrendo_running = false;
@@ -91,7 +92,7 @@ static void update_palette(nespal_t palette_type) {
 
   for (int i = 0; i < 256; i++) {
     uint16_t color = (pal[i] >> 8) | (pal[i] << 8);
-    for (int j = 0; j < 3; j++) {
+    for (int j = 0; j < 2; j++) {
       if (updates[j] && updates[j]->palette) {
         updates[j]->palette[i] = color;
       }
@@ -149,8 +150,10 @@ static void options_handler(rg_gui_option_t *dest) {
 
 // --- AUDIO
 static void update_audio() {
-  // Blocking audio submission provides the pacing for the emulation
-  rg_audio_submit((void *)nes->apu->buffer, nes->apu->samples_per_frame);
+  // Blocking audio submission provides the pacing for the emulation.
+  // We use the buffer directly to follow the reference implementation.
+  rg_audio_submit((const rg_audio_frame_t *)nes->apu->buffer,
+                  nes->apu->samples_per_frame);
 }
 
 // --- MAIN
@@ -164,7 +167,7 @@ void nofrendo_main(void) {
       .options = &options_handler,
   };
 
-  app = rg_system_reinit(32000, &handlers, NULL);
+  app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
   rg_system_set_overclock(1);
 
   // Initialize NES
@@ -177,14 +180,12 @@ void nofrendo_main(void) {
 
   nes->blit_func = blit_callback;
 
-  // Surfaces: Use MEM_FAST for internal RAM.
+  // Surfaces: Use MEM_FAST for better performance.
   // Note: NES_SCREEN_PITCH is width + total overdraw
   updates[0] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT,
-                                 RG_PIXEL_PAL565_BE, MEM_SLOW);
+                                 RG_PIXEL_PAL565_BE, MEM_FAST);
   updates[1] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT,
-                                 RG_PIXEL_PAL565_BE, MEM_SLOW);
-  updates[2] = rg_surface_create(NES_SCREEN_PITCH, NES_SCREEN_HEIGHT,
-                                 RG_PIXEL_PAL565_BE, MEM_SLOW);
+                                 RG_PIXEL_PAL565_BE, MEM_FAST);
   currentBufferIndex = 0;
   currentUpdate = updates[currentBufferIndex];
 
@@ -260,7 +261,7 @@ void nofrendo_main(void) {
 
     // Switch buffers and set target for next frame
     if (drawFrame) {
-      currentBufferIndex = (currentBufferIndex + 1) % 3;
+      currentBufferIndex = (currentBufferIndex + 1) % 2;
       currentUpdate = updates[currentBufferIndex];
       nes_setvidbuf(currentUpdate->data);
     }

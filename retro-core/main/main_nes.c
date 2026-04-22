@@ -16,7 +16,7 @@ static const char *SETTING_PALETTE = "palette";
 
 // --- GLOBALS
 static rg_app_t *app;
-static rg_surface_t *updates[3];
+static rg_surface_t *updates[2];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static bool slowFrame = false;
@@ -25,8 +25,8 @@ static bool slowFrame = false;
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
 #endif
 
-static uint8_t *nes_framebuffer = NULL;
 static uint16_t palette565[256];
+static int palette_dirty = 0;
 static uint32_t fceu_joystick;
 
 // Linkage stubs for FCEUMM
@@ -142,12 +142,30 @@ static void update_audio(int32_t *samples, size_t count) {
   if (count > 2048)
     count = 2048;
 
+  // DC blocker state (High-Pass Filter)
+  static int32_t prev_in = 0;
+  static int32_t prev_out = 0;
+  // Smoothing state (Low-Pass Filter)
+  static int32_t prev_s = 0;
+
   for (size_t i = 0; i < count; i++) {
-    int32_t s = samples[i] * 4; // Increased to 4x boost
-    if (s > 32767)
-      s = 32767;
-    else if (s < -32768)
-      s = -32768;
+    // 1. High-pass filter to remove DC offset
+    // y[n] = x[n] - x[n-1] + R * y[n-1] (R = 1016/1024 ~= 0.992)
+    int32_t in = samples[i];
+    int32_t out = in - prev_in + (prev_out * 1016 >> 10);
+    prev_in = in;
+    prev_out = out;
+
+    // 2. 1.5x gain for safer headroom
+    int32_t s = out + (out >> 1);
+
+    // 3. Weighted smoothing (from Nofrendo original) for better clarity
+    // y[n] = (3 * x[n] + y[n-1]) / 4
+    s = (s + s + s + prev_s) >> 2;
+    prev_s = s;
+
+    if (s > 32767) s = 32767;
+    if (s < -32768) s = -32768;
     audio_buf[i].left = (int16_t)s;
     audio_buf[i].right = (int16_t)s;
   }
@@ -167,6 +185,7 @@ void FCEUD_SetPalette(uint8 index, uint8 r, uint8 g, uint8 b) {
   // Store as 565 Big-Endian for hardware optimized blitting
   uint16_t color = (((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
   palette565[index] = (color >> 8) | (color << 8);
+  palette_dirty = 3; // Ensure all 3 triple-buffers get the update
 }
 
 // Game Genie Stubs
@@ -534,6 +553,7 @@ static void update_palette(nespal_t type) {
 
   // FCEUMM expects 64 RGB triplets (192 bytes)
   FCEUI_SetPaletteArray((uint8_t *)nes_palettes[type]);
+  palette_dirty = 3;
 }
 
 static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
@@ -611,16 +631,6 @@ void fceumm_main(void) {
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
   rg_system_set_overclock(1);
 
-  if (!nes_framebuffer) {
-    // NES_WIDTH * 312 = 79,872 bytes.
-    // Move to PSRAM (MEM_SLOW) to free up Internal RAM.
-    nes_framebuffer = rg_alloc(NES_WIDTH * 312, MEM_SLOW);
-    if (!nes_framebuffer) {
-      RG_PANIC("Failed to allocate NES framebuffer in MEM_SLOW");
-    }
-  }
-  XBuf = nes_framebuffer;
-
   if (!FCEUI_Initialize()) {
     RG_PANIC("FCEUI_Initialize failed");
   }
@@ -634,7 +644,8 @@ void fceumm_main(void) {
   rg_stat_t st = rg_storage_stat(app->romPath);
   if (st.size > 0) {
     rom_size = st.size;
-    rom_data = rg_alloc(rom_size, MEM_SLOW); // Allocate in PSRAM
+    // Load small ROMs into Internal RAM for faster access
+    rom_data = rg_alloc(rom_size, (rom_size < 128 * 1024) ? MEM_FAST : MEM_SLOW);
     if (rom_data) {
       if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size,
                                 RG_FILE_USER_BUFFER)) {
@@ -677,12 +688,12 @@ void fceumm_main(void) {
 
   // Use 256 lines to avoid out-of-bounds writes from FCEUMM's PPU (which can
   // write to line 240) and to accommodate PAL games safely. NES_WIDTH (256) is
-  // standard for this core.
-  updates[0] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_SLOW);
-  updates[1] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_SLOW);
-  updates[2] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_SLOW);
+  // standard for this core. Use 2 buffers in MEM_FAST for optimal performance.
+  updates[0] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_FAST);
+  updates[1] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_FAST);
   currentBufferIndex = 0;
   currentUpdate = updates[currentBufferIndex];
+  XBuf = (uint8_t *)currentUpdate->data;
 
   // Initialize external options
   extern void FCEUI_DisableSpriteLimitation(int a);
@@ -801,10 +812,13 @@ void fceumm_main(void) {
 
     // Switch buffers and set target for next frame
     if (drawFrame) {
-      currentBufferIndex = (currentBufferIndex + 1) % 3;
+      currentBufferIndex = (currentBufferIndex + 1) % 2;
       currentUpdate = updates[currentBufferIndex];
-      // Copy palette to avoid race conditions with display task
-      memcpy(currentUpdate->palette, palette565, 512);
+      // Copy palette only when it changes to avoid unnecessary memory traffic
+      if (palette_dirty > 0) {
+        memcpy(currentUpdate->palette, palette565, 512);
+        palette_dirty--;
+      }
 
       currentUpdate->width = NES_WIDTH;
       currentUpdate->height = surface_height;
