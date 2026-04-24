@@ -110,11 +110,13 @@ static int scan_saves_cb(const rg_scandir_t *entry, void *arg) {
 }
 
 static void application_init(retro_app_t *app) {
-  RG_LOGI("Initializing application '%s' (%s)", app->description,
-          app->partition);
-
   if (app->initialized)
     return;
+
+  app->initialized = true;
+
+  RG_LOGI("Initializing application '%s' (%s)", app->description,
+          app->partition);
 
   rg_storage_mkdir(app->paths.covers);
   rg_storage_mkdir(app->paths.saves);
@@ -629,6 +631,9 @@ void application_show_file_menu(retro_file_t *file, bool advanced) {
 
   case 5:
     application_show_core_menu(file);
+    free(rom_path);
+    free(sram_path);
+    free(savestates);
     application_show_file_menu(file, advanced);
     return;
 
