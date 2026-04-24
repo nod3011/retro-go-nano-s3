@@ -114,6 +114,8 @@ static void book_append(book_t *book, const retro_file_t *new_item)
         book_repack(book);
     }
     book->items[book->count] = *new_item;
+    book->items[book->count].name = rg_unique_string(new_item->name);
+    book->items[book->count].folder = rg_unique_string(new_item->folder);
     book->items[book->count].type = RETRO_TYPE_FILE;
     book->count++;
 }

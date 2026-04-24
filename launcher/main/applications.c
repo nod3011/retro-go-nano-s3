@@ -434,12 +434,16 @@ static void event_handler(gui_event_t event, tab_t *tab) {
 
     tab_refresh(tab, selected ? selected->name : NULL);
   } else if (event == TAB_DEINIT) {
-    if (app && app->initialized) {
-      rg_bucket_free(app->filenames);
-      app->filenames = rg_bucket_create(4096);
-      app->files_count = 0;
-      app->initialized = false;
-    }
+      if (app && app->initialized) {
+        rg_bucket_free(app->filenames);
+        app->filenames = rg_bucket_create(4096);
+        if (app->files)
+          free(app->files);
+        app->files = NULL;
+        app->files_count = 0;
+        app->files_capacity = 0;
+        app->initialized = false;
+      }
   } else if (event == TAB_REFRESH) {
     tab_refresh(tab, NULL);
   } else if (event == TAB_ENTER) {
@@ -481,7 +485,7 @@ bool application_path_to_file(const char *path, retro_file_t *file) {
     if (strncmp(path, apps[i]->paths.roms, baselen) == 0 &&
         path[baselen] == '/') {
       *file = (retro_file_t){
-          .name = strdup(rg_basename(path)),
+          .name = rg_unique_string(rg_basename(path)),
           .folder = rg_unique_string(rg_dirname(path)),
           .saves = 0xFF, // We don't know, but we want gui_load_preview to check
                          // if needed

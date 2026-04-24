@@ -102,7 +102,11 @@ void gui_deinit_tab(tab_t *tab)
     if (!tab || !tab->initialized)
         return;
 
-    // FIXME: Maybe the other images should be freed too?
+    // Free tab-specific assets
+    if (tab->background) { rg_surface_free(tab->background); tab->background = NULL; }
+    if (tab->banner)     { rg_surface_free(tab->banner);     tab->banner = NULL; }
+    if (tab->logo)       { rg_surface_free(tab->logo);       tab->logo = NULL; }
+
     gui_event(TAB_DEINIT, tab);
     gui_set_preview(tab, NULL);
     gui_resize_list(tab, 10);
