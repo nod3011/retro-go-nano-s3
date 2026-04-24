@@ -218,10 +218,10 @@ static void update_audio(int32_t *samples, size_t count) {
 
 // --- FCEU CALLBACKS
 void FCEUD_PrintError(char *c) { RG_LOGE("%s\n", c); }
-void FCEUD_Message(char *s) { RG_LOGI("%s\n", s); }
+void FCEUD_Message(char *s) { /* Noise */ }
 void FCEUD_DispMessage(enum retro_log_level level, unsigned duration,
                        const char *str) {
-  RG_LOGI("%s\n", str);
+  /* Noise */
 }
 
 void FCEUD_SetPalette(uint8 index, uint8 r, uint8 g, uint8 b) {
@@ -359,19 +359,21 @@ static void save_cheats(void) {
   if (saves_str) {
     memcpy(saves_str, "cheat", 5);
   }
-  
+
   rg_storage_mkdir(rg_dirname(path));
 
   char *ext = strrchr(path, '.');
   if (ext)
     strcpy(ext, ".cht");
 
-  char *buffer = malloc(8192);
+  const size_t buffer_size = 16384; // 16KB should be plenty
+  char *buffer = malloc(buffer_size);
   if (!buffer) {
     free(path);
     return;
   }
   buffer[0] = 0;
+  size_t offset = 0;
 
   for (int i = 0; i < 64; i++) {
     uint32 a;
@@ -382,14 +384,19 @@ static void save_cheats(void) {
       break;
 
     if (full_name) {
-      strcat(buffer, full_name);
-      strcat(buffer, s ? "|ON" : "|OFF");
-      strcat(buffer, "\n");
+      int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s\n", 
+                         full_name, s ? "ON" : "OFF");
+      if (len > 0 && offset + len < buffer_size) {
+          offset += len;
+      } else {
+          RG_LOGW("Cheat buffer full, some cheats might not be saved!\n");
+          break;
+      }
     }
   }
 
-  if (strlen(buffer) > 0) {
-    rg_storage_write_file(path, buffer, strlen(buffer), 0);
+  if (offset > 0) {
+    rg_storage_write_file(path, buffer, offset, 0);
   } else {
     rg_storage_delete(path);
   }
@@ -440,6 +447,9 @@ static void handle_cheat_menu(void) {
       char *full_name = NULL;
       if (!FCEUI_GetCheat(i, &full_name, &a, &v, &comp, &s, &t))
         break;
+
+      if (!full_name)
+        continue;
 
       char *sep = strchr(full_name, '|');
       if (sep) {
@@ -503,6 +513,9 @@ static void handle_delete_cheat_menu(void) {
       char *full_name = NULL;
       if (!FCEUI_GetCheat(i, &full_name, &a, &v, &comp, &s, &t))
         break;
+
+      if (!full_name)
+        continue;
 
       char *sep = strchr(full_name, '|');
       if (sep) {
@@ -958,6 +971,13 @@ void fceumm_main(void) {
 
   save_sram();
   FCEUI_CloseGame();
+
+  if (updates[0]) rg_surface_free(updates[0]);
+  if (updates[1]) rg_surface_free(updates[1]);
+  if (rom_data) free(rom_data);
+  
+  updates[0] = updates[1] = NULL;
+  rom_data = NULL;
 }
 
 extern void nofrendo_main(void);

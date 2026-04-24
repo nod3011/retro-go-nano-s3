@@ -179,7 +179,7 @@ void sms_main(void)
     int colecoKey = 0;
     int colecoKeyDecay = 0;
 
-    while (true)
+    while (!rg_system_exit_called())
     {
         const int64_t startTime = rg_system_timer();
         uint32_t joystick = rg_input_read_gamepad();
@@ -347,4 +347,8 @@ void sms_main(void)
 
         rg_system_sync_frame(startTime);
     }
+
+    if (updates[0]) rg_surface_free(updates[0]);
+    if (updates[1]) rg_surface_free(updates[1]);
+    updates[0] = updates[1] = NULL;
 }

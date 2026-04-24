@@ -47,7 +47,6 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg) {
       return RG_SCANDIR_CONTINUE;
     if (strcmp(app->short_name, "wolf3d") == 0)
       return RG_SCANDIR_SKIP;
-    RG_LOGI("Found subdirectory '%s'", entry->path);
     type = RETRO_TYPE_FOLDER;
   }
 
@@ -280,11 +279,6 @@ static void crc_cache_update(retro_file_t *file) {
     else
       index = rand() % CRC_CACHE_MAX_ENTRIES;
 
-    RG_LOGI("Adding %08X => %08X to cache (new total: %d)", (int)key,
-            (int)file->checksum, (int)crc_cache->count);
-  } else {
-    RG_LOGI("Updating %08X => %08X to cache (total: %d)", (int)key,
-            (int)file->checksum, (int)crc_cache->count);
   }
 
   crc_cache->magic = CRC_CACHE_MAGIC;

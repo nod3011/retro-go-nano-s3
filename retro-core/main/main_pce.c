@@ -20,6 +20,7 @@ static bool slowFrame = false;
 
 static rg_app_t *app;
 static rg_surface_t *updates[2];
+static void *updates_data_orig[2];
 static rg_surface_t *currentUpdate;
 
 static const char *SETTING_OVERSCAN  = "overscan";
@@ -134,7 +135,7 @@ static void audioTask(void *arg)
     const size_t numSamples = 62; // TODO: Find the best value
 
     RG_LOGI("task started. numSamples=%d.", (int)numSamples);
-    while (1)
+    while (!rg_system_exit_called())
     {
         rg_audio_sample_t samples[numSamples];
         // TODO: Clearly we need to add a better way to remain in sync with the main task...
@@ -206,6 +207,9 @@ void pce_main(void)
     updates[1] = rg_surface_create(XBUF_WIDTH, XBUF_HEIGHT, RG_PIXEL_PAL565_BE, MEM_FAST);
     currentUpdate = updates[0];
 
+    updates_data_orig[0] = updates[0]->data;
+    updates_data_orig[1] = updates[1]->data;
+
     updates[0]->data += 16;
     updates[0]->width -= 16;
     updates[1]->data += 16;
@@ -250,5 +254,13 @@ void pce_main(void)
     emulationPaused = false;
     RunPCE();
 
-    RG_PANIC("PCE-GO died.");
+    if (updates[0]) {
+        updates[0]->data = updates_data_orig[0];
+        rg_surface_free(updates[0]);
+    }
+    if (updates[1]) {
+        updates[1]->data = updates_data_orig[1];
+        rg_surface_free(updates[1]);
+    }
+    updates[0] = updates[1] = NULL;
 }

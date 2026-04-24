@@ -291,4 +291,8 @@ void nofrendo_main(void) {
 
   save_sram();
   nes_shutdown();
+
+  if (updates[0]) rg_surface_free(updates[0]);
+  if (updates[1]) rg_surface_free(updates[1]);
+  updates[0] = updates[1] = NULL;
 }
