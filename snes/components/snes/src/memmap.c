@@ -169,8 +169,8 @@ bool S9xInitMemory(void) {
       (uint16_t *)rg_alloc(256 * 9 * sizeof(uint16_t), MEM_SLOW);
   IPPU.DirectColors = IPPU.ScreenColors + 256;
   IPPU.TileCache = (uint8_t *)rg_alloc(MAX_2BIT_TILES * 128, MEM_SLOW);
-  IPPU.TileCached = (uint8_t *)rg_alloc(MAX_2BIT_TILES, MEM_FAST | MEM_NOPANIC);
-  if (!IPPU.TileCached) IPPU.TileCached = (uint8_t *)rg_alloc(MAX_2BIT_TILES, MEM_SLOW);
+  IPPU.TileCached = (uint8_t *)rg_alloc(4096, MEM_FAST | MEM_NOPANIC);
+  if (!IPPU.TileCached) IPPU.TileCached = (uint8_t *)rg_alloc(4096, MEM_SLOW);
 
   bytes0x2000 = (uint8_t *)rg_alloc(0x2000, MEM_FAST | MEM_NOPANIC);
   if (!bytes0x2000) bytes0x2000 = (uint8_t *)rg_alloc(0x2000, MEM_SLOW);

@@ -181,8 +181,8 @@ static void load_config() {
 
         // Load overclock and frameskip if available
         if (size >= offsetof(snes_config_t, snes_cpu_overclock)) {
-           if (cfg->overclock >= 0 && cfg->overclock <= 3) {
-             rg_system_set_overclock(cfg->overclock == 0 ? 1 : cfg->overclock);
+           if (cfg->overclock > 0 && cfg->overclock <= 3) {
+             rg_system_set_overclock(cfg->overclock);
            }
            if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
              current_frameskip = cfg->frameskip;
@@ -871,32 +871,39 @@ void app_main(void) {
     } else if (skipFrames > 0) {
       skipFrames--;
     }
-
-
   }
 
   save_sram(true);
 
   S9xDeinitDisplay();
-
-  if (Memory.ROM) free(Memory.ROM);
-  Memory.ROM = NULL;
+  S9xDeinitAPU();
+  S9xDeinitMemory();
 
 #ifdef USE_BLARGG_APU
   if (audio_ctx.active) {
-    // The task will delete itself when rg_system_exit_called() is true
-    rg_task_delay(150);
+    // Give the task time to exit safely
+    rg_task_delay(100);
     if (audio_ctx.buffers[0]) free(audio_ctx.buffers[0]);
     if (audio_ctx.buffers[1]) free(audio_ctx.buffers[1]);
-  } else
+    audio_ctx.buffers[0] = audio_ctx.buffers[1] = NULL;
+  }
+  if (audio_ctx.sem_start) vSemaphoreDelete(audio_ctx.sem_start);
+  if (audio_ctx.sem_done) vSemaphoreDelete(audio_ctx.sem_done);
+  audio_ctx.sem_start = audio_ctx.sem_done = NULL;
 #endif
+
   if (audioBuffer) {
     free(audioBuffer);
     audioBuffer = NULL;
   }
 
   for (int i = 0; i < 3; i++) {
-    if (updates[i]) rg_surface_free(updates[i]);
-    updates[i] = NULL;
+    if (updates[i]) {
+      rg_surface_free(updates[i]);
+      updates[i] = NULL;
+    }
   }
+
+  RG_LOGI("SNES exit complete\n");
+  rg_system_exit();
 }

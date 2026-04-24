@@ -1651,7 +1651,7 @@ static void CommonPPUReset()
    IPPU.OBJChanged = true;
    IPPU.RenderThisFrame = true;
    IPPU.FrameCount = 0;
-   memset(IPPU.TileCached, 0, MAX_2BIT_TILES);
+   memset(IPPU.TileCached, 0, 4096);
    IPPU.FirstVRAMRead = false;
    IPPU.Interlace = false;
    IPPU.DoubleWidthPixels = false;
