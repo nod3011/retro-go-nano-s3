@@ -37,16 +37,12 @@ static uint16_t palette565[256];
 static int palette_dirty = 0;
 static uint32_t fceu_joystick;
 
-// Linkage stubs for FCEUMM
-unsigned int swapDuty = 0;
 void GetKeyboard(void) {}
 
 // Forward declarations for memstream (from libretro-common)
 extern void memstream_set_buffer(uint8_t *buffer, uint64_t size);
 extern uint64_t memstream_get_last_size(void);
 
-// --- G&W COMPATIBILITY
-rom_manager_t rom_mgr;
 
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
 bool FCEUSS_Save_Fs(const char *path) {

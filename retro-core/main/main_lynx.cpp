@@ -229,7 +229,7 @@ extern "C" void lynx_main(void)
     bool slowFrame = false;
 
     // Start emulation
-    while (1)
+    while (!rg_system_exit_called())
     {
         uint32_t joystick = rg_input_read_gamepad();
 
@@ -299,4 +299,13 @@ extern "C" void lynx_main(void)
 
         rg_system_sync_frame(startTime);
     }
+
+    if (lynx) delete lynx;
+    if (gAudioBuffer) delete[] gAudioBuffer;
+    if (updates[0]) rg_surface_free(updates[0]);
+    if (updates[1]) rg_surface_free(updates[1]);
+
+    lynx = NULL;
+    gAudioBuffer = NULL;
+    updates[0] = updates[1] = NULL;
 }

@@ -176,6 +176,7 @@ void sms_main(void)
     static bool turbo_a_toggled = false;
     static bool turbo_b_toggled = false;
     static int turbo_counter = 0;
+    static bool menu_pressed = false;
     int colecoKey = 0;
     int colecoKeyDecay = 0;
 
@@ -194,16 +195,17 @@ void sms_main(void)
             {
                 turbo_a_toggled = !turbo_a_toggled;
                 RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
-                menu_cancelled = true;
             }
             if (joystick_down & RG_KEY_B)
             {
                 turbo_b_toggled = !turbo_b_toggled;
                 RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
-                menu_cancelled = true;
             }
+            
             if (joystick & ~RG_KEY_MENU)
                 menu_cancelled = true;
+
+            menu_pressed = true;
         }
         else
         {
@@ -212,16 +214,15 @@ void sms_main(void)
                 if (!menu_cancelled) rg_gui_game_menu();
                 menu_cancelled = false;
             }
+            menu_pressed = false;
         }
 
         if (joystick & RG_KEY_OPTION)
         {
             rg_gui_options_menu();
-            joystick_old = joystick;
-            continue;
         }
 
-        if (joystick & RG_KEY_MENU)
+        if (menu_pressed || (joystick & RG_KEY_OPTION))
         {
             joystick_old = joystick;
             continue;
@@ -350,5 +351,8 @@ void sms_main(void)
 
     if (updates[0]) rg_surface_free(updates[0]);
     if (updates[1]) rg_surface_free(updates[1]);
+    if (mixbuffer) free(mixbuffer);
+    
     updates[0] = updates[1] = NULL;
+    mixbuffer = NULL;
 }
