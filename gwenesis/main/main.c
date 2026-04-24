@@ -19,6 +19,7 @@ int scan_line;
 // 2. DRAM_ATTR forces placement in .dram0.data (fast internal SRAM, writable).
 //    NOTE: Do NOT use IRAM_ATTR here — that targets .iram0.text (instruction RAM),
 //    which is read-only on ESP32-S3 and would cause a CPU exception on writes.
+// Audio buffers in internal DRAM
 DRAM_ATTR int16_t gwenesis_sn76489_buffer[AUDIO_BUFFER_LENGTH];
 int sn76489_index;
 int sn76489_clock;
@@ -26,10 +27,6 @@ DRAM_ATTR int16_t gwenesis_ym2612_buffer[AUDIO_BUFFER_LENGTH];
 int ym2612_index;
 int ym2612_clock;
 static DRAM_ATTR rg_audio_frame_t gwenesis_mix_buffer[AUDIO_BUFFER_LENGTH];
-
-// DC blocker state in fast DRAM
-static DRAM_ATTR int32_t audio_dc_left = 0;
-static DRAM_ATTR int32_t audio_dc_right = 0;
 
 static FILE *savestate_fp = NULL;
 static int savestate_errors = 0;
@@ -75,29 +72,36 @@ static bool menu_cancelled = false;
 static int turbo_counter = 0;
 
 IRAM_ATTR static void gwenesis_audio_mix_and_submit(size_t count) {
+  if (count == 0) return;
   if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
   
-  for (size_t i = 0; i < count; i++) {
-    int32_t mono = 0;
-    
-    // Direct 44.1kHz mixing (Native hardware rate)
-    if (yfm_enabled) {
-      mono += (i < ym2612_index) ? gwenesis_ym2612_buffer[i] : 0;
+  if (yfm_enabled && sn76489_enabled) {
+    for (size_t i = 0; i < count; i++) {
+      int32_t mono = 0;
+      if (i < ym2612_index) mono += gwenesis_ym2612_buffer[i];
+      if (i < sn76489_index) mono += gwenesis_sn76489_buffer[i];
+      if (mono > 32767) mono = 32767; 
+      else if (mono < -32768) mono = -32768;
+      gwenesis_mix_buffer[i].left = (int16_t)mono;
+      gwenesis_mix_buffer[i].right = (int16_t)mono;
     }
-    if (sn76489_enabled) {
-      mono += (i < sn76489_index) ? gwenesis_sn76489_buffer[i] : 0;
+  } else if (yfm_enabled) {
+    for (size_t i = 0; i < count; i++) {
+      int16_t mono = (i < ym2612_index) ? gwenesis_ym2612_buffer[i] : 0;
+      gwenesis_mix_buffer[i].left = mono;
+      gwenesis_mix_buffer[i].right = mono;
     }
-
-    // Direct output without extra filtering for maximum transparency
-    if (mono > 32767) mono = 32767; else if (mono < -32768) mono = -32768;
-
-    gwenesis_mix_buffer[i].left = (int16_t)mono;
-    gwenesis_mix_buffer[i].right = (int16_t)mono;
+  } else if (sn76489_enabled) {
+    for (size_t i = 0; i < count; i++) {
+      int16_t mono = (i < sn76489_index) ? gwenesis_sn76489_buffer[i] : 0;
+      gwenesis_mix_buffer[i].left = mono;
+      gwenesis_mix_buffer[i].right = mono;
+    }
+  } else {
+    memset(gwenesis_mix_buffer, 0, count * sizeof(rg_audio_frame_t));
   }
   
-  if (count > 0) {
-    rg_audio_submit(gwenesis_mix_buffer, count);
-  }
+  rg_audio_submit(gwenesis_mix_buffer, count);
 }
 
 static void load_config();
@@ -167,7 +171,6 @@ void saveGwenesisStateSetBuffer(SaveState *state, const char *tagName,
   RG_LOGI("Saved key '%s'\n", tagName);
 }
 
-void gwenesis_io_get_buttons() {}
 
 static rg_gui_event_t yfm_update_cb(rg_gui_option_t *option,
                                     rg_gui_event_t event) {
@@ -296,8 +299,6 @@ static bool load_state_handler(const char *filename) {
 }
 
 static bool reset_handler(bool hard) {
-  audio_dc_left = 0;
-  audio_dc_right = 0;
   reset_emulation();
   return true;
 }
@@ -378,8 +379,7 @@ void app_main(void) {
   }
 
   yfm_enabled = rg_settings_get_number(NS_APP, SETTING_YFM_EMULATION, 1);
-  sn76489_enabled =
-      rg_settings_get_number(NS_APP, SETTING_SN76489_EMULATION, 0);
+  sn76489_enabled = rg_settings_get_number(NS_APP, SETTING_SN76489_EMULATION, 1);
   z80_enabled = rg_settings_get_number(NS_APP, SETTING_Z80_EMULATION, 1);
 
   load_config();
@@ -395,7 +395,6 @@ void app_main(void) {
   // updates[1]->data += 160;
   // updates[1]->height = 240;
 
-  VRAM = rg_alloc(VRAM_MAX_SIZE, MEM_FAST);
 
   RG_LOGI("Genesis start\n");
 
@@ -447,7 +446,7 @@ void app_main(void) {
   int skipFrames = 0;
 
   RG_LOGI("emulation loop\n");
-  while (true) {
+  while (!rg_system_exit_called()) {
     joystick_old = joystick;
     joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
@@ -628,4 +627,18 @@ void app_main(void) {
       skipFrames--;
     }
   }
+
+  RG_LOGI("Genesis ended");
+
+  if (rom_data)
+    free(rom_data);
+
+  gwenesis_vdp_free();
+  gwenesis_bus_free();
+
+  rg_surface_free(updates[0]);
+  if (updates[1])
+    rg_surface_free(updates[1]);
+
+  rg_system_exit();
 }

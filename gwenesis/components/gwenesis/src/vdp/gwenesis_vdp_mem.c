@@ -179,6 +179,14 @@ void gwenesis_vdp_reset() {
   m68k_set_int_ack_callback(m68k_irq_acked);
 }
 
+void gwenesis_vdp_free() {
+  if (VRAM) { free(VRAM); VRAM = NULL; }
+  if (CRAM) { free(CRAM); CRAM = NULL; }
+  if (SAT_CACHE) { free(SAT_CACHE); SAT_CACHE = NULL; }
+  if (CRAM565) { free(CRAM565); CRAM565 = NULL; }
+  if (VSRAM) { free(VSRAM); VSRAM = NULL; }
+}
+
 
 /******************************************************************************
  *

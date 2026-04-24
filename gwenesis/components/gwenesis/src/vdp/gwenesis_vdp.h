@@ -149,5 +149,6 @@ void gwenesis_vdp_gfx_save_state();
 void gwenesis_vdp_gfx_load_state();
 void gwenesis_vdp_mem_save_state();
 void gwenesis_vdp_mem_load_state();
+void gwenesis_vdp_free();
 
 #endif

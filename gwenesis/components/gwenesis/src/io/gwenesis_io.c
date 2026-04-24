@@ -157,7 +157,7 @@ static inline  unsigned char gwenesis_io_pad_read(int pad)
     unsigned char value;
  
     /* get host button */
-    gwenesis_io_get_buttons();
+    // gwenesis_io_get_buttons();
 
     value = gwenesis_io_pad_state[pad] & 0x40;
     value |= 0x3f;

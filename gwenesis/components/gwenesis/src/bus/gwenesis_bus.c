@@ -21,7 +21,7 @@ __license__ = "GPLv3"
 #include <string.h>
 #include <assert.h>
 #include <ctype.h>
-
+#include <rg_system.h>
 #include "m68k.h"
 
 #include "ym2612.h"
@@ -158,6 +158,13 @@ void load_cartridge(unsigned char *buffer, size_t size)
 
 
     set_region();
+}
+
+void gwenesis_bus_free() {
+  if (M68K_RAM) { free(M68K_RAM); M68K_RAM = NULL; }
+  if (ZRAM) { free(ZRAM); ZRAM = NULL; }
+  // ROM_DATA is just a pointer to the buffer passed in load_cartridge
+  ROM_DATA = NULL; 
 }
 
 #endif

@@ -97,5 +97,6 @@ void set_region();
 
 void gwenesis_bus_save_state();
 void gwenesis_bus_load_state();
+void gwenesis_bus_free();
 
 #endif
