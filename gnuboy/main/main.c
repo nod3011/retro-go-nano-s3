@@ -334,7 +334,8 @@ void app_main(void) {
 #endif
 
   gnuboy_set_framebuffer(currentUpdate->data);
-  gnuboy_set_soundbuffer(rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_FAST), AUDIO_BUFFER_LENGTH);
+  void *sound_buffer = rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_FAST);
+  gnuboy_set_soundbuffer(sound_buffer, AUDIO_BUFFER_LENGTH);
 
   void *rom_data = NULL;
   size_t rom_size = 0;
@@ -385,7 +386,7 @@ void app_main(void) {
   static bool turbo_b_toggled = false;
   static int turbo_counter = 0;
 
-  while (true) {
+  while (!rg_system_exit_called()) {
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
     turbo_counter++;
@@ -472,4 +473,17 @@ void app_main(void) {
 
     rg_system_sync_frame(startTime);
   }
+
+  if (gnuboy_sram_dirty()) gnuboy_save_sram(sramFile, false);
+  
+  gnuboy_free_rom();
+  
+  if (rom_data) free(rom_data);
+  if (sound_buffer) free(sound_buffer);
+  if (updates[0]) rg_surface_free(updates[0]);
+  if (updates[1]) rg_surface_free(updates[1]);
+
+  rom_data = NULL;
+  sound_buffer = NULL;
+  updates[0] = updates[1] = NULL;
 }

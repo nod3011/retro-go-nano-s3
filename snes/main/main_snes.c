@@ -489,7 +489,12 @@ bool S9xInitDisplay(void) {
   return GFX.Screen && GFX.SubScreen && GFX.ZBuffer && GFX.SubZBuffer;
 }
 
-void S9xDeinitDisplay(void) {}
+void S9xDeinitDisplay(void) {
+  if (GFX.SubScreen)  free(GFX.SubScreen);
+  if (GFX.ZBuffer)    free(GFX.ZBuffer);
+  if (GFX.SubZBuffer) free(GFX.SubZBuffer);
+  GFX.SubScreen = GFX.ZBuffer = GFX.SubZBuffer = NULL;
+}
 
 uint32_t S9xReadJoypad(int32_t port) {
   if (port != 0)
@@ -549,8 +554,8 @@ typedef struct {
 static audio_async_ctx_t audio_ctx;
 
 static void audio_async_task(void *arg) {
-  while (1) {
-    if (xSemaphoreTake(audio_ctx.sem_start, portMAX_DELAY) == pdTRUE) {
+  while (!rg_system_exit_called()) {
+    if (xSemaphoreTake(audio_ctx.sem_start, pdMS_TO_TICKS(100)) == pdTRUE) {
       int idx = 1 - audio_ctx.active_idx;
       if (audio_ctx.sample_counts[idx] > 0) {
         rg_audio_submit(audio_ctx.buffers[idx], audio_ctx.sample_counts[idx] >> 1);
@@ -558,6 +563,7 @@ static void audio_async_task(void *arg) {
       xSemaphoreGive(audio_ctx.sem_done);
     }
   }
+  vTaskDelete(NULL);
 }
 
 static void S9xAudioCallback(void) {
@@ -760,7 +766,7 @@ void app_main(void) {
   int last_overclock = rg_system_get_overclock();
   int oc_poll_counter = 0;
 
-  while (1) {
+  while (!rg_system_exit_called()) {
     uint32_t joystick = rg_input_read_gamepad();
 
     // Poll overclock changes at ~1Hz (every 60 frames) to reduce per-frame overhead.
@@ -867,5 +873,30 @@ void app_main(void) {
     }
 
 
+  }
+
+  save_sram(true);
+
+  S9xDeinitDisplay();
+
+  if (Memory.ROM) free(Memory.ROM);
+  Memory.ROM = NULL;
+
+#ifdef USE_BLARGG_APU
+  if (audio_ctx.active) {
+    // The task will delete itself when rg_system_exit_called() is true
+    rg_task_delay(150);
+    if (audio_ctx.buffers[0]) free(audio_ctx.buffers[0]);
+    if (audio_ctx.buffers[1]) free(audio_ctx.buffers[1]);
+  } else
+#endif
+  if (audioBuffer) {
+    free(audioBuffer);
+    audioBuffer = NULL;
+  }
+
+  for (int i = 0; i < 3; i++) {
+    if (updates[i]) rg_surface_free(updates[i]);
+    updates[i] = NULL;
   }
 }
