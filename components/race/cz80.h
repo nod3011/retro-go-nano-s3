@@ -41,6 +41,8 @@ extern "C" {
 #define s32             signed int
 #endif
 
+int Cz80_allocate_flag_tables(void);
+void Cz80_free_flag_tables(void);
 //#define CZ80_FASTCALL   __fastcall
 #define CZ80_FASTCALL
 

@@ -45,6 +45,25 @@ int Cz80_allocate_flag_tables(void) {
   return 1;
 }
 
+void Cz80_free_flag_tables(void) {
+  if (SZXY)
+    free(SZXY);
+  if (SZXYP)
+    free(SZXYP);
+  if (SZXY_BIT)
+    free(SZXY_BIT);
+  if (SZXYHV_inc)
+    free(SZXYHV_inc);
+  if (SZXYHV_dec)
+    free(SZXYHV_dec);
+
+  SZXY = NULL;
+  SZXYP = NULL;
+  SZXY_BIT = NULL;
+  SZXYHV_inc = NULL;
+  SZXYHV_dec = NULL;
+}
+
 #define fast_memset memset
 
 /* core main functions */

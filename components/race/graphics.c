@@ -867,3 +867,22 @@ bool graphics_init(void) {
 
   return true;
 }
+
+void graphics_free(void) {
+  if (totalpalette) {
+    free(totalpalette);
+    totalpalette = NULL;
+  }
+  if (myPalettes) {
+    free(myPalettes);
+    myPalettes = NULL;
+  }
+  if (palettes) {
+    free(palettes);
+    palettes = NULL;
+  }
+  if (mySprites) {
+    free(mySprites);
+    mySprites = NULL;
+  }
+}

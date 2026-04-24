@@ -50,6 +50,9 @@ void WriteSoundChip(SoundChip* chip, _u8 data);
 
 int sound_system_init(void);
 BOOL system_sound_init(void);
+void audio_dac_init(void);
+void audio_dac_free(void);
+void audio_dac_stream_update(void);
 void system_sound_chipreset(void);
 
 void system_VBL(void);

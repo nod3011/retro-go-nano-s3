@@ -37,6 +37,9 @@ extern void sound_init(int SampleRate);
 extern void sound_update(uint16_t *chip_buffer, int length_bytes);
 extern void dac_update(uint16_t *dac_buffer, int length_bytes);
 extern int Cz80_allocate_flag_tables(void);
+extern void Cz80_free_flag_tables(void);
+extern void graphics_free(void);
+extern void audio_dac_free(void);
 
 // Graphics / VDP pointers
 unsigned short *drawBuffer = NULL;
@@ -281,7 +284,7 @@ void app_main() {
       .loadState = load_state_handler,
       .screenshot = screenshot_handler,
       .event = event_handler,
-      .options = NULL,
+      .options = options_handler,
   };
   rg_system_init(22050, &handlers, event_handler);
   rg_system_set_tick_rate(60);
@@ -391,7 +394,7 @@ void app_main() {
   int64_t sram_save_timer = 0;
   int64_t frame_start = rg_system_timer();
 
-  while (m_bIsActive) {
+  while (!rg_system_exit_called()) {
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
     turbo_counter++;
@@ -444,6 +447,19 @@ void app_main() {
     }
     joystick_old = joystick;
   }
+
+  RG_LOGI("NGP ended");
+
+  if (rom_ptr)
+    free(rom_ptr);
+
+  ngp_mem_free();
+  graphics_free();
+  audio_dac_free();
+  Cz80_free_flag_tables();
+
+  rg_surface_free(updates[0]);
+  rg_surface_free(updates[1]);
 
   rg_system_exit();
 }

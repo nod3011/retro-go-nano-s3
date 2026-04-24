@@ -71,6 +71,26 @@ static inline void SubmitFrame(void)
     rg_display_submit(currentUpdate, 0);
 }
 
+static bool dsk_filter(const char *path)
+{
+    return rg_extension_match(path, "dsk");
+}
+
+static rg_gui_event_t disk_select_cb(rg_gui_option_t *option, rg_gui_event_t event)
+{
+    if (event == RG_DIALOG_SELECT)
+    {
+        char *path = rg_gui_file_picker(_("Select Disk"), rg_dirname(app->romPath), dsk_filter, false, false);
+        if (path)
+        {
+            ChangeDisk(0, path);
+            free(path);
+            return RG_DIALOG_CANCEL;
+        }
+    }
+    return RG_DIALOG_VOID;
+}
+
 int ProcessEvents(int Wait)
 {
     for (int i = 0; i < 16; ++i)
@@ -188,6 +208,9 @@ int ProcessEvents(int Wait)
         if (joystick & RG_KEY_B)
             JoyState |= JST_FIREB;
     }
+
+    if (rg_system_exit_called())
+        ExitNow = 1;
 
     return 0;
 }
@@ -404,15 +427,18 @@ static void audioTask(void *arg)
 {
     RG_LOGI("task started");
     rg_task_msg_t msg;
-    while (rg_task_peek(&msg))
+    while (rg_task_receive(&msg))
     {
+        if (msg.type == RG_TASK_MSG_STOP)
+            break;
         RenderAndPlayAudio(msg.dataInt);
-        rg_task_receive(&msg);
     }
+    RG_LOGI("task ended");
 }
 
 static void options_handler(rg_gui_option_t *dest)
 {
+    *dest++ = (rg_gui_option_t){0, _("Change Disk A"), "-", RG_DIALOG_FLAG_NORMAL, &disk_select_cb};
     *dest++ = (rg_gui_option_t){0, _("Input"), "-", RG_DIALOG_FLAG_NORMAL, &input_select_cb};
     *dest++ = (rg_gui_option_t){0, _("Crop"),  "-", RG_DIALOG_FLAG_NORMAL, &crop_select_cb};
     *dest++ = (rg_gui_option_t)RG_DIALOG_END;
@@ -482,5 +508,12 @@ void app_main(void)
     fmsx_main(argc, (char **)argv);
 
     RG_LOGI("fMSX ended");
+    
+    rg_task_msg_t msg = { .type = RG_TASK_MSG_STOP };
+    rg_task_send(audioQueue, &msg);
+
+    rg_surface_free(updates[0]);
+    rg_surface_free(updates[1]);
+
     rg_system_exit();
 }

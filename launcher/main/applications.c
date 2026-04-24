@@ -725,7 +725,7 @@ void applications_init(void) {
   // application("Atari 2600", "a26", "a26 zip", "stella-go", 0);
   // application("Neo Geo Pocket Color", "ngp", "ngp ngc zip", "ngpocket-go",
   // 0);
-  // application("MSX", "msx", "rom mx1 mx2 dsk", "fmsx", 0);
+  application("MSX", "msx", "rom mx1 mx2 dsk", "fmsx", 0);
 
   // Special app to bootstrap native esp32 binaries from the SD card
   // application("Bootstrap", "apps", "bin elf", "bootstrap", 0);

@@ -436,3 +436,10 @@ int sound_system_init(void) {
   system_sound_chipreset(); /* Resets chips */
   return 1;
 }
+
+void audio_dac_free(void) {
+  if (dacBufferL) {
+    free(dacBufferL);
+    dacBufferL = NULL;
+  }
+}

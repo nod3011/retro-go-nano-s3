@@ -66,6 +66,7 @@ extern bool g_palette_dirty;
 bool graphics_init(void);
 void graphics_paint(unsigned char render);
 void graphicsSetDarkFilterLevel(unsigned filterLevel);
+void graphics_free(void);
 /* new renderer (NeoGeo Pocket (Color)) */
 void myGraphicsBlitLine(unsigned char render);
 
