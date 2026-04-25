@@ -134,7 +134,7 @@ IRAM_ATTR static void gwenesis_audio_mix_and_submit(size_t count) {
   }
 }
 
-static void update_audio_divisor() {
+static void sync_audio_to_system() {
   double freq = rg_system_get_cpu_speed();
   if (freq < 100) freq = 240.0;
   
@@ -364,7 +364,7 @@ static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event
   if (event == RG_DIALOG_NEXT) level = (level + 1) % 5;
   if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
     rg_system_set_overclock(level);
-    update_audio_divisor(); // Recalculate divisor for new speed
+    sync_audio_to_system(); // Recalculate sync for new speed
     rg_settings_set_number(NS_APP, "overclock", level);
   }
   const char *names[] = {"0 (240MHz)", "1 (240MHz)", "2 (260MHz)", "3 (280MHz)", "4 (300MHz)"};
@@ -466,7 +466,7 @@ void app_main(void) {
   if (!rg_settings_exists(NS_FILE, "overclock")) {
     rg_system_set_overclock(2);
   }
-  update_audio_divisor(); // Synchronize audio with the final clock speed
+  sync_audio_to_system(); // Synchronize audio with the final clock speed
 
   yfm_enabled = rg_settings_get_number(NS_APP, SETTING_YFM_EMULATION, 1);
   sn76489_enabled = rg_settings_get_number(NS_APP, SETTING_SN76489_EMULATION, 1);
@@ -517,7 +517,6 @@ void app_main(void) {
   }
 
   rg_system_set_tick_rate(60);
-  app->frameskip = 0;
 
   extern unsigned char gwenesis_vdp_regs[0x20];
   extern unsigned short gwenesis_vdp_status;
