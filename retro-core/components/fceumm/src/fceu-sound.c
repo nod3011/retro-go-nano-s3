@@ -1035,14 +1035,7 @@ int FlushEmulateSound(void) {
     for (x = 0; x < 5; x++)
       ChannelBC[x] = left;
   } else {
-    // We need precise 50 or 60Hz on the G&W
-    end = (FSettings.SndRate / (PAL ? 50 : 60)) << 4;
-
-    if (GameExpSound.Fill)
-      GameExpSound.Fill(end & 0xF);
-
-    // We need precise 50 or 60Hz on the G&W
-    end = (FSettings.SndRate / (PAL ? 50 : 60)) << 4;
+    end = (SOUNDTS << 16) / soundtsinc;
 
     if (GameExpSound.Fill)
       GameExpSound.Fill(end & 0xF);
