@@ -143,16 +143,14 @@ int m_bIsActive = 1;
 static bool turbo_btn_a_enabled = false;
 static bool turbo_btn_b_enabled = false;
 static bool menu_cancelled = false;
+static bool menu_combo_a = false; // Track if A was pressed during Menu hold
+static bool menu_combo_b = false; // Track if B was pressed during Menu hold
 static int turbo_counter = 0;
 
 static void set_defaults_after_boot(void) {
-  // Color/mono based on ROM
+  // Color/mono based on ROM (Header 0x23)
   uint8_t console_type = tlcsMemReadB(0x00200023);
-  tlcsMemWriteB(0x00006F91,
-                console_type); // Set BIOS mode (0x11=Color, 0x10=Mono)
-
-  if (tipo_consola == 1)
-    tlcsMemWriteB(0x00006F91, 0x00); // force mono override manually if set
+  tlcsMemWriteB(0x00006F91, (console_type == 0x00) ? 0x10 : console_type); 
 
   // ROM Language
   tlcsMemWriteB(0x00006F87, 0x01); // English
@@ -396,8 +394,6 @@ void app_main() {
   rg_system_set_overclock(config.overclock);
 
   // Initialize Async Audio Pool on Core 0
-
-  // Initialize Async Audio Pool on Core 0
   audio_queue_full = xQueueCreate(1, sizeof(audio_msg_t *));
   audio_queue_empty = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
   for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
@@ -443,9 +439,6 @@ void app_main() {
 
   extern void setFlashSize(unsigned int);
   setFlashSize((unsigned int)rom_size);
-
-  // Force Color BIOS mode via RAM register 0x6F91
-  tlcsMemWriteB(0x00006F91, 0x10);
 
   if (bgTable)
     bgTable[0] = 0xFFFF;
@@ -498,9 +491,6 @@ void app_main() {
     break;
   }
 
-  rg_system_set_tick_rate(60);
-  app->frameskip = (config.frameskip == 0) ? -1 : (config.frameskip - 1);
-
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
   }
@@ -514,32 +504,36 @@ void app_main() {
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
 
-    uint32_t joystick_up = ~joystick & joystick_old;
-
     if (joystick & RG_KEY_MENU) {
-      // Toggle Turbo for PHYSICAL A on release
-      if (joystick_up & RG_KEY_A) {
-        turbo_btn_a_enabled = !turbo_btn_a_enabled;
-        RG_LOGI("Physical A Turbo: %s\n", turbo_btn_a_enabled ? "ON" : "OFF");
+      if (joystick & RG_KEY_A) {
+        menu_combo_a = true;
         menu_cancelled = true;
       }
-      // Toggle Turbo for PHYSICAL B on release
-      if (joystick_up & RG_KEY_B) {
-        turbo_btn_b_enabled = !turbo_btn_b_enabled;
-        RG_LOGI("Physical B Turbo: %s\n", turbo_btn_b_enabled ? "ON" : "OFF");
+      if (joystick & RG_KEY_B) {
+        menu_combo_b = true;
         menu_cancelled = true;
       }
-      
       if (joystick & ~RG_KEY_MENU) {
         menu_cancelled = true;
       }
       menu_pressed = true;
     } else {
       if (joystick_old & RG_KEY_MENU) {
+        if (menu_combo_a) {
+          turbo_btn_a_enabled = !turbo_btn_a_enabled;
+          RG_LOGI("Physical A Turbo: %s\n", turbo_btn_a_enabled ? "ON" : "OFF");
+        }
+        if (menu_combo_b) {
+          turbo_btn_b_enabled = !turbo_btn_b_enabled;
+          RG_LOGI("Physical B Turbo: %s\n", turbo_btn_b_enabled ? "ON" : "OFF");
+        }
+        
         if (!menu_cancelled) {
           rg_task_delay(50);
           rg_gui_game_menu();
         }
+        menu_combo_a = false;
+        menu_combo_b = false;
         menu_cancelled = false;
       }
       menu_pressed = false;
