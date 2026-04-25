@@ -498,8 +498,7 @@ void app_main(void) {
     }
 
     int64_t startTime = rg_system_timer();
-    bool drawFrame = skipFrames == 0;
-    bool slowFrame = false;
+    bool drawFrame = (skipFrames == 0);
 
     int lines_per_frame = REG1_PAL ? LINES_PER_FRAME_PAL : LINES_PER_FRAME_NTSC;
     int hint_counter = gwenesis_vdp_regs[10];
@@ -590,42 +589,49 @@ void app_main(void) {
     if (z80_enabled) zclk -= system_clock;
 
     if (drawFrame) {
-      // Palette optimization: CRAM565 stores 4 identical mirrors of 64 real colors.
-      // Only update the display palette when CRAM was actually written this frame.
       if (gwenesis_cram_dirty) {
-        // Byte-swap 64 real colors from CRAM565[0..63] into palette[0..63]
         for (int i = 0; i < 64; ++i)
           currentUpdate->palette[i] = (CRAM565[i] << 8) | (CRAM565[i] >> 8);
-        // Replicate to the 3 mirror sections (palette[64..255]) via memcpy
         memcpy(&currentUpdate->palette[64],  &currentUpdate->palette[0], 64 * sizeof(uint16_t));
         memcpy(&currentUpdate->palette[128], &currentUpdate->palette[0], 64 * sizeof(uint16_t));
         memcpy(&currentUpdate->palette[192], &currentUpdate->palette[0], 64 * sizeof(uint16_t));
         gwenesis_cram_dirty = false;
       }
-      slowFrame = !rg_display_sync(false);
       currentUpdate->width = screen_width;
       currentUpdate->height = screen_height;
-      rg_display_submit(currentUpdate, 0);
+      rg_display_submit(currentUpdate, 0); 
     }
 
-    rg_system_tick(rg_system_timer() - startTime);
-
+    // Audio-Clock Sync: Let audio hardware drive the emulator speed
     if (yfm_enabled || sn76489_enabled) {
       size_t count = (ym2612_index > sn76489_index) ? ym2612_index : sn76489_index;
-      gwenesis_audio_mix_and_submit(count);
+      if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
+      gwenesis_audio_mix_and_submit(count); 
     }
 
-    if (skipFrames == 0) {
-      int elapsed = rg_system_timer() - startTime;
-      if (app->frameskip > 0)
-        skipFrames = app->frameskip;
-      else if (elapsed > app->frameTime + 1500) // Allow some jitter
-        skipFrames = 1;                         // (elapsed / frameTime)
-      else if (drawFrame && slowFrame)
+    // Capture Busy Time for Frameskip indicator/logic
+    int64_t busyTime = rg_system_timer() - startTime;
+    rg_system_tick(busyTime);
+
+    // --- Robust Frameskip Manager ---
+    static int consecutive_skips = 0;
+
+    if (app->frameskip > 0) {
+      // Manual Frameskip: simple toggle based on counter
+      if (skipFrames > 0) skipFrames--;
+      else skipFrames = app->frameskip;
+    } else {
+      // Auto Frameskip: skip if busyTime > frameTime + 1ms slack
+      // But NEVER skip more than 3 frames in a row to prevent freezing.
+      if (busyTime > (app->frameTime + 1000) && consecutive_skips < 3) {
         skipFrames = 1;
-    } else if (skipFrames > 0) {
-      skipFrames--;
+        consecutive_skips++;
+      } else {
+        skipFrames = 0;
+        consecutive_skips = 0;
+      }
     }
+    // --------------------------------
   }
 
   RG_LOGI("Genesis ended");

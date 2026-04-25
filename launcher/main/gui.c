@@ -228,15 +228,8 @@ void gui_update_theme(void)
     gui.themes[3].list.selected_bg = rg_gui_get_theme_color("launcher_4", "list_selected_bg", C_WHITE);
     gui.themes[3].list.selected_fg = rg_gui_get_theme_color("launcher_4", "list_selected_fg", C_BLACK);
 
-    // Flush our image cache to make sure the new images are loaded next time
-    for (size_t i = 0; i < gui.tabs_count; ++i)
-    {
-        tab_t *tab = gui.tabs[i];
-        // On Nano S3 we don't need to free these as we have enough PSRAM
-        // rg_surface_free(tab->background), tab->background = NULL;
-        // rg_surface_free(tab->banner), tab->banner = NULL;
-        // rg_surface_free(tab->logo), tab->logo = NULL;
-    }
+    // On Nano S3 we have enough PSRAM to keep all backgrounds cached, so we don't
+    // need to flush them when the theme changes.
 }
 
 void gui_save_config(void)
