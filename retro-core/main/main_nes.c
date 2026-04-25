@@ -190,21 +190,32 @@ static void update_audio(int32_t *samples, size_t count) {
   if (count > 2048)
     count = 2048;
 
-  // DC blocker state (Using high-precision leaky integrator)
-  static int32_t audio_dc_left = 0;
+  // Smoothing filter state (LPF to remove hissing)
+  static int32_t prev_s = 0;
 
   for (size_t i = 0; i < count; i++) {
     int32_t in = samples[i];
     
-    // 1. High-pass filter to remove DC offset (Megadrive-style stable logic)
-    audio_dc_left += (in - (audio_dc_left >> 13));
-    int32_t s = in - (audio_dc_left >> 13);
+    // 1. Weighted Averaging Filter (LPF) inspired by Nofrendo
+    // Removes the sharp aliasing edges that cause the "hissing" sound.
+    int32_t s = (in * 3 + prev_s) >> 2;
+    prev_s = in;
 
-    // 2. Unity gain (1.0x) to prevent clipping and keep sound "Direct"
-    // No extra smoothing filters to maintain crispness
+    // 2. DC Blocker (High-precision leaky integrator)
+    // CRITICAL: Prevents the "dot/pop" sound at the end of samples by
+    // ensuring the signal baseline always returns to zero.
+    static int32_t dc_acc = 0;
+    dc_acc += (s - (dc_acc >> 10));
+    s -= (dc_acc >> 10);
+
+    // 3. Soft Limiter (Peak Compression)
+    // Instead of hard clipping at 32767, we gently compress peaks > 24000.
+    if (s > 24000) s = 24000 + (s - 24000) / 4;
+    else if (s < -24000) s = -24000 + (s + 24000) / 4;
 
     if (s > 32767) s = 32767;
-    if (s < -32768) s = -32768;
+    else if (s < -32768) s = -32768;
+
     audio_buf[i].left = (int16_t)s;
     audio_buf[i].right = (int16_t)s;
   }
@@ -792,6 +803,7 @@ void fceumm_main(void) {
   FCEUI_DisableSpriteLimitation(1); // Always disable by default
 
   FSettings.soundq = 0; // Restore LQ mode for FPS stability
+  FSettings.SoundVolume = 65; // Avoid internal hard-clipping in filter.c (Set to ~130% total gain)
   FCEUI_Sound(app->sampleRate);
   FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
 
