@@ -135,20 +135,22 @@ IRAM_ATTR static void gwenesis_audio_mix_and_submit(size_t count) {
 }
 
 static void update_audio_divisor() {
-  int freq = rg_system_get_cpu_speed();
-  if (freq < 100) freq = 240; // Safety fallback
+  double freq = rg_system_get_cpu_speed();
+  if (freq < 100) freq = 240.0;
   
-  // Use hardware rate compensation: Slow down I2S clock to offset the CPU/APB speed increase.
-  // This keeps the perceived playback speed at 100% without increasing emulator workload.
-  float compensation = 240.0f / freq;
-  rg_audio_set_sample_rate(44100 * compensation);
+  // The "Universal S3 Sync Formula":
+  // We scale the 44.1kHz rate based on the ratio of Nominal(240) to Current(freq).
+  // We add a +0.4 offset to the frequency denominator to compensate for the 
+  // I2S fractional divider's rounding behavior on the S3 hardware.
+  double target_rate = 44100.0 * (240.0 / (freq + 0.4));
   
-  // Keep emulator internal divisor fixed at standard 44.1kHz rate (1218)
-  // This ensures we only produce 735 samples per frame, saving CPU for FPS.
+  rg_audio_set_sample_rate((int)target_rate);
+  
+  // Keep emulator production rate at exactly 44.1kHz
   YM2612Config(14, 1218); 
   gwenesis_SN76489_Init(MCLOCK_NTSC, 44100, 1218);
   
-  RG_LOGI("Audio Speed Compensated: Rate=%dHz for %dMHz OC\n", (int)(44100 * compensation), freq);
+  RG_LOGI("Dynamic Sync: Rate=%dHz (Offset=0.4) for %.1fMHz\n", (int)target_rate, freq);
 }
 
 static void load_config();
