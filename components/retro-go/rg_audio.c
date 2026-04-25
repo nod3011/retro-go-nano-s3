@@ -141,7 +141,7 @@ void rg_audio_submit(const rg_audio_frame_t *frames, size_t count)
     if (!frames || !count)
         return;
 
-    if (ACQUIRE_DEVICE(0))
+    if (ACQUIRE_DEVICE(1000))
     {
         audio.driver->submit(frames, count);
         RELEASE_DEVICE();

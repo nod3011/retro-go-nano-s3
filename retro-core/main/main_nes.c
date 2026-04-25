@@ -23,7 +23,7 @@ static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static int8_t current_frameskip = -1; // Default to Auto
 
-#define AUDIO_BUFFER_COUNT 3
+#define AUDIO_BUFFER_COUNT 2
 #define AUDIO_BUFFER_SIZE 1024
 
 typedef struct {
@@ -208,7 +208,7 @@ static void update_audio(int32_t *samples, size_t count) {
     return;
 
   audio_msg_t *msg = NULL;
-  // Get an empty buffer from the pool (This blocks if emulator is too fast, providing sync)
+  // Get an empty buffer (Blocks here if emulator is > 1 frame ahead)
   if (xQueueReceive(audio_queue_empty, &msg, portMAX_DELAY) != pdTRUE)
     return;
 
@@ -224,7 +224,7 @@ static void update_audio(int32_t *samples, size_t count) {
   }
   msg->count = count;
 
-  // Send to full queue for playback
+  // Send to playback (Blocking here ensures strict 100% speed)
   xQueueSend(audio_queue_full, &msg, portMAX_DELAY);
 }
 
@@ -804,8 +804,8 @@ void fceumm_main(void) {
   currentUpdate = updates[currentBufferIndex];
   XBuf = (uint8_t *)currentUpdate->data;
 
-  // Initialize Async Audio Pool (Strict Back-Pressure)
-  audio_queue_full = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
+  // Initialize Async Audio Pool with Queue size 1 (Strict 100% Speed Lock)
+  audio_queue_full = xQueueCreate(1, sizeof(audio_msg_t *));
   audio_queue_empty = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
   
   for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
@@ -1002,8 +1002,7 @@ void fceumm_main(void) {
       }
     }
 
-    // Emulation pacing is now handled by the Audio Task's consumption rate
-    // (if the audio queue is full, we naturally wait).
+    // Pacing is now strictly controlled by the 1-frame audio queue
   }
 
   save_sram();
