@@ -274,7 +274,7 @@ bool I_AnySoundStillPlaying(void)
 
 static void soundTask(void *arg)
 {
-    while (1)
+    while (!rg_system_exit_called())
     {
         bool haveMusic = snd_MusicVolume > 0 && musicPlaying;
         bool haveSFX = snd_SfxVolume > 0 && I_AnySoundStillPlaying();
@@ -638,10 +638,13 @@ static void event_handler(int event, void *arg)
 {
     if (event == RG_EVENT_SHUTDOWN)
     {
+        // Stop audio first to prevent soundTask from accessing freed memory
+        rg_audio_set_mute(true);
+        rg_task_delay(20);
+
         // DOOM fully fills the internal heap and this causes some shutdown
         // steps to fail so we try to free everything!
         Z_FreeTags(0, PU_MAX);
-        rg_audio_set_mute(true);
     }
     else if (event == RG_EVENT_REDRAW)
     {
