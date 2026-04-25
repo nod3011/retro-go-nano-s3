@@ -7,6 +7,9 @@
 #include <freertos/task.h>
 
 #include "rg_system.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 #define CZ80 1
 #define RETRO_COMPAT_IMPLEMENTATION
@@ -16,6 +19,30 @@
 #include "retro_compat.h"
 #include "tlcs900h.h"
 #include "types.h"
+
+#define kSampleRate 22050
+#define kFps 60
+#define kChunk ((kSampleRate + kFps / 2) / kFps) // 368
+#define AUDIO_BUFFER_COUNT 2
+
+typedef struct {
+    rg_audio_frame_t frames[kChunk];
+    size_t count;
+} audio_msg_t;
+
+static audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
+static QueueHandle_t audio_queue_full;
+static QueueHandle_t audio_queue_empty;
+
+static void audio_task(void *arg) {
+    audio_msg_t *msg;
+    while (xQueueReceive(audio_queue_full, &msg, portMAX_DELAY)) {
+        if (msg == (audio_msg_t *)-1) break; // Shutdown signal
+        rg_audio_submit(msg->frames, msg->count);
+        xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
+    }
+    vTaskDelete(NULL);
+}
 
 int is_mono_game = 0;
 #define NGP_CPU_CLOCK 6144000
@@ -40,6 +67,34 @@ extern int Cz80_allocate_flag_tables(void);
 extern void Cz80_free_flag_tables(void);
 extern void graphics_free(void);
 extern void audio_dac_free(void);
+
+// Config
+typedef struct {
+    int overclock;
+    int frameskip;
+    int btn_a_map;   // Physical key for NGP A
+    int btn_b_map;   // Physical key for NGP B
+} ngp_config_t;
+
+static ngp_config_t config;
+
+static const char *btn_names[] = {"A", "B"};
+static const uint32_t btn_keys[] = {RG_KEY_A, RG_KEY_B};
+
+static void load_config() {
+    config.overclock = (int)rg_settings_get_number(NS_FILE, "overclock", 2);
+    config.frameskip = (int)rg_settings_get_number(NS_FILE, "frameskip", 0);
+    config.btn_a_map = (int)rg_settings_get_number(NS_FILE, "btn_a_map", 0); // Default A
+    config.btn_b_map = (int)rg_settings_get_number(NS_FILE, "btn_b_map", 1); // Default B
+}
+
+static void save_config() {
+    rg_settings_set_number(NS_FILE, "overclock", config.overclock);
+    rg_settings_set_number(NS_FILE, "frameskip", config.frameskip);
+    rg_settings_set_number(NS_FILE, "btn_a_map", config.btn_a_map);
+    rg_settings_set_number(NS_FILE, "btn_b_map", config.btn_b_map);
+    rg_settings_commit();
+}
 
 // Graphics / VDP pointers
 unsigned short *drawBuffer = NULL;
@@ -85,8 +140,9 @@ static rg_surface_t *update;
 int m_bIsActive = 1;
 
 // Turbo logic state
-static bool turbo_a_toggled = false;
-static bool turbo_b_toggled = false;
+static bool turbo_btn_a_enabled = false;
+static bool turbo_btn_b_enabled = false;
+static bool menu_cancelled = false;
 static int turbo_counter = 0;
 
 static void set_defaults_after_boot(void) {
@@ -155,22 +211,21 @@ static void map_vdp_tables_full() {
 static void poll_input(uint32_t state) {
   int joy = 0;
 
-  if (state & RG_KEY_UP)
-    joy |= (1 << 0);
-  if (state & RG_KEY_DOWN)
-    joy |= (1 << 1);
-  if (state & RG_KEY_LEFT)
-    joy |= (1 << 2);
-  if (state & RG_KEY_RIGHT)
-    joy |= (1 << 3);
+  if (state & RG_KEY_UP) joy |= (1 << 0);
+  if (state & RG_KEY_DOWN) joy |= (1 << 1);
+  if (state & RG_KEY_LEFT) joy |= (1 << 2);
+  if (state & RG_KEY_RIGHT) joy |= (1 << 3);
 
-  if (state & RG_KEY_A) {
-    if (!turbo_a_toggled || (turbo_counter & 4))
-      joy |= (1 << 4);
+  uint32_t key_a = btn_keys[config.btn_a_map];
+  uint32_t key_b = btn_keys[config.btn_b_map];
+
+  if (state & key_a) {
+    bool turbo = (config.btn_a_map == 0) ? turbo_btn_a_enabled : turbo_btn_b_enabled;
+    if (!turbo || (turbo_counter & 4)) joy |= (1 << 4);
   }
-  if (state & RG_KEY_B) {
-    if (!turbo_b_toggled || (turbo_counter & 4))
-      joy |= (1 << 5);
+  if (state & key_b) {
+    bool turbo = (config.btn_b_map == 0) ? turbo_btn_a_enabled : turbo_btn_b_enabled;
+    if (!turbo || (turbo_counter & 4)) joy |= (1 << 5);
   }
 
   if (state & (RG_KEY_START | RG_KEY_SELECT))
@@ -205,15 +260,65 @@ static bool save_state_handler(const char *filename) {
   return success;
 }
 
-static void event_handler(int event, void *arg) {
-  if (event == RG_EVENT_SHUTDOWN || event == RG_EVENT_SLEEP) {
-    extern void flashShutdown(void);
-    flashShutdown();
-  }
+static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+    const char *names[] = {"Disabled", "1.1x", "1.25x", "1.5x"};
+    if (event == RG_DIALOG_PREV) config.overclock = (config.overclock + 3) % 4;
+    if (event == RG_DIALOG_NEXT) config.overclock = (config.overclock + 1) % 4;
+    if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+        rg_system_set_overclock(config.overclock);
+        save_config();
+    }
+    strcpy(option->value, names[config.overclock]);
+    return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+    const char *names[] = {"Auto", "None", "1", "2", "3", "4"};
+    if (event == RG_DIALOG_PREV) config.frameskip = (config.frameskip + 5) % 6;
+    if (event == RG_DIALOG_NEXT) config.frameskip = (config.frameskip + 1) % 6;
+    if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+        app->frameskip = (config.frameskip == 0) ? -1 : (config.frameskip - 1);
+        save_config();
+    }
+    strcpy(option->value, names[config.frameskip]);
+    return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t sub_btn_mapping_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+    int *val = (int *)option->arg;
+    if (event == RG_DIALOG_PREV) *val = (*val + 1) % 2;
+    if (event == RG_DIALOG_NEXT) *val = (*val + 1) % 2;
+    if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+        save_config();
+    }
+    strcpy(option->value, btn_names[*val]);
+    return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+    if (event == RG_DIALOG_ENTER) {
+        rg_gui_option_t options[3];
+        options[0] = (rg_gui_option_t){(intptr_t)&config.btn_a_map, "NGP Button A", "-", RG_DIALOG_FLAG_NORMAL, &sub_btn_mapping_cb};
+        options[1] = (rg_gui_option_t){(intptr_t)&config.btn_b_map, "NGP Button B", "-", RG_DIALOG_FLAG_NORMAL, &sub_btn_mapping_cb};
+        options[2] = (rg_gui_option_t)RG_DIALOG_END;
+        rg_gui_dialog(option->label, options, 0);
+        return RG_DIALOG_REDRAW;
+    }
+    return RG_DIALOG_VOID;
 }
 
 static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t)RG_DIALOG_END;
+    *dest++ = (rg_gui_option_t){0, "Overclock", "-", RG_DIALOG_FLAG_NORMAL, &overclock_cb};
+    *dest++ = (rg_gui_option_t){0, "Frameskip", "-", RG_DIALOG_FLAG_NORMAL, &frameskip_cb};
+    *dest++ = (rg_gui_option_t){0, "Map Buttons", "...", RG_DIALOG_FLAG_NORMAL, &btn_mapping_cb};
+    *dest++ = (rg_gui_option_t)RG_DIALOG_END;
+}
+
+static void event_handler(int event, void *arg) {
+    if (event == RG_EVENT_SHUTDOWN || event == RG_EVENT_SLEEP) {
+        extern void flashShutdown(void);
+        flashShutdown();
+    }
 }
 
 static bool load_state_handler(const char *filename) {
@@ -245,9 +350,6 @@ static bool screenshot_handler(const char *filename, int width, int height) {
 }
 
 // Audio Buffers
-#define kSampleRate 22050
-#define kFps 60
-#define kChunk ((kSampleRate + kFps / 2) / kFps) // 368
 static uint16_t s_psg[368];
 static uint16_t s_dac[368];
 
@@ -262,19 +364,20 @@ static void submit_frame() {
   sound_update(s_psg, lenB);
   dac_update(s_dac, lenB);
 
-  int16_t samples[368 * 2];
-  for (int i = 0; i < kChunk; ++i) {
-    int32_t a = (int16_t)s_psg[i];
-    int32_t b = (int16_t)s_dac[i];
-    int32_t mixed = a + b;
-    if (mixed > 32767)
-      mixed = 32767;
-    if (mixed < -32768)
-      mixed = -32768;
-    samples[i * 2] = (int16_t)mixed;
-    samples[i * 2 + 1] = (int16_t)mixed;
+  audio_msg_t *msg;
+  if (xQueueReceive(audio_queue_empty, &msg, 0) == pdTRUE) {
+    for (int i = 0; i < kChunk; ++i) {
+      int32_t a = (int16_t)s_psg[i];
+      int32_t b = (int16_t)s_dac[i];
+      int32_t mixed = a + b;
+      if (mixed > 32767) mixed = 32767;
+      if (mixed < -32768) mixed = -32768;
+      msg->frames[i].left = (int16_t)mixed;
+      msg->frames[i].right = (int16_t)mixed;
+    }
+    msg->count = kChunk;
+    xQueueSend(audio_queue_full, &msg, portMAX_DELAY);
   }
-  rg_audio_submit((const rg_audio_frame_t *)samples, kChunk);
 }
 
 void app_main() {
@@ -287,11 +390,25 @@ void app_main() {
       .options = options_handler,
   };
   rg_system_init(22050, &handlers, event_handler);
+  
+  load_config();
   rg_system_set_tick_rate(60);
-  rg_system_set_overclock(2);
+  rg_system_set_overclock(config.overclock);
+
+  // Initialize Async Audio Pool on Core 0
+
+  // Initialize Async Audio Pool on Core 0
+  audio_queue_full = xQueueCreate(1, sizeof(audio_msg_t *));
+  audio_queue_empty = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
+  for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+    audio_msg_t *msg = &audio_pool[i];
+    xQueueSend(audio_queue_empty, &msg, 0);
+  }
+  xTaskCreatePinnedToCore(&audio_task, "audio_task", 2048, NULL, 5, NULL, 0);
+
   app = rg_system_get_app();
   app->screenSync = 1;
-  app->frameskip = 0;
+  app->frameskip = (config.frameskip == 0) ? -1 : (config.frameskip - 1);
   g_overclock = 0;
 
   // Load ROM
@@ -382,14 +499,13 @@ void app_main() {
   }
 
   rg_system_set_tick_rate(60);
-  app->frameskip = 0;
+  app->frameskip = (config.frameskip == 0) ? -1 : (config.frameskip - 1);
 
   if (app->bootFlags & RG_BOOT_RESUME) {
     rg_emu_load_state(app->saveSlot);
   }
 
   static uint32_t joystick_old = 0;
-  static bool menu_cancelled = false;
   static bool menu_pressed = false;
   int64_t sram_save_timer = 0;
   int64_t frame_start = rg_system_timer();
@@ -397,17 +513,23 @@ void app_main() {
   while (!rg_system_exit_called()) {
     uint32_t joystick = rg_input_read_gamepad();
     uint32_t joystick_down = joystick & ~joystick_old;
-    turbo_counter++;
+
+    uint32_t joystick_up = ~joystick & joystick_old;
 
     if (joystick & RG_KEY_MENU) {
-      if (joystick_down & RG_KEY_A) {
-        turbo_a_toggled = !turbo_a_toggled;
-        RG_LOGI("Turbo A: %s\n", turbo_a_toggled ? "ON" : "OFF");
+      // Toggle Turbo for PHYSICAL A on release
+      if (joystick_up & RG_KEY_A) {
+        turbo_btn_a_enabled = !turbo_btn_a_enabled;
+        RG_LOGI("Physical A Turbo: %s\n", turbo_btn_a_enabled ? "ON" : "OFF");
+        menu_cancelled = true;
       }
-      if (joystick_down & RG_KEY_B) {
-        turbo_b_toggled = !turbo_b_toggled;
-        RG_LOGI("Turbo B: %s\n", turbo_b_toggled ? "ON" : "OFF");
+      // Toggle Turbo for PHYSICAL B on release
+      if (joystick_up & RG_KEY_B) {
+        turbo_btn_b_enabled = !turbo_btn_b_enabled;
+        RG_LOGI("Physical B Turbo: %s\n", turbo_btn_b_enabled ? "ON" : "OFF");
+        menu_cancelled = true;
       }
+      
       if (joystick & ~RG_KEY_MENU) {
         menu_cancelled = true;
       }
@@ -423,7 +545,7 @@ void app_main() {
       menu_pressed = false;
     }
 
-    if (joystick & RG_KEY_OPTION) {
+    if (joystick_down & RG_KEY_OPTION) {
       rg_gui_options_menu();
     }
 
@@ -433,6 +555,7 @@ void app_main() {
 
     if (g_frame_ready) {
       g_frame_ready = 0;
+      turbo_counter++; // Increment turbo once per frame
       submit_frame();
       int64_t now = rg_system_timer();
       rg_system_tick(now - frame_start);
@@ -448,7 +571,9 @@ void app_main() {
     joystick_old = joystick;
   }
 
-  RG_LOGI("NGP ended");
+  // Signal audio task to shutdown
+  audio_msg_t *shutdown_msg = (audio_msg_t *)-1;
+  xQueueSend(audio_queue_full, &shutdown_msg, 0);
 
   if (rom_ptr)
     free(rom_ptr);
@@ -460,6 +585,9 @@ void app_main() {
 
   rg_surface_free(updates[0]);
   rg_surface_free(updates[1]);
+
+  if (audio_queue_full) vQueueDelete(audio_queue_full);
+  if (audio_queue_empty) vQueueDelete(audio_queue_empty);
 
   rg_system_exit();
 }
