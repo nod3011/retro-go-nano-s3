@@ -16,11 +16,32 @@ static const char *SETTING_PALETTE = "palette";
 
 // --- GLOBALS
 static rg_app_t *app;
-static rg_surface_t *updates[2];
+static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static bool slowFrame = false;
 static int8_t current_frameskip = -1; // Default to Auto
+
+// --- ASYNC AUDIO
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+
+#define AUDIO_BUFFER_SIZE 2048
+typedef struct {
+    rg_audio_frame_t frames[AUDIO_BUFFER_SIZE];
+    size_t count;
+} audio_msg_t;
+
+static QueueHandle_t audio_queue;
+
+static void audio_task(void *arg) {
+    audio_msg_t *msg;
+    while (xQueueReceive(audio_queue, &msg, portMAX_DELAY)) {
+        rg_audio_submit(msg->frames, msg->count);
+        free(msg);
+    }
+}
 
 #ifndef RG_ATTR_EXT_RAM
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
@@ -214,7 +235,17 @@ static void update_audio(int32_t *samples, size_t count) {
     audio_buf[i].right = (int16_t)s;
   }
 
-  rg_audio_submit(audio_buf, count);
+  // Submit to async queue (this blocks when full, providing 100% speed sync)
+  if (count > 0) {
+    audio_msg_t *msg = malloc(sizeof(audio_msg_t));
+    if (msg) {
+        msg->count = count;
+        memcpy(msg->frames, audio_buf, count * sizeof(rg_audio_frame_t));
+        if (xQueueSend(audio_queue, &msg, portMAX_DELAY) != pdTRUE) {
+            free(msg);
+        }
+    }
+  }
 }
 
 // --- FCEU CALLBACKS
@@ -785,12 +816,17 @@ void fceumm_main(void) {
 
   // Use 256 lines to avoid out-of-bounds writes from FCEUMM's PPU (which can
   // write to line 240) and to accommodate PAL games safely. NES_WIDTH (256) is
-  // standard for this core. Use 2 buffers in MEM_FAST for optimal performance.
+  // Triple Buffering in MEM_FAST
   updates[0] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_FAST);
   updates[1] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_FAST);
+  updates[2] = rg_surface_create(NES_WIDTH, 256, RG_PIXEL_PAL565_BE, MEM_FAST);
   currentBufferIndex = 0;
   currentUpdate = updates[currentBufferIndex];
   XBuf = (uint8_t *)currentUpdate->data;
+
+  // Initialize Async Audio
+  audio_queue = xQueueCreate(4, sizeof(audio_msg_t *));
+  rg_task_create("nes_audio", &audio_task, NULL, 3072, RG_TASK_PRIORITY_7, 0);
 
   // Initialize external options
   extern void FCEUI_DisableSpriteLimitation(int a);
@@ -923,7 +959,7 @@ void fceumm_main(void) {
 
     // Switch buffers and set target for next frame
     if (drawFrame) {
-      currentBufferIndex = (currentBufferIndex + 1) % 2;
+      currentBufferIndex = (currentBufferIndex + 1) % 3;
       currentUpdate = updates[currentBufferIndex];
       // Copy palette only when it changes to avoid unnecessary memory traffic
       if (palette_dirty > 0) {
@@ -954,7 +990,6 @@ void fceumm_main(void) {
     update_audio(sound, sound_samples);
 
     if (drawFrame && gfx) {
-      slowFrame = !rg_display_sync(false);
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
@@ -981,8 +1016,8 @@ void fceumm_main(void) {
       }
     }
 
-    // Standard frame sync (safety net for audio-driven sync)
-    rg_system_sync_frame(startTime);
+    // Emulation pacing is now handled by the Audio Task's consumption rate
+    // (if the audio queue is full, we naturally wait).
   }
 
   save_sram();
@@ -990,9 +1025,10 @@ void fceumm_main(void) {
 
   if (updates[0]) rg_surface_free(updates[0]);
   if (updates[1]) rg_surface_free(updates[1]);
+  if (updates[2]) rg_surface_free(updates[2]);
   if (rom_data) free(rom_data);
   
-  updates[0] = updates[1] = NULL;
+  updates[0] = updates[1] = updates[2] = NULL;
   rom_data = NULL;
 }
 
