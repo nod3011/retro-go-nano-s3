@@ -2,13 +2,35 @@
 #include <rg_system.h>
 #include <sys/time.h>
 #include <time.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 #define AUDIO_SAMPLE_RATE (44100)
-#define AUDIO_BUFFER_LENGTH (AUDIO_SAMPLE_RATE / 25 + 2)
+#define AUDIO_BUFFER_COUNT 2
+#define AUDIO_BUFFER_SIZE 1024
+
+typedef struct {
+    rg_audio_frame_t frames[AUDIO_BUFFER_SIZE]; // Stereo S16
+    size_t count;
+} audio_msg_t;
+
+static audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
+static QueueHandle_t audio_queue_full;
+static QueueHandle_t audio_queue_empty;
+
+static void audio_task(void *arg) {
+    audio_msg_t *msg;
+    while (xQueueReceive(audio_queue_full, &msg, portMAX_DELAY)) {
+        if (msg == (audio_msg_t *)-1) break; // Shutdown signal
+        rg_audio_submit(msg->frames, msg->count);
+        xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
+    }
+    vTaskDelete(NULL);
+}
 
 static int skipFrames = 0;
 static bool slowFrame = false;
-
 static int video_time;
 static int audio_time;
 
@@ -278,9 +300,14 @@ static void video_callback(void *buffer) {
 }
 
 static void audio_callback(void *buffer, size_t length) {
-  int64_t startTime = rg_system_timer();
-  rg_audio_submit(buffer, length >> 1);
-  audio_time += rg_system_timer() - startTime;
+  audio_msg_t *msg;
+  if (xQueueReceive(audio_queue_empty, &msg, 0) == pdTRUE) {
+    size_t count = length >> 1; // Stereo S16 samples
+    if (count > AUDIO_BUFFER_SIZE) count = AUDIO_BUFFER_SIZE;
+    memcpy(msg->frames, buffer, count * 4); // 2 channels * 2 bytes
+    msg->count = count;
+    xQueueSend(audio_queue_full, &msg, portMAX_DELAY);
+  }
 }
 
 static void options_handler(rg_gui_option_t *dest) {
@@ -313,6 +340,15 @@ void app_main(void) {
   app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
   rg_system_set_overclock(1);
 
+  // Initialize Async Audio Pool on Core 0
+  audio_queue_full = xQueueCreate(1, sizeof(audio_msg_t *));
+  audio_queue_empty = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
+  for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+    audio_msg_t *msg = &audio_pool[i];
+    xQueueSend(audio_queue_empty, &msg, 0);
+  }
+  xTaskCreatePinnedToCore(&audio_task, "audio_task", 2048, NULL, 5, NULL, 0);
+
   updates[0] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
   updates[1] = rg_surface_create(GB_WIDTH, GB_HEIGHT, RG_PIXEL_565_BE, MEM_SLOW);
   currentUpdate = updates[0];
@@ -334,8 +370,10 @@ void app_main(void) {
 #endif
 
   gnuboy_set_framebuffer(currentUpdate->data);
-  void *sound_buffer = rg_alloc(AUDIO_BUFFER_LENGTH * 4, MEM_FAST);
-  gnuboy_set_soundbuffer(sound_buffer, AUDIO_BUFFER_LENGTH);
+  // Using a smaller buffer size (1 frame = 735 samples) for better latency and clarity
+  const size_t gnuboy_buffer_len = 800; 
+  void *sound_buffer = rg_alloc(gnuboy_buffer_len * 4, MEM_FAST);
+  gnuboy_set_soundbuffer(sound_buffer, gnuboy_buffer_len);
 
   void *rom_data = NULL;
   size_t rom_size = 0;
@@ -460,7 +498,7 @@ void app_main(void) {
       }
     }
 
-    rg_system_tick(rg_system_timer() - startTime - audio_time);
+    rg_system_tick(rg_system_timer() - startTime);
 
     if (skipFrames == 0) {
       int elapsed = rg_system_timer() - startTime;
@@ -474,6 +512,10 @@ void app_main(void) {
     rg_system_sync_frame(startTime);
   }
 
+  // Signal audio task to shutdown
+  audio_msg_t *shutdown_msg = (audio_msg_t *)-1;
+  xQueueSend(audio_queue_full, &shutdown_msg, 0);
+
   if (gnuboy_sram_dirty()) gnuboy_save_sram(sramFile, false);
   
   gnuboy_free_rom();
@@ -482,6 +524,9 @@ void app_main(void) {
   if (sound_buffer) free(sound_buffer);
   if (updates[0]) rg_surface_free(updates[0]);
   if (updates[1]) rg_surface_free(updates[1]);
+
+  if (audio_queue_full) vQueueDelete(audio_queue_full);
+  if (audio_queue_empty) vQueueDelete(audio_queue_empty);
 
   rom_data = NULL;
   sound_buffer = NULL;
