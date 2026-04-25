@@ -2222,7 +2222,7 @@ unsigned int YM2612Read(int target)
 }
 
 
-void YM2612Config(unsigned char dac_bits) //,unsigned int AUDIO_FREQ_DIVISOR)
+void YM2612Config(unsigned char dac_bits, int freq_divisor)
 {
    int i;
 
@@ -2237,7 +2237,7 @@ void YM2612Config(unsigned char dac_bits) //,unsigned int AUDIO_FREQ_DIVISOR)
       ym2612.OPN.pan[i] = bitmask;
     }
   }
-  ym2612.divisor = AUDIO_FREQ_DIVISOR;
+  ym2612.divisor = freq_divisor;
 }
 
 void YM2612SaveRegs(uint8_t *regs)

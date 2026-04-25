@@ -184,7 +184,7 @@ void power_on() {
   z80_start();
   // Initialize YM2612 chip
   YM2612Init();
-  YM2612Config(14); // Increase precision to 14-bit for cleaner Nano S3 output
+  YM2612Config(14, AUDIO_FREQ_DIVISOR); // Increase precision to 14-bit for cleaner Nano S3 output
   // Initialize PSG SN76489 chip
   //CLOCK_NTSC      = 3579545,
   //CLOCK_PAL       = 3546895,

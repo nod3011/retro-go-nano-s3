@@ -134,6 +134,23 @@ IRAM_ATTR static void gwenesis_audio_mix_and_submit(size_t count) {
   }
 }
 
+static void update_audio_divisor() {
+  int freq = rg_system_get_cpu_speed();
+  if (freq < 100) freq = 240; // Safety fallback
+  
+  // Use hardware rate compensation: Slow down I2S clock to offset the CPU/APB speed increase.
+  // This keeps the perceived playback speed at 100% without increasing emulator workload.
+  float compensation = 240.0f / freq;
+  rg_audio_set_sample_rate(44100 * compensation);
+  
+  // Keep emulator internal divisor fixed at standard 44.1kHz rate (1218)
+  // This ensures we only produce 735 samples per frame, saving CPU for FPS.
+  YM2612Config(14, 1218); 
+  gwenesis_SN76489_Init(MCLOCK_NTSC, 44100, 1218);
+  
+  RG_LOGI("Audio Speed Compensated: Rate=%dHz for %dMHz OC\n", (int)(44100 * compensation), freq);
+}
+
 static void load_config();
 static void save_config();
 
@@ -339,6 +356,20 @@ static void event_handler(int event, void *arg) {
   }
 }
 
+static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+  int level = rg_system_get_overclock();
+  if (event == RG_DIALOG_PREV) level = (level + 4) % 5;
+  if (event == RG_DIALOG_NEXT) level = (level + 1) % 5;
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    rg_system_set_overclock(level);
+    update_audio_divisor(); // Recalculate divisor for new speed
+    rg_settings_set_number(NS_APP, "overclock", level);
+  }
+  const char *names[] = {"0 (240MHz)", "1 (240MHz)", "2 (260MHz)", "3 (280MHz)", "4 (300MHz)"};
+  strcpy(option->value, names[level % 5]);
+  return RG_DIALOG_VOID;
+}
+
 static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event) {
   int val = rg_settings_get_number(NS_APP, "frameskip", 0); // 0=Off, 1=Auto, 2=1, 3=2, 4=3, 5=4
   if (event == RG_DIALOG_PREV) val = (val + 5) % 6;
@@ -360,6 +391,7 @@ static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){0, _("Z80 emulation"), "-", RG_DIALOG_FLAG_NORMAL, &z80_update_cb};
   *dest++ = (rg_gui_option_t){0, _("Frameskip"), "-", RG_DIALOG_FLAG_NORMAL, &frameskip_cb};
   *dest++ = (rg_gui_option_t){0, _("Map Buttons"), "...", RG_DIALOG_FLAG_NORMAL, &btn_mapping_cb};
+  *dest++ = (rg_gui_option_t){0, _("Overclock"), "-", RG_DIALOG_FLAG_NORMAL, &overclock_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -432,6 +464,7 @@ void app_main(void) {
   if (!rg_settings_exists(NS_FILE, "overclock")) {
     rg_system_set_overclock(2);
   }
+  update_audio_divisor(); // Synchronize audio with the final clock speed
 
   yfm_enabled = rg_settings_get_number(NS_APP, SETTING_YFM_EMULATION, 1);
   sn76489_enabled = rg_settings_get_number(NS_APP, SETTING_SN76489_EMULATION, 1);
