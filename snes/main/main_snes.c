@@ -167,7 +167,8 @@ static void save_config() {
 }
 
 static void load_config() {
-  // Reset to defaults first to ensure a clean slate for new games
+  RG_LOGI("Resetting config to defaults...\n");
+  
   keymap_id = 0;
   current_custom_mapping[0] = 15; // B
   current_custom_mapping[1] = 7;  // A
@@ -188,42 +189,26 @@ static void load_config() {
   void *data = NULL;
   size_t size = 0;
   if (rg_storage_read_file(path, &data, &size, 0)) {
-    if (size >= 8) { // Magic + keymap_id
-      snes_config_t *cfg = (snes_config_t *)data;
-      if (cfg->magic == 0x534E4553) {
-        keymap_id = cfg->keymap_id;
+    snes_config_t *cfg = (snes_config_t *)data;
+    if (size >= 8 && cfg->magic == 0x534E4553) {
+      keymap_id = cfg->keymap_id;
 
-        // Load overclock and frameskip if available
-        if (size >= offsetof(snes_config_t, snes_cpu_overclock)) {
-           if (cfg->overclock >= 0 && cfg->overclock <= 4) {
-             rg_system_set_overclock(cfg->overclock);
-           }
-           if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
-             current_frameskip = cfg->frameskip;
-           }
-        }
-
-        // Load virtual CPU overclock if available
-        if (size >= offsetof(snes_config_t, custom_mapping)) {
-           if (cfg->snes_cpu_overclock >= 100 && cfg->snes_cpu_overclock <= 200) {
-             Settings.CyclesPercentage = cfg->snes_cpu_overclock;
-           }
-        }
-
-        // Load custom mapping if available
-        if (size >= offsetof(snes_config_t, disable_transparency)) {
-           memcpy(current_custom_mapping, cfg->custom_mapping,
-                  sizeof(current_custom_mapping));
-        }
-
-        // Load transparency if available
-        if (size >= offsetof(snes_config_t, disable_transparency) + 1) {
-           Settings.Transparency = (cfg->disable_transparency == 0);
-        }
-
-        RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d, Trans:%d)\n", path,
-                rg_system_get_overclock(), current_frameskip, (int)Settings.CyclesPercentage, (int)Settings.Transparency);
+      if (size >= offsetof(snes_config_t, snes_cpu_overclock)) {
+        if (cfg->overclock >= 0 && cfg->overclock <= 4) rg_system_set_overclock(cfg->overclock);
+        if (cfg->frameskip >= -1 && cfg->frameskip <= 3) current_frameskip = cfg->frameskip;
       }
+      if (size >= offsetof(snes_config_t, custom_mapping)) {
+        if (cfg->snes_cpu_overclock >= 100 && cfg->snes_cpu_overclock <= 200)
+          Settings.CyclesPercentage = cfg->snes_cpu_overclock;
+      }
+      if (size >= offsetof(snes_config_t, disable_transparency)) {
+        memcpy(current_custom_mapping, cfg->custom_mapping, sizeof(current_custom_mapping));
+      }
+      if (size >= offsetof(snes_config_t, disable_transparency) + 1) {
+        Settings.Transparency = (cfg->disable_transparency == 0);
+      }
+      RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d)\n", path,
+              rg_system_get_overclock(), current_frameskip, (int)Settings.CyclesPercentage);
     }
     free(data);
   }
@@ -812,11 +797,13 @@ void app_main(void) {
     S9xMainLoop();
 
     if (drawFrame) {
-      slowFrame = !rg_display_sync(false);
       currentUpdate->width = (uint16_t)IPPU.RenderedScreenWidth;
       currentUpdate->height = (uint16_t)IPPU.RenderedScreenHeight;
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
+
+    // Always sync the game clock to maintain 100% speed.
+    rg_display_sync(false);
 
 #ifndef USE_BLARGG_APU
     // Audio must be mixed every frame regardless of frame-skip.
@@ -850,24 +837,22 @@ void app_main(void) {
 
     rg_system_tick(rg_system_timer() - startTime);
 
-    // Yield to the system briefly to prevent starving Core 1 background tasks
-    // especially at high Virtual CPU overclock levels.
-    rg_task_delay(0);
+    // Calculate actual emulation work time to detect lag precisely.
+    // We measure it after emulation and audio mixing, but before any system wait.
+    int64_t workTime = rg_system_timer() - startTime;
+    slowFrame = (workTime > app->frameTime);
 
-    if (skipFrames == 0) {
-      if (current_frameskip == FRAMESKIP_AUTO) {
-        int elapsed = rg_system_timer() - startTime;
-        skipFrames = app->frameskip;
-        if (skipFrames == 0 && elapsed > app->frameTime + 5000)
-          skipFrames = 1;
-        else if (drawFrame && slowFrame)
-          skipFrames = 1;
-      } else {
-        skipFrames = current_frameskip;
-      }
-    } else if (skipFrames > 0) {
-      skipFrames--;
+    if (current_frameskip == FRAMESKIP_AUTO) {
+        if (drawFrame && slowFrame) skipFrames = 1;
+        else skipFrames = 0;
+    } else if (current_frameskip > 0) {
+        if (skipFrames == 0) skipFrames = current_frameskip;
+        else skipFrames--;
+    } else {
+        skipFrames = 0;
     }
+
+    rg_task_delay(0);
   }
 
   save_sram(true);
