@@ -67,7 +67,7 @@ int FCEU_InitVirtualVideo(void) {
   if (!XBuf)
     XBuf = (uint8 *)(rg_alloc(size, MEM_FAST));
   if (!XDBuf)
-    XDBuf = (uint8 *)(rg_alloc(size, 0));
+    XDBuf = (uint8 *)(rg_alloc(size, MEM_FAST));
 
   if (!XBuf || !XDBuf)
     return 0;
