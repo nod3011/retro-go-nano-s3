@@ -1,8 +1,12 @@
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 #include <rg_system.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#undef BIT
 #include <gwenesis.h>
 
 #define AUDIO_SAMPLE_RATE (44100)
@@ -26,7 +30,29 @@ int sn76489_clock;
 DRAM_ATTR int16_t gwenesis_ym2612_buffer[AUDIO_BUFFER_LENGTH];
 int ym2612_index;
 int ym2612_clock;
-static DRAM_ATTR rg_audio_frame_t gwenesis_mix_buffer[AUDIO_BUFFER_LENGTH];
+
+// Async Audio Sync
+#define AUDIO_BUFFER_COUNT 3
+typedef struct {
+    rg_audio_frame_t frames[AUDIO_BUFFER_LENGTH];
+    size_t count;
+} audio_msg_t;
+
+static audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
+static QueueHandle_t audio_queue_empty;
+static QueueHandle_t audio_queue_full;
+
+static void audio_task(void *arg) {
+    while (1) {
+        audio_msg_t *msg;
+        if (xQueueReceive(audio_queue_full, &msg, portMAX_DELAY) == pdTRUE) {
+            if (msg == (audio_msg_t *)-1) break;
+            rg_audio_submit(msg->frames, msg->count);
+            xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
+        }
+    }
+    vTaskDelete(NULL);
+}
 
 static FILE *savestate_fp = NULL;
 static int savestate_errors = 0;
@@ -75,33 +101,37 @@ IRAM_ATTR static void gwenesis_audio_mix_and_submit(size_t count) {
   if (count == 0) return;
   if (count > AUDIO_BUFFER_LENGTH) count = AUDIO_BUFFER_LENGTH;
   
-  if (yfm_enabled && sn76489_enabled) {
-    for (size_t i = 0; i < count; i++) {
-      int32_t mono = 0;
-      if (i < ym2612_index) mono += gwenesis_ym2612_buffer[i];
-      if (i < sn76489_index) mono += gwenesis_sn76489_buffer[i];
-      if (mono > 32767) mono = 32767; 
-      else if (mono < -32768) mono = -32768;
-      gwenesis_mix_buffer[i].left = (int16_t)mono;
-      gwenesis_mix_buffer[i].right = (int16_t)mono;
-    }
-  } else if (yfm_enabled) {
-    for (size_t i = 0; i < count; i++) {
-      int16_t mono = (i < ym2612_index) ? gwenesis_ym2612_buffer[i] : 0;
-      gwenesis_mix_buffer[i].left = mono;
-      gwenesis_mix_buffer[i].right = mono;
-    }
-  } else if (sn76489_enabled) {
-    for (size_t i = 0; i < count; i++) {
-      int16_t mono = (i < sn76489_index) ? gwenesis_sn76489_buffer[i] : 0;
-      gwenesis_mix_buffer[i].left = mono;
-      gwenesis_mix_buffer[i].right = mono;
-    }
-  } else {
-    memset(gwenesis_mix_buffer, 0, count * sizeof(rg_audio_frame_t));
+  audio_msg_t *msg;
+  // Sound Center Sync: Wait for an empty buffer (controlled by audio hardware speed)
+  if (xQueueReceive(audio_queue_empty, &msg, portMAX_DELAY) == pdTRUE) {
+      if (yfm_enabled && sn76489_enabled) {
+        for (size_t i = 0; i < count; i++) {
+          int32_t mono = 0;
+          if (i < ym2612_index) mono += gwenesis_ym2612_buffer[i];
+          if (i < sn76489_index) mono += gwenesis_sn76489_buffer[i];
+          if (mono > 32767) mono = 32767; 
+          else if (mono < -32768) mono = -32768;
+          msg->frames[i].left = (int16_t)mono;
+          msg->frames[i].right = (int16_t)mono;
+        }
+      } else if (yfm_enabled) {
+        for (size_t i = 0; i < count; i++) {
+          int16_t mono = (i < ym2612_index) ? gwenesis_ym2612_buffer[i] : 0;
+          msg->frames[i].left = mono;
+          msg->frames[i].right = mono;
+        }
+      } else if (sn76489_enabled) {
+        for (size_t i = 0; i < count; i++) {
+          int16_t mono = (i < sn76489_index) ? gwenesis_sn76489_buffer[i] : 0;
+          msg->frames[i].left = mono;
+          msg->frames[i].right = mono;
+        }
+      } else {
+        memset(msg->frames, 0, count * sizeof(rg_audio_frame_t));
+      }
+      msg->count = count;
+      xQueueSend(audio_queue_full, &msg, portMAX_DELAY);
   }
-  
-  rg_audio_submit(gwenesis_mix_buffer, count);
 }
 
 static void load_config();
@@ -309,16 +339,27 @@ static void event_handler(int event, void *arg) {
   }
 }
 
-static void options_handler(rg_gui_option_t *dest) {
-  *dest++ = (rg_gui_option_t){0, _("YM2612 audio "), "-", RG_DIALOG_FLAG_NORMAL,
-                              &yfm_update_cb};
-  *dest++ = (rg_gui_option_t){0, _("SN76489 audio"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &sn76489_update_cb};
-  *dest++ = (rg_gui_option_t){0, _("Z80 emulation"), "-", RG_DIALOG_FLAG_NORMAL,
-                              &z80_update_cb};
+static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+  int val = rg_settings_get_number(NS_APP, "frameskip", 0); // 0=Off, 1=Auto, 2=1, 3=2, 4=3, 5=4
+  if (event == RG_DIALOG_PREV) val = (val + 5) % 6;
+  if (event == RG_DIALOG_NEXT) val = (val + 1) % 6;
+  if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
+    rg_settings_set_number(NS_APP, "frameskip", val);
+    if (val == 0) app->frameskip = -1;      // Off
+    else if (val == 1) app->frameskip = 0; // Auto
+    else app->frameskip = val - 1;         // 1, 2, 3, 4
+  }
+  const char *names[] = {_("Off"), _("Auto"), "1", "2", "3", "4"};
+  strcpy(option->value, names[val % 6]);
+  return RG_DIALOG_VOID;
+}
 
-  *dest++ = (rg_gui_option_t){0, _("Map Buttons"), "...", RG_DIALOG_FLAG_NORMAL,
-                              &btn_mapping_cb};
+static void options_handler(rg_gui_option_t *dest) {
+  *dest++ = (rg_gui_option_t){0, _("YM2612 audio "), "-", RG_DIALOG_FLAG_NORMAL, &yfm_update_cb};
+  *dest++ = (rg_gui_option_t){0, _("SN76489 audio"), "-", RG_DIALOG_FLAG_NORMAL, &sn76489_update_cb};
+  *dest++ = (rg_gui_option_t){0, _("Z80 emulation"), "-", RG_DIALOG_FLAG_NORMAL, &z80_update_cb};
+  *dest++ = (rg_gui_option_t){0, _("Frameskip"), "-", RG_DIALOG_FLAG_NORMAL, &frameskip_cb};
+  *dest++ = (rg_gui_option_t){0, _("Map Buttons"), "...", RG_DIALOG_FLAG_NORMAL, &btn_mapping_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -371,7 +412,21 @@ void app_main(void) {
   };
 
   app = rg_system_init(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  app->screenSync = 1;
+  app->screenSync = 0; // Sound Centered Sync (Master Clock)
+  
+  // Initialize Async Audio
+  audio_queue_full = xQueueCreate(1, sizeof(audio_msg_t *));
+  audio_queue_empty = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
+  for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+    audio_msg_t *msg = &audio_pool[i];
+    xQueueSend(audio_queue_empty, &msg, 0);
+  }
+  xTaskCreatePinnedToCore(&audio_task, "audio_task", 4096, NULL, 5, NULL, 0);
+
+  int fs_val = rg_settings_get_number(NS_APP, "frameskip", 0);
+  if (fs_val == 0) app->frameskip = -1;
+  else if (fs_val == 1) app->frameskip = 0;
+  else app->frameskip = fs_val - 1;
   // Only set default overclock=2 if the user hasn't saved a per-ROM preference.
   // NS_FILE overclock was already loaded by rg_system_init — don't override it.
   if (!rg_settings_exists(NS_FILE, "overclock")) {
@@ -609,7 +664,7 @@ void app_main(void) {
       gwenesis_audio_mix_and_submit(count); 
     }
 
-    // Capture Busy Time for Frameskip indicator/logic
+    // Capture Busy Time
     int64_t busyTime = rg_system_timer() - startTime;
     rg_system_tick(busyTime);
 
@@ -617,12 +672,11 @@ void app_main(void) {
     static int consecutive_skips = 0;
 
     if (app->frameskip > 0) {
-      // Manual Frameskip: simple toggle based on counter
+      // Manual Frameskip
       if (skipFrames > 0) skipFrames--;
       else skipFrames = app->frameskip;
-    } else {
+    } else if (app->frameskip == 0) {
       // Auto Frameskip: skip if busyTime > frameTime + 1ms slack
-      // But NEVER skip more than 3 frames in a row to prevent freezing.
       if (busyTime > (app->frameTime + 1000) && consecutive_skips < 3) {
         skipFrames = 1;
         consecutive_skips++;
@@ -630,6 +684,9 @@ void app_main(void) {
         skipFrames = 0;
         consecutive_skips = 0;
       }
+    } else {
+      // Off: Always draw
+      skipFrames = 0;
     }
     // --------------------------------
   }
