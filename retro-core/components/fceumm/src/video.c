@@ -65,7 +65,7 @@ int FCEU_InitVirtualVideo(void) {
   /* 256 bytes per scanline, * 240 scanline maximum, +8 for alignment, */
   size_t size = 256 * (256 + extrascanlines + 8);
   if (!XBuf)
-    XBuf = (uint8 *)(rg_alloc(size, 0));
+    XBuf = (uint8 *)(rg_alloc(size, MEM_FAST));
   if (!XDBuf)
     XDBuf = (uint8 *)(rg_alloc(size, 0));
 

@@ -717,23 +717,31 @@ static void IRAM_ATTR DoLine(void) {
   if (SpriteON)
     CopySprites(target);
 
-  if (ScreenON || SpriteON) { /* Yes, very el-cheapo. */
-    if (PPU[1] & 0x01) {
+  /* write the actual colour emphasis and grayscale if needed */
+  if (PPU[1] & 0xFF) {
+    if (PPU[1] & 0x01) { // Grayscale
       for (x = 63; x >= 0; x--)
         *(uint32 *)&target[x << 2] = (*(uint32 *)&target[x << 2]) & 0x30303030;
     }
-  }
-  if ((PPU[1] >> 5) == 0x7) {
-    for (x = 63; x >= 0; x--)
-      *(uint32 *)&target[x << 2] =
-          ((*(uint32 *)&target[x << 2]) & 0x3f3f3f3f) | 0xc0c0c0c0;
-  } else if (PPU[1] & 0xE0)
-    for (x = 63; x >= 0; x--)
-      *(uint32 *)&target[x << 2] = (*(uint32 *)&target[x << 2]) | 0x40404040;
-  else
+
+    if ((PPU[1] >> 5) == 0x7) { // All color emphasis bits
+      for (x = 63; x >= 0; x--)
+        *(uint32 *)&target[x << 2] =
+            ((*(uint32 *)&target[x << 2]) & 0x3f3f3f3f) | 0xc0c0c0c0;
+    } else if (PPU[1] & 0xE0) { // Some color emphasis bits
+      for (x = 63; x >= 0; x--)
+        *(uint32 *)&target[x << 2] = (*(uint32 *)&target[x << 2]) | 0x40404040;
+    } else { // Standard (just set high bits for palette indexing)
+      for (x = 63; x >= 0; x--)
+        *(uint32 *)&target[x << 2] =
+            ((*(uint32 *)&target[x << 2]) & 0x3f3f3f3f) | 0x80808080;
+    }
+  } else {
+    // Ultra fast path: Just set the bits needed for the palette
     for (x = 63; x >= 0; x--)
       *(uint32 *)&target[x << 2] =
           ((*(uint32 *)&target[x << 2]) & 0x3f3f3f3f) | 0x80808080;
+  }
 
   /* write the actual colour emphasis */
 #ifndef TARGET_GNW

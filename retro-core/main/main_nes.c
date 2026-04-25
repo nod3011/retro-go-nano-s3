@@ -190,29 +190,23 @@ static void update_audio(int32_t *samples, size_t count) {
   if (count > 2048)
     count = 2048;
 
-  // Smoothing filter state (LPF to remove hissing)
+  // Filter states
+  static int32_t dc_acc = 0;
   static int32_t prev_s = 0;
 
   for (size_t i = 0; i < count; i++) {
-    int32_t in = samples[i];
-    
-    // 1. Weighted Averaging Filter (LPF) inspired by Nofrendo
-    // Removes the sharp aliasing edges that cause the "hissing" sound.
-    int32_t s = (in * 3 + prev_s) >> 2;
-    prev_s = in;
+    int32_t s = samples[i];
 
-    // 2. DC Blocker (High-precision leaky integrator)
-    // CRITICAL: Prevents the "dot/pop" sound at the end of samples by
-    // ensuring the signal baseline always returns to zero.
-    static int32_t dc_acc = 0;
+    // 1. DC Blocker + LPF (3:1 Weighted)
     dc_acc += (s - (dc_acc >> 10));
     s -= (dc_acc >> 10);
+    s = (s * 3 + prev_s) >> 2;
+    prev_s = s;
 
-    // 3. Soft Limiter (Peak Compression)
-    // Instead of hard clipping at 32767, we gently compress peaks > 24000.
-    if (s > 24000) s = 24000 + (s - 24000) / 4;
-    else if (s < -24000) s = -24000 + (s + 24000) / 4;
-
+    // 2. Soft Limiter + Clamp
+    if (s > 26000) s = 26000 + ((s - 26000) >> 2);
+    else if (s < -26000) s = -26000 + ((s + 26000) >> 2);
+    
     if (s > 32767) s = 32767;
     else if (s < -32768) s = -32768;
 
@@ -800,7 +794,7 @@ void fceumm_main(void) {
 
   // Initialize external options
   extern void FCEUI_DisableSpriteLimitation(int a);
-  FCEUI_DisableSpriteLimitation(1); // Always disable by default
+  FCEUI_DisableSpriteLimitation(0); // Restore 8-sprite limit for 240MHz performance
 
   FSettings.soundq = 0; // Restore LQ mode for FPS stability
   FSettings.SoundVolume = 65; // Avoid internal hard-clipping in filter.c (Set to ~130% total gain)
@@ -959,6 +953,10 @@ void fceumm_main(void) {
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
+    // Reset extrascanlines for stability (Standard NES timing)
+    extern unsigned extrascanlines;
+    extrascanlines = 0;
+
     // Dynamic frame skipping logic based on actual emulation cost
     if (current_frameskip == 0) {
        skipFrames = 0;
@@ -967,8 +965,8 @@ void fceumm_main(void) {
        else skipFrames--;
     } else { // Auto
       if (skipFrames == 0) {
-        // If emulation took more than 90% of frame time, skip next frame to catch up
-        if (emulationTime > (app->frameTime * 90 / 100)) {
+        // If emulation took more than 98% of frame time, skip next frame to catch up
+        if (emulationTime > (app->frameTime * 98 / 100)) {
            skipFrames = 1;
         } else if (drawFrame && slowFrame) {
            skipFrames = 1;
@@ -978,7 +976,7 @@ void fceumm_main(void) {
       }
     }
 
-    // Secondary sync (mostly for fast-forward or non-audio scenarios)
+    // Standard frame sync (safety net for audio-driven sync)
     rg_system_sync_frame(startTime);
   }
 
