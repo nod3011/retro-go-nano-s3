@@ -23,19 +23,23 @@ static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static int8_t current_frameskip = -1; // Default to Auto
 
+#define AUDIO_BUFFER_COUNT 3
 #define AUDIO_BUFFER_SIZE 1024
+
 typedef struct {
     rg_audio_frame_t frames[AUDIO_BUFFER_SIZE];
     size_t count;
 } audio_msg_t;
 
-static QueueHandle_t audio_queue;
+static audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
+static QueueHandle_t audio_queue_full;
+static QueueHandle_t audio_queue_empty;
 
 static void audio_task(void *arg) {
     audio_msg_t *msg;
-    while (xQueueReceive(audio_queue, &msg, portMAX_DELAY)) {
+    while (xQueueReceive(audio_queue_full, &msg, portMAX_DELAY)) {
         rg_audio_submit(msg->frames, msg->count);
-        free(msg);
+        xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
     }
 }
 
@@ -203,32 +207,25 @@ static void update_audio(int32_t *samples, size_t count) {
   if (count <= 0 || !samples)
     return;
 
-  static rg_audio_frame_t audio_buf[AUDIO_BUFFER_SIZE];
+  audio_msg_t *msg = NULL;
+  // Get an empty buffer from the pool (This blocks if emulator is too fast, providing sync)
+  if (xQueueReceive(audio_queue_empty, &msg, portMAX_DELAY) != pdTRUE)
+    return;
+
   if (count > AUDIO_BUFFER_SIZE)
     count = AUDIO_BUFFER_SIZE;
 
   for (size_t i = 0; i < count; i++) {
     int32_t s = samples[i];
-
-    // Clamping to 16-bit range (FCEUMM output is roughly 16-bit)
     if (s > 32767) s = 32767;
     else if (s < -32768) s = -32768;
-
-    audio_buf[i].left = (int16_t)s;
-    audio_buf[i].right = (int16_t)s;
+    msg->frames[i].left = (int16_t)s;
+    msg->frames[i].right = (int16_t)s;
   }
+  msg->count = count;
 
-  // Submit to async queue (this blocks when full, providing 100% speed sync)
-  if (count > 0) {
-    audio_msg_t *msg = malloc(sizeof(audio_msg_t));
-    if (msg) {
-        msg->count = count;
-        memcpy(msg->frames, audio_buf, count * sizeof(rg_audio_frame_t));
-        if (xQueueSend(audio_queue, &msg, portMAX_DELAY) != pdTRUE) {
-            free(msg);
-        }
-    }
-  }
+  // Send to full queue for playback
+  xQueueSend(audio_queue_full, &msg, portMAX_DELAY);
 }
 
 // --- FCEU CALLBACKS
@@ -807,8 +804,15 @@ void fceumm_main(void) {
   currentUpdate = updates[currentBufferIndex];
   XBuf = (uint8_t *)currentUpdate->data;
 
-  // Initialize Async Audio (6 blocks = ~100ms buffering)
-  audio_queue = xQueueCreate(6, sizeof(audio_msg_t *));
+  // Initialize Async Audio Pool (Strict Back-Pressure)
+  audio_queue_full = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
+  audio_queue_empty = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
+  
+  for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+      audio_msg_t *msg = &audio_pool[i];
+      xQueueSend(audio_queue_empty, &msg, 0);
+  }
+
   rg_task_create("nes_audio", &audio_task, NULL, 3072, RG_TASK_PRIORITY_7, 0);
 
   // Initialize external options
