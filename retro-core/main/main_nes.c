@@ -204,8 +204,8 @@ static void update_audio(int32_t *samples, size_t count) {
     prev_s = s;
 
     // 2. Soft Limiter + Clamp
-    if (s > 26000) s = 26000 + ((s - 26000) >> 2);
-    else if (s < -26000) s = -26000 + ((s + 26000) >> 2);
+    if (s > 30000) s = 30000 + ((s - 30000) >> 2);
+    else if (s < -30000) s = -30000 + ((s + 30000) >> 2);
     
     if (s > 32767) s = 32767;
     else if (s < -32768) s = -32768;
@@ -797,7 +797,12 @@ void fceumm_main(void) {
   FCEUI_DisableSpriteLimitation(0); // Restore 8-sprite limit for 240MHz performance
 
   FSettings.soundq = 0; // Restore LQ mode for FPS stability
-  FSettings.SoundVolume = 65; // Avoid internal hard-clipping in filter.c (Set to ~130% total gain)
+  FSettings.SoundVolume = 100;
+  FSettings.TriangleVolume = 256;
+  FSettings.SquareVolume[0] = 256;
+  FSettings.SquareVolume[1] = 256;
+  FSettings.NoiseVolume = 256;
+  FSettings.PCMVolume = 256;
   FCEUI_Sound(app->sampleRate);
   FCEUI_SetInput(0, SI_GAMEPAD, &fceu_joystick, 0);
 
