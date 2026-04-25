@@ -167,6 +167,20 @@ static void save_config() {
 }
 
 static void load_config() {
+  // Reset to defaults first to ensure a clean slate for new games
+  keymap_id = 0;
+  current_custom_mapping[0] = 15; // B
+  current_custom_mapping[1] = 7;  // A
+  current_custom_mapping[2] = 14; // Y
+  current_custom_mapping[3] = 6;  // X
+  current_custom_mapping[4] = 5;  // L
+  current_custom_mapping[5] = 4;  // R
+  current_custom_mapping[6] = 13; // Select
+  current_custom_mapping[7] = 12; // Start
+  current_frameskip = FRAMESKIP_AUTO;
+  Settings.CyclesPercentage = 100;
+  Settings.Transparency = true;
+
   char path[RG_PATH_MAX];
   snprintf(path, sizeof(path), "%s/snes/%s.cfg", RG_BASE_PATH_CONFIG,
            rg_basename(app->romPath));
@@ -181,7 +195,7 @@ static void load_config() {
 
         // Load overclock and frameskip if available
         if (size >= offsetof(snes_config_t, snes_cpu_overclock)) {
-           if (cfg->overclock > 0 && cfg->overclock <= 3) {
+           if (cfg->overclock >= 0 && cfg->overclock <= 4) {
              rg_system_set_overclock(cfg->overclock);
            }
            if (cfg->frameskip >= -1 && cfg->frameskip <= 3) {
@@ -203,11 +217,11 @@ static void load_config() {
         }
 
         // Load transparency if available
-        if (size >= sizeof(snes_config_t)) {
+        if (size >= offsetof(snes_config_t, disable_transparency) + 1) {
            Settings.Transparency = (cfg->disable_transparency == 0);
         }
 
-        RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d, Trans:%d)\n", path, 
+        RG_LOGI("Config loaded from %s (OC:%d, FS:%d, CPU-OC:%d, Trans:%d)\n", path,
                 rg_system_get_overclock(), current_frameskip, (int)Settings.CyclesPercentage, (int)Settings.Transparency);
       }
     }
@@ -225,7 +239,11 @@ static bool save_state_handler(const char *filename) {
 }
 
 static bool load_state_handler(const char *filename) {
-  return S9xLoadState(filename);
+  bool success = S9xLoadState(filename);
+  if (success) {
+    load_config(); // Reload settings to match the last saved config
+  }
+  return success;
 }
 
 static void save_sram(bool force) {
@@ -263,6 +281,7 @@ static void load_sram() {
 
 static bool reset_handler(bool hard) {
   save_sram(true);
+  load_config(); // Reload config on reset
   S9xReset();
   return true;
 }
