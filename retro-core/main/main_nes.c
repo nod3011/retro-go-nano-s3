@@ -934,15 +934,20 @@ void fceumm_main(void) {
     // FCEUMM handles internal skipping if we pass the flag
     FCEUI_Emulate(&gfx, &sound, &sound_samples, drawFrame ? 0 : 1);
 
+    // Measure actual emulation time (CPU work) BEFORE audio/display sync
+    int64_t emulationTime = rg_system_timer() - startTime;
+    rg_system_tick(emulationTime);
+
     if (drawFrame && gfx) {
       slowFrame = !rg_display_sync(false);
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
 
-    // Audio submission provides the pacing (sync)
+    // Audio submission provides the primary pacing (sync to 100% speed)
+    // This blocks if the buffer is full, providing natural synchronization.
     update_audio(sound, sound_samples);
 
-    // Dynamic frame skipping logic
+    // Dynamic frame skipping logic based on actual emulation cost
     if (current_frameskip == 0) {
        skipFrames = 0;
     } else if (current_frameskip > 0) {
@@ -950,18 +955,18 @@ void fceumm_main(void) {
        else skipFrames--;
     } else { // Auto
       if (skipFrames == 0) {
-        int64_t elapsed = rg_system_timer() - startTime;
-        if (elapsed > app->frameTime + 1000) { // Slight jitter allowed
-          skipFrames = 1;
+        // If emulation took more than 90% of frame time, skip next frame to catch up
+        if (emulationTime > (app->frameTime * 90 / 100)) {
+           skipFrames = 1;
         } else if (drawFrame && slowFrame) {
-          skipFrames = 1;
+           skipFrames = 1;
         }
       } else {
         skipFrames--;
       }
     }
 
-    rg_system_tick(rg_system_timer() - startTime);
+    // Secondary sync (mostly for fast-forward or non-audio scenarios)
     rg_system_sync_frame(startTime);
   }
 
