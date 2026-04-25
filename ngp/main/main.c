@@ -23,16 +23,29 @@
 #define kSampleRate 22050
 #define kFps 60
 #define kChunk ((kSampleRate + kFps / 2) / kFps) // 368
-#define AUDIO_BUFFER_COUNT 2
+#define AUDIO_BUFFER_COUNT 3
 
 typedef struct {
     rg_audio_frame_t frames[kChunk];
     size_t count;
 } audio_msg_t;
 
-static audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
+// Audio buffers MUST be in internal DRAM (not PSRAM) for stable I2S DMA on S3
+static DRAM_ATTR audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
 static QueueHandle_t audio_queue_full;
 static QueueHandle_t audio_queue_empty;
+
+static void sync_audio_to_system() {
+  double freq = rg_system_get_cpu_speed();
+  if (freq < 100) freq = 240.0;
+  
+  // The "Universal S3 Sync Formula":
+  // Adjust hardware rate to compensate for S3 APB/I2S clock drift during OC.
+  // The +0.4 offset accounts for fractional divider rounding.
+  double target_rate = (double)kSampleRate * (240.0 / (freq + 0.4));
+  
+  rg_audio_set_sample_rate((int)target_rate);
+}
 
 static void audio_task(void *arg) {
     audio_msg_t *msg;
@@ -264,6 +277,7 @@ static rg_gui_event_t overclock_cb(rg_gui_option_t *option, rg_gui_event_t event
     if (event == RG_DIALOG_NEXT) config.overclock = (config.overclock + 1) % 4;
     if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
         rg_system_set_overclock(config.overclock);
+        sync_audio_to_system(); // Apply hardware rate compensation
         save_config();
     }
     strcpy(option->value, names[config.overclock]);
@@ -363,7 +377,8 @@ static void submit_frame() {
   dac_update(s_dac, lenB);
 
   audio_msg_t *msg;
-  if (xQueueReceive(audio_queue_empty, &msg, 0) == pdTRUE) {
+  // Blocks here if audio task is busy — this provides 100% speed pacing.
+  if (xQueueReceive(audio_queue_empty, &msg, portMAX_DELAY) == pdTRUE) {
     for (int i = 0; i < kChunk; ++i) {
       int32_t a = (int16_t)s_psg[i];
       int32_t b = (int16_t)s_dac[i];
@@ -392,6 +407,7 @@ void app_main() {
   load_config();
   rg_system_set_tick_rate(60);
   rg_system_set_overclock(config.overclock);
+  sync_audio_to_system(); // Initial sync for OC level
 
   // Initialize Async Audio Pool on Core 0
   audio_queue_full = xQueueCreate(1, sizeof(audio_msg_t *));

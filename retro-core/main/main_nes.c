@@ -23,7 +23,7 @@ static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
 static int8_t current_frameskip = -1; // Default to Auto
 
-#define AUDIO_BUFFER_COUNT 2
+#define AUDIO_BUFFER_COUNT 3
 #define AUDIO_BUFFER_SIZE 1024
 
 typedef struct {
@@ -31,9 +31,22 @@ typedef struct {
     size_t count;
 } audio_msg_t;
 
-static audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
+// Audio buffers MUST be in internal DRAM (not PSRAM) for stable I2S DMA on S3
+static DRAM_ATTR audio_msg_t audio_pool[AUDIO_BUFFER_COUNT];
 static QueueHandle_t audio_queue_full;
 static QueueHandle_t audio_queue_empty;
+
+static void sync_audio_to_system() {
+  double freq = rg_system_get_cpu_speed();
+  if (freq < 100) freq = 240.0;
+  
+  // The "Universal S3 Sync Formula":
+  // Adjust hardware rate to compensate for S3 APB/I2S clock drift during OC.
+  // The +0.4 offset accounts for fractional divider rounding.
+  double target_rate = (double)AUDIO_SAMPLE_RATE * (240.0 / (freq + 0.4));
+  
+  rg_audio_set_sample_rate((int)target_rate);
+}
 
 static void audio_task(void *arg) {
     audio_msg_t *msg;
@@ -738,6 +751,7 @@ void fceumm_main(void) {
   current_frameskip = -1;
   
   load_config();
+  sync_audio_to_system(); // Initial sync for OC level
 
   if (!FCEUI_Initialize()) {
     RG_PANIC("FCEUI_Initialize failed");
@@ -936,6 +950,7 @@ void fceumm_main(void) {
     int cur_oc = rg_system_get_overclock();
     if (cur_oc != last_oc) {
         last_oc = cur_oc;
+        sync_audio_to_system(); // Immediate update for the new clock speed
         save_config();
     }
 
