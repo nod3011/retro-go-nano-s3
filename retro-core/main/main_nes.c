@@ -767,7 +767,7 @@ void fceumm_main(void) {
   // Region detection
   int slstart, slend;
   int is_pal = FCEUI_GetCurrentVidSystem(&slstart, &slend);
-  rg_system_set_tick_rate(60);
+  rg_system_set_tick_rate(is_pal ? 50 : 60);
   app->frameskip = 0;
   RG_LOGI("Detected %s region (%d lines)\n", is_pal ? "PAL" : "NTSC",
           is_pal ? 312 : 262);
@@ -938,14 +938,14 @@ void fceumm_main(void) {
     int64_t emulationTime = rg_system_timer() - startTime;
     rg_system_tick(emulationTime);
 
+    // Audio submission provides the primary pacing (sync to 100% speed)
+    // We submit audio BEFORE display because it's more sensitive to jitter.
+    update_audio(sound, sound_samples);
+
     if (drawFrame && gfx) {
       slowFrame = !rg_display_sync(false);
       rg_display_submit(currentUpdate, RG_DISPLAY_WRITE_NOSYNC);
     }
-
-    // Audio submission provides the primary pacing (sync to 100% speed)
-    // This blocks if the buffer is full, providing natural synchronization.
-    update_audio(sound, sound_samples);
 
     // Dynamic frame skipping logic based on actual emulation cost
     if (current_frameskip == 0) {
