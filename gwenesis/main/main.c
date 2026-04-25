@@ -457,10 +457,10 @@ void app_main(void) {
   }
   xTaskCreatePinnedToCore(&audio_task, "audio_task", 4096, NULL, 5, NULL, 0);
 
-  int fs_val = rg_settings_get_number(NS_APP, "frameskip", 0);
-  if (fs_val == 0) app->frameskip = -1;
-  else if (fs_val == 1) app->frameskip = 0;
-  else app->frameskip = fs_val - 1;
+  int fs_val = rg_settings_get_number(NS_APP, "frameskip", 1); // Default to 1 (Auto)
+  if (fs_val == 0) app->frameskip = -1;      // Off
+  else if (fs_val == 1) app->frameskip = 0; // Auto
+  else app->frameskip = fs_val - 1;         // 1, 2, 3, 4
   // Only set default overclock=2 if the user hasn't saved a per-ROM preference.
   // NS_FILE overclock was already loaded by rg_system_init — don't override it.
   if (!rg_settings_exists(NS_FILE, "overclock")) {
