@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <streams/memory_stream.h>
 #include <string.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 static const char *SETTING_PALETTE = "palette";
 
@@ -19,15 +21,9 @@ static rg_app_t *app;
 static rg_surface_t *updates[3];
 static rg_surface_t *currentUpdate;
 static int currentBufferIndex = 0;
-static bool slowFrame = false;
 static int8_t current_frameskip = -1; // Default to Auto
 
-// --- ASYNC AUDIO
-#include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
-#include <freertos/semphr.h>
-
-#define AUDIO_BUFFER_SIZE 2048
+#define AUDIO_BUFFER_SIZE 1024
 typedef struct {
     rg_audio_frame_t frames[AUDIO_BUFFER_SIZE];
     size_t count;
@@ -207,27 +203,14 @@ static void update_audio(int32_t *samples, size_t count) {
   if (count <= 0 || !samples)
     return;
 
-  static rg_audio_frame_t audio_buf[2048];
-  if (count > 2048)
-    count = 2048;
-
-  // Filter states
-  static int32_t dc_acc = 0;
-  static int32_t prev_s = 0;
+  static rg_audio_frame_t audio_buf[AUDIO_BUFFER_SIZE];
+  if (count > AUDIO_BUFFER_SIZE)
+    count = AUDIO_BUFFER_SIZE;
 
   for (size_t i = 0; i < count; i++) {
     int32_t s = samples[i];
 
-    // 1. DC Blocker + LPF (3:1 Weighted)
-    dc_acc += (s - (dc_acc >> 10));
-    s -= (dc_acc >> 10);
-    s = (s * 3 + prev_s) >> 2;
-    prev_s = s;
-
-    // 2. Soft Limiter + Clamp
-    if (s > 30000) s = 30000 + ((s - 30000) >> 2);
-    else if (s < -30000) s = -30000 + ((s + 30000) >> 2);
-    
+    // Clamping to 16-bit range (FCEUMM output is roughly 16-bit)
     if (s > 32767) s = 32767;
     else if (s < -32768) s = -32768;
 
@@ -824,8 +807,8 @@ void fceumm_main(void) {
   currentUpdate = updates[currentBufferIndex];
   XBuf = (uint8_t *)currentUpdate->data;
 
-  // Initialize Async Audio
-  audio_queue = xQueueCreate(4, sizeof(audio_msg_t *));
+  // Initialize Async Audio (6 blocks = ~100ms buffering)
+  audio_queue = xQueueCreate(6, sizeof(audio_msg_t *));
   rg_task_create("nes_audio", &audio_task, NULL, 3072, RG_TASK_PRIORITY_7, 0);
 
   // Initialize external options
@@ -998,17 +981,16 @@ void fceumm_main(void) {
     extrascanlines = 0;
 
     // Dynamic frame skipping logic based on actual emulation cost
+    // Dynamic frame skipping logic
     if (current_frameskip == 0) {
        skipFrames = 0;
     } else if (current_frameskip > 0) {
        if (skipFrames == 0) skipFrames = current_frameskip;
        else skipFrames--;
-    } else { // Auto
+    } else { // Auto (Prioritize 60 FPS)
       if (skipFrames == 0) {
-        // If emulation took more than 98% of frame time, skip next frame to catch up
-        if (emulationTime > (app->frameTime * 98 / 100)) {
-           skipFrames = 1;
-        } else if (drawFrame && slowFrame) {
+        // Only skip if emulation is clearly falling behind ( > 105% of frame time)
+        if (emulationTime > (app->frameTime * 105 / 100)) {
            skipFrames = 1;
         }
       } else {
