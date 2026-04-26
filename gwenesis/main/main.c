@@ -13,9 +13,16 @@
 #define AUDIO_BUFFER_LENGTH (1024) // Enough for 44.1kHz at 50Hz (882) plus jitter
 
 extern unsigned char *VRAM;
-extern int zclk;
 int system_clock;
 int scan_line;
+
+extern unsigned char gwenesis_vdp_regs[0x20];
+extern unsigned short gwenesis_vdp_status;
+extern unsigned short *CRAM565;
+extern int screen_width, screen_height;
+extern int hint_pending;
+extern int zclk;
+extern bool gwenesis_cram_dirty;
 
 // Audio buffers MUST be in internal DRAM (not PSRAM) because:
 // 1. I2S DMA accesses them directly; if in PSRAM, the SPI clock divider at OC3+
@@ -199,8 +206,12 @@ void saveGwenesisStateGetBuffer(SaveState *state, const char *tagName,
       break;
     }
     if (strncmp(var.key, tagName, sizeof(var.key)) == 0) {
-      fread(buffer, RG_MIN(var.length, length), 1, savestate_fp);
-      RG_LOGI("Loaded key '%s'\n", tagName);
+      int to_read = RG_MIN(var.length, length);
+      fread(buffer, to_read, 1, savestate_fp);
+      if (var.length > to_read) {
+        fseek(savestate_fp, var.length - to_read, SEEK_CUR);
+      }
+      // RG_LOGI("Loaded key '%s'\n", tagName);
       return;
     }
     fseek(savestate_fp, var.length, SEEK_CUR);
@@ -217,7 +228,7 @@ void saveGwenesisStateSetBuffer(SaveState *state, const char *tagName,
   strncpy(var.key, tagName, sizeof(var.key) - 1);
   fwrite(&var, sizeof(var), 1, savestate_fp);
   fwrite(buffer, length, 1, savestate_fp);
-  RG_LOGI("Saved key '%s'\n", tagName);
+  // RG_LOGI("Saved key '%s'\n", tagName);
 }
 
 
@@ -340,8 +351,14 @@ static bool load_state_handler(const char *filename) {
     savestate_errors = 0;
     gwenesis_load_state();
     fclose(savestate_fp);
-    if (savestate_errors == 0)
+    if (savestate_errors == 0) {
+      m68k.cycles = 0;
+      if (z80_enabled) zclk = 0;
+      sync_audio_to_system();
+      rg_system_set_tick_rate(REG1_PAL ? 50 : 60);
+      gwenesis_cram_dirty = true;
       return true;
+    }
   }
   reset_emulation();
   return false;
@@ -518,13 +535,7 @@ void app_main(void) {
 
   rg_system_set_tick_rate(60);
 
-  extern unsigned char gwenesis_vdp_regs[0x20];
-  extern unsigned short gwenesis_vdp_status;
-  extern unsigned short *CRAM565;
-  extern int screen_width, screen_height;
-  extern int hint_pending;
-  extern int zclk;
-  extern bool gwenesis_cram_dirty;
+
 
   zclk = z80_enabled ? 0 : 0x1000000;
 

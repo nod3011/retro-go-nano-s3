@@ -2346,4 +2346,14 @@ void gwenesis_ym2612_load_state() {
   saveGwenesisStateGetBuffer(state, "out_fm", out_fm, sizeof(out_fm));
   bitmask = saveGwenesisStateGet(state, "bitmask");
   saveGwenesisStateGetBuffer(state, "OPNREGS", OPNREGS, sizeof(OPNREGS));
+
+  // Fix pointers after loading
+  for (int c = 0; c < 6; c++) {
+    setup_connection(&ym2612.CH[c], c);
+    for (int s = 0; s < 4; s++) {
+      int reg_addr = 0x30 + s * 4 + (c % 3);
+      if (c >= 3) reg_addr += 0x100;
+      ym2612.CH[c].SLOT[s].DT = ym2612.OPN.ST.dt_tab[(OPNREGS[reg_addr] >> 4) & 7];
+    }
+  }
 }

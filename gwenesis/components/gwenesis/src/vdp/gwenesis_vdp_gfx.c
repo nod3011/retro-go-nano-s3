@@ -1164,7 +1164,6 @@ IRAM_ATTR void gwenesis_vdp_render_line(int line)
 }
 
 void gwenesis_vdp_gfx_save_state() {
-  /*
   SaveState* state;
   state = saveGwenesisStateOpenForWrite("vdp_gfx");
   saveGwenesisStateSetBuffer(state, "render_buffer", render_buffer, sizeof(render_buffer));
@@ -1180,24 +1179,21 @@ void gwenesis_vdp_gfx_save_state() {
   saveGwenesisStateSet(state, "PlanA_lastcol", PlanA_lastcol);
   saveGwenesisStateSet(state, "Window_firstcol", Window_firstcol);
   saveGwenesisStateSet(state, "Window_lastcol", Window_lastcol);
-  */
 }
 
 void gwenesis_vdp_gfx_load_state() {
-  /*
-    SaveState* state = saveGwenesisStateOpenForRead("vdp_gfx");
-    saveGwenesisStateGetBuffer(state, "render_buffer", render_buffer, sizeof(render_buffer));
-    saveGwenesisStateGetBuffer(state, "sprite_buffer", sprite_buffer, sizeof(sprite_buffer));
-    mode_h40 = saveGwenesisStateGet(state, "mode_h40");
-    mode_pal = saveGwenesisStateGet(state, "mode_pal");
-    screen_width = saveGwenesisStateGet(state, "screen_width");
-    screen_height = saveGwenesisStateGet(state, "screen_height");
-    sprite_overflow = saveGwenesisStateGet(state, "sprite_overflow");
-    sprite_collision = saveGwenesisStateGet(state, "sprite_collision");
-    base_w = saveGwenesisStateGet(state, "base_w");
-    PlanA_firstcol = saveGwenesisStateGet(state, "PlanA_firstcol");
-    PlanA_lastcol = saveGwenesisStateGet(state, "PlanA_lastcol");
-    Window_firstcol = saveGwenesisStateGet(state, "Window_firstcol");
-    Window_lastcol = saveGwenesisStateGet(state, "Window_lastcol");
-    */
+  SaveState* state = saveGwenesisStateOpenForRead("vdp_gfx");
+  saveGwenesisStateGetBuffer(state, "render_buffer", render_buffer, sizeof(render_buffer));
+  saveGwenesisStateGetBuffer(state, "sprite_buffer", sprite_buffer, sizeof(sprite_buffer));
+  mode_h40 = saveGwenesisStateGet(state, "mode_h40");
+  mode_pal = saveGwenesisStateGet(state, "mode_pal");
+  screen_width = saveGwenesisStateGet(state, "screen_width");
+  screen_height = saveGwenesisStateGet(state, "screen_height");
+  sprite_overflow = saveGwenesisStateGet(state, "sprite_overflow");
+  sprite_collision = saveGwenesisStateGet(state, "sprite_collision");
+  base_w = saveGwenesisStateGet(state, "base_w");
+  PlanA_firstcol = saveGwenesisStateGet(state, "PlanA_firstcol");
+  PlanA_lastcol = saveGwenesisStateGet(state, "PlanA_lastcol");
+  Window_firstcol = saveGwenesisStateGet(state, "Window_firstcol");
+  Window_lastcol = saveGwenesisStateGet(state, "Window_lastcol");
 }
