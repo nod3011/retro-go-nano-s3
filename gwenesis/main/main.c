@@ -290,25 +290,6 @@ static rg_gui_event_t sub_btn_mapping_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
-static rg_gui_event_t save_config_cb(rg_gui_option_t *option,
-                                     rg_gui_event_t event) {
-  if (event == RG_DIALOG_ENTER) {
-    save_config();
-    rg_gui_alert(_("Success"), _("Configuration saved."));
-  }
-  return RG_DIALOG_VOID;
-}
-
-static rg_gui_event_t load_config_cb(rg_gui_option_t *option,
-                                     rg_gui_event_t event) {
-  if (event == RG_DIALOG_ENTER) {
-    load_config();
-    rg_gui_alert(_("Success"), _("Configuration loaded."));
-    return RG_DIALOG_REDRAW;
-  }
-  return RG_DIALOG_VOID;
-}
-
 static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option,
                                      rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
@@ -321,13 +302,10 @@ static rg_gui_event_t btn_mapping_cb(rg_gui_option_t *option,
                                    &sub_btn_mapping_cb};
     options[3] = (rg_gui_option_t){3, _("Button Start"), "-",
                                    RG_DIALOG_FLAG_NORMAL, &sub_btn_mapping_cb};
-    options[4] = (rg_gui_option_t){0, _("Save Config"), NULL,
-                                   RG_DIALOG_FLAG_NORMAL, &save_config_cb};
-    options[5] = (rg_gui_option_t){0, _("Load Config"), NULL,
-                                   RG_DIALOG_FLAG_NORMAL, &load_config_cb};
-    options[6] = (rg_gui_option_t)RG_DIALOG_END;
+    options[4] = (rg_gui_option_t)RG_DIALOG_END;
 
     rg_gui_dialog(option->label, options, 0);
+    save_config();
   }
   return RG_DIALOG_VOID;
 }
@@ -492,15 +470,15 @@ void app_main(void) {
   load_config();
 
   updates[0] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_FAST);
-  // updates[1] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_FAST);
+  updates[1] = rg_surface_create(320, 241, RG_PIXEL_PAL565_BE, MEM_FAST);
   currentUpdate = updates[0];
 
   // This is a hack because our new surface format doesn't yet support overdraw
   // space easily
   updates[0]->data += 160;
   updates[0]->height = 240;
-  // updates[1]->data += 160;
-  // updates[1]->height = 240;
+  updates[1]->data += 160;
+  updates[1]->height = 240;
 
 
   RG_LOGI("Genesis start\n");
@@ -618,6 +596,10 @@ void app_main(void) {
     sn76489_clock = sn76489_enabled ? 0 : 0x1000000;
     sn76489_index = 0;
 
+    static int frame_count = 0;
+    currentUpdate = updates[frame_count % 2];
+    frame_count++;
+
     scan_line = 0;
 
     while (scan_line < lines_per_frame) {
@@ -690,11 +672,16 @@ void app_main(void) {
 
     if (drawFrame) {
       if (gwenesis_cram_dirty) {
-        for (int i = 0; i < 64; ++i)
-          currentUpdate->palette[i] = (CRAM565[i] << 8) | (CRAM565[i] >> 8);
-        memcpy(&currentUpdate->palette[64],  &currentUpdate->palette[0], 64 * sizeof(uint16_t));
-        memcpy(&currentUpdate->palette[128], &currentUpdate->palette[0], 64 * sizeof(uint16_t));
-        memcpy(&currentUpdate->palette[192], &currentUpdate->palette[0], 64 * sizeof(uint16_t));
+        for (int i = 0; i < 64; ++i) {
+          uint16_t color = (CRAM565[i] << 8) | (CRAM565[i] >> 8);
+          updates[0]->palette[i] = color;
+          updates[1]->palette[i] = color;
+        }
+        for (int j = 0; j < 2; j++) {
+           memcpy(&updates[j]->palette[64],  &updates[j]->palette[0], 64 * sizeof(uint16_t));
+           memcpy(&updates[j]->palette[128], &updates[j]->palette[0], 64 * sizeof(uint16_t));
+           memcpy(&updates[j]->palette[192], &updates[j]->palette[0], 64 * sizeof(uint16_t));
+        }
         gwenesis_cram_dirty = false;
       }
       currentUpdate->width = screen_width;
