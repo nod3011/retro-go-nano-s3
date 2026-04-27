@@ -488,14 +488,15 @@ static void handle_cheat_menu(void) {
     }
 
     if (count == 0) {
-      rg_gui_alert(_("Cheats"),
-                   _("No cheats active. Use 'Load Cheats' or 'Add Cheats'."));
+      rg_gui_alert(_("GameShark"),
+                   _("No codes active. Use 'Load' or 'Add Code'."));
       break;
     }
 
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog(_("Cheats Menu"), choices, last_cheat_sel);
+    intptr_t sel_arg = rg_gui_dialog(_("GameShark"), choices, last_cheat_sel);
+
 
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
@@ -503,17 +504,18 @@ static void handle_cheat_menu(void) {
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str(_("Add Cheat"), _("Enter Code (GameShark)"), "");
+  char *code = rg_gui_input_str(_("Add Code"), _("Enter Code (GameShark)"), "");
   if (code) {
-    char *name = rg_gui_input_str(_("Add Cheat"), _("Enter Description"), "");
+    char *name = rg_gui_input_str(_("Add Code"), _("Enter Description"), "");
     if (name) {
       apply_cheat_code(code, name, true);
-      rg_gui_alert(_("Add Cheat"), _("Cheat added successfully."));
+      rg_gui_alert(_("GameShark"), _("Code added successfully."));
       free(name);
     }
     free(code);
   }
 }
+
 
 static void handle_delete_cheat_menu(void) {
   static rg_gui_option_t choices[32];
@@ -553,13 +555,14 @@ static void handle_delete_cheat_menu(void) {
     }
 
     if (count == 0) {
-      rg_gui_alert(_("Delete Cheats"), _("No cheats to delete."));
+      rg_gui_alert(_("Delete Code"), _("No codes to delete."));
       break;
     }
 
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog(_("Select Cheat to Delete"), choices, 0);
+    intptr_t sel_arg = rg_gui_dialog(_("Delete Code"), choices, 0);
+
 
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
@@ -574,7 +577,7 @@ static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     load_cheats();
-    rg_gui_alert(_("Load Cheats"), _("Cheats loaded from SD Card."));
+    rg_gui_alert(_("GameShark"), _("Codes loaded from SD Card."));
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
@@ -584,11 +587,12 @@ static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     save_cheats();
-    rg_gui_alert(_("Save Cheats"), _("Cheats saved to SD Card."));
+    rg_gui_alert(_("GameShark"), _("Codes saved to SD Card."));
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
 }
+
 
 static rg_gui_event_t handle_cheat_list_cb(rg_gui_option_t *opt,
                                            rg_gui_event_t event) {
@@ -623,15 +627,14 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
                                            rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     const rg_gui_option_t choices[] = {
-        {0, _("Active Cheats"), ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_list_cb},
-        {0, _("Add Cheat"), "-", RG_DIALOG_FLAG_NORMAL, &handle_add_cheat_menu_cb},
-        {0, _("Delete Cheat"), "-", RG_DIALOG_FLAG_NORMAL, &handle_delete_cheat_menu_cb},
-        {0, _("Load Cheats"), "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
-        {0, _("Save Cheats"), "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
+        {0, _("Active Codes"), ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_list_cb},
+        {0, _("Add New Code"), "-", RG_DIALOG_FLAG_NORMAL, &handle_add_cheat_menu_cb},
+        {0, _("Delete Code"), "-", RG_DIALOG_FLAG_NORMAL, &handle_delete_cheat_menu_cb},
+        {0, _("Load from SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
+        {0, _("Save to SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
         RG_DIALOG_END};
-
-    rg_gui_dialog(_("Cheats"), choices, 0);
-    save_cheats();
+    rg_gui_dialog(_("GameShark"), choices, 0);
+    return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
 }
@@ -652,7 +655,9 @@ static void options_handler(rg_gui_option_t *dest) {
   bool is_netplay_menu = (title && strcmp(title, _("Netplay")) == 0);
 
   if (!is_netplay_menu) {
-    *dest++ = (rg_gui_option_t){0, _("Cheats"), ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_menu_cb};
+    *dest++ = (rg_gui_option_t){.label = _("GameShark"),
+                              .flags = RG_DIALOG_FLAG_NORMAL,
+                              .update_cb = handle_cheat_menu_cb};
     *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL, &palette_update_cb};
     *dest++ = (rg_gui_option_t){0, _("RTC config"), "-", RG_DIALOG_FLAG_NORMAL, &rtc_update_cb};
     *dest++ = (rg_gui_option_t){0, _("SRAM autosave"), "-", RG_DIALOG_FLAG_NORMAL, &sram_autosave_cb};

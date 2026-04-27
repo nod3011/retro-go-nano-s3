@@ -50,11 +50,15 @@ static void sync_audio_to_system() {
 
 static void audio_task(void *arg) {
     audio_msg_t *msg;
-    while (xQueueReceive(audio_queue_full, &msg, portMAX_DELAY)) {
-        rg_audio_submit(msg->frames, msg->count);
-        xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
+    while (!rg_system_exit_called()) {
+        if (xQueueReceive(audio_queue_full, &msg, pdMS_TO_TICKS(100))) {
+            rg_audio_submit(msg->frames, msg->count);
+            xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
+        }
     }
+    vTaskDelete(NULL);
 }
+
 
 #ifndef RG_ATTR_EXT_RAM
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
@@ -498,14 +502,15 @@ static void handle_cheat_menu(void) {
     }
 
     if (count == 0) {
-      rg_gui_alert("Cheats",
-                   "No cheats active. Use 'Load Cheats' or 'Add Cheats'.");
+      rg_gui_alert("Game Genie",
+                   "No codes active. Use 'Load' or 'Add Code'.");
       break;
     }
 
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog("Cheats Menu", choices, last_cheat_sel);
+    intptr_t sel_arg = rg_gui_dialog("Game Genie", choices, last_cheat_sel);
+
 
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
@@ -513,17 +518,18 @@ static void handle_cheat_menu(void) {
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str("Add Cheat", "Enter Code (GG/PAR)", "");
+  char *code = rg_gui_input_str("Add Code", "Enter Code (GG/PAR)", "");
   if (code) {
-    char *name = rg_gui_input_str("Add Cheat", "Enter Description", "");
+    char *name = rg_gui_input_str("Add Code", "Enter Description", "");
     if (name) {
       apply_cheat_code(code, name, 1);
-      rg_gui_alert("Add Cheat", "Cheat added successfully.");
+      rg_gui_alert("Game Genie", "Code added successfully.");
       free(name);
     }
     free(code);
   }
 }
+
 
 static void handle_delete_cheat_menu(void) {
   static rg_gui_option_t choices[32];
@@ -563,13 +569,14 @@ static void handle_delete_cheat_menu(void) {
     }
 
     if (count == 0) {
-      rg_gui_alert("Delete Cheats", "No cheats to delete.");
+      rg_gui_alert("Delete Code", "No codes to delete.");
       break;
     }
 
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog("Select Cheat to Delete", choices, 0);
+    intptr_t sel_arg = rg_gui_dialog("Delete Code", choices, 0);
+
 
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
@@ -585,7 +592,7 @@ static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     load_cheats();
-    rg_gui_alert("Load Cheats", "Cheats loaded from SD Card.");
+    rg_gui_alert("Game Genie", "Codes loaded from SD Card.");
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
@@ -595,13 +602,14 @@ static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     save_cheats();
-    rg_gui_alert("Save Cheats", "Cheats saved to SD Card.");
+    rg_gui_alert("Game Genie", "Codes saved to SD Card.");
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
 }
 
-static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
+
+static rg_gui_event_t handle_cheat_list_cb(rg_gui_option_t *opt,
                                            rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     handle_cheat_menu();
@@ -610,23 +618,33 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
   return RG_DIALOG_VOID;
 }
 
-static rg_gui_event_t handle_add_cheat_menu_cb(rg_gui_option_t *opt,
-                                               rg_gui_event_t event) {
+static rg_gui_event_t handle_add_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) handle_add_cheat_menu();
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_delete_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) handle_delete_cheat_menu();
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
+                                           rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
-    handle_add_cheat_menu();
+    const rg_gui_option_t choices[] = {
+        {0, "Active Codes", ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_list_cb},
+        {0, "Add New Code", "-", RG_DIALOG_FLAG_NORMAL, &handle_add_cheat_menu_cb},
+        {0, "Delete Code", "-", RG_DIALOG_FLAG_NORMAL, &handle_delete_cheat_menu_cb},
+        {0, "Load from SD", "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
+        {0, "Save to SD", "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
+        RG_DIALOG_END};
+    rg_gui_dialog("Game Genie", choices, 0);
+    save_cheats();
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
 }
 
-static rg_gui_event_t handle_delete_cheat_menu_cb(rg_gui_option_t *opt,
-                                                  rg_gui_event_t event) {
-  if (event == RG_DIALOG_ENTER) {
-    handle_delete_cheat_menu();
-    return RG_DIALOG_VOID;
-  }
-  return RG_DIALOG_VOID;
-}
 
 static void update_palette(nespal_t type) {
   if (type < 0 || type >= NES_PALETTE_COUNT)
@@ -706,27 +724,16 @@ static void options_handler(rg_gui_option_t *dest) {
                               .value = "-",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = frameskip_cb};
-  *dest++ = (rg_gui_option_t){.label = "Load Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_load_cheats_cb};
-  *dest++ = (rg_gui_option_t){.label = "Save Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_save_cheats_cb};
-  *dest++ = (rg_gui_option_t){.label = "Cheats Menu",
+  *dest++ = (rg_gui_option_t){.label = "Game Genie",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = handle_cheat_menu_cb};
-  *dest++ = (rg_gui_option_t){.label = "Add Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_add_cheat_menu_cb};
-  *dest++ = (rg_gui_option_t){.label = "Delete Cheats",
-                              .flags = RG_DIALOG_FLAG_NORMAL,
-                              .update_cb = handle_delete_cheat_menu_cb};
   *dest++ = (rg_gui_option_t){.label = "Color Palette",
                               .value = "-",
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = palette_selection_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
+
 
 // FDS Functions from fds.h
 extern bool FCEU_FDSIsDiskInserted();

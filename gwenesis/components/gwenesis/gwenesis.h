@@ -6,3 +6,5 @@
 #include "src/vdp/gwenesis_vdp.h"
 #include "src/savestate/gwenesis_savestate.h"
 #include "src/sound/gwenesis_sn76489.h"
+#include "src/md_cheat.h"
+
