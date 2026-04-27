@@ -510,6 +510,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event
 
   if (md_cheat_get(index, &name, &a, &v, &s)) {
     md_cheat_set(index, !s);
+    save_cheats();
     return RG_DIALOG_UPDATE;
   }
   return RG_DIALOG_VOID;
@@ -567,6 +568,7 @@ static void handle_add_cheat_menu(void) {
 
     if (name) {
       apply_cheat_code(code, name, true);
+      save_cheats();
       rg_gui_alert(_("Add Cheat"), _("Cheat added successfully."));
       free(name);
     }
@@ -613,7 +615,10 @@ static void handle_delete_cheat_menu(void) {
 
     intptr_t sel_arg = rg_gui_dialog(_("Select Cheat to Delete"), choices, 0);
     if (sel_arg == RG_DIALOG_CANCELLED) break;
-    if (sel_arg >= 0 && sel_arg < 30) md_cheat_del((uint32_t)sel_arg);
+    if (sel_arg >= 0 && sel_arg < 30) {
+      md_cheat_del((uint32_t)sel_arg);
+      save_cheats();
+    }
   }
 }
 

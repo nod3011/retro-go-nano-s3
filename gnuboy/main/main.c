@@ -444,6 +444,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
 
   if (gb_cheat_get(index, &name, &a, &v, &s)) {
     gb_cheat_set(index, !s);
+    save_cheats();
     return RG_DIALOG_UPDATE;
   }
   return RG_DIALOG_VOID;
@@ -509,6 +510,7 @@ static void handle_add_cheat_menu(void) {
     char *name = rg_gui_input_str(_("Add Code"), _("Enter Description"), "");
     if (name) {
       apply_cheat_code(code, name, true);
+      save_cheats();
       rg_gui_alert(_("GameShark"), _("Code added successfully."));
       free(name);
     }
@@ -569,6 +571,7 @@ static void handle_delete_cheat_menu(void) {
 
     if (sel_arg >= 0 && sel_arg < 30) {
       gb_cheat_del((uint32_t)sel_arg);
+      save_cheats();
     }
   }
 }

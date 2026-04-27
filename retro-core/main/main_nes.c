@@ -458,6 +458,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
 
   if (FCEUI_GetCheat(index, &name, &a, &v, &comp, &s, &t)) {
     FCEUI_SetCheat(index, NULL, -1, -1, -1, !s, t);
+    save_cheats();
     return RG_DIALOG_UPDATE;
   }
   return RG_DIALOG_VOID;
@@ -523,6 +524,7 @@ static void handle_add_cheat_menu(void) {
     char *name = rg_gui_input_str("Add Code", "Enter Description", "");
     if (name) {
       apply_cheat_code(code, name, 1);
+      save_cheats();
       rg_gui_alert("Game Genie", "Code added successfully.");
       free(name);
     }
@@ -583,7 +585,7 @@ static void handle_delete_cheat_menu(void) {
 
     if (sel_arg >= 0 && sel_arg < 30) {
       FCEUI_DelCheat((uint32)sel_arg);
-      // Stay in the menu to delete more or show updated list
+      save_cheats();
     }
   }
 }

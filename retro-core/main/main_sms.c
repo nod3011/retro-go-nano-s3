@@ -217,6 +217,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event
 
   if (sms_cheat_get(index, &name, &a, &v, &s)) {
     sms_cheat_set(index, !s);
+    save_cheats();
     return RG_DIALOG_UPDATE;
   }
   return RG_DIALOG_VOID;
@@ -271,7 +272,8 @@ static void handle_add_cheat_menu(void) {
     char *name = rg_gui_input_str(_("Add Code"), _("Enter Description"), "");
     if (name) {
       apply_cheat_code(code, name, true);
-      rg_gui_alert(_("Pro Action Replay"), _("Code added successfully."));
+      save_cheats();
+      rg_gui_alert(_("Add Code"), _("Code added successfully."));
       free(name);
     }
     free(code);
@@ -317,7 +319,10 @@ static void handle_delete_cheat_menu(void) {
 
     intptr_t sel_arg = rg_gui_dialog(_("Delete Code"), choices, 0);
     if (sel_arg == RG_DIALOG_CANCELLED) break;
-    if (sel_arg >= 0 && sel_arg < 30) sms_cheat_del((uint32_t)sel_arg);
+    if (sel_arg >= 0 && sel_arg < 30) {
+      sms_cheat_del((uint32_t)sel_arg);
+      save_cheats();
+    }
   }
 }
 

@@ -1,8 +1,12 @@
 #include "shared.h"
+#include "snes_cheat.h"
 
 #include <math.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 #include <snes9x.h>
+#include <rg_storage.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -587,6 +591,292 @@ static rg_gui_event_t transparency_cb(rg_gui_option_t *option,
   return RG_DIALOG_VOID;
 }
 
+
+static void apply_cheat_code(const char *code, const char *name, bool status) {
+  uint32_t addr;
+  uint8_t val;
+
+  if (!snes_cheat_decode_par(code, &addr, &val)) {
+    RG_LOGE("Invalid PAR code: %s\n", code);
+    return;
+  }
+
+  char full_desc[128];
+  snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
+  snes_cheat_add(full_desc, addr, val, status);
+}
+
+static void load_cheats(void) {
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
+  if (!path) return;
+
+  char *saves_str = strstr(path, "saves");
+  if (saves_str) memcpy(saves_str, "cheat", 5);
+
+  char *ext = strrchr(path, '.');
+  if (ext) strcpy(ext, ".cht");
+
+  void *buffer = NULL;
+  size_t size = 0;
+  if (rg_storage_read_file(path, &buffer, &size, 0)) {
+    char *ctx;
+    char *line = strtok_r((char *)buffer, "\n", &ctx);
+    while (line) {
+      char *name = line;
+      char *code = strchr(line, ',');
+      if (code) {
+        *code++ = 0;
+        char *status = strchr(code, ',');
+        if (status) {
+          *status++ = 0;
+          apply_cheat_code(code, name, atoi(status));
+        }
+      }
+      line = strtok_r(NULL, "\n", &ctx);
+    }
+    free(buffer);
+  }
+  free(path);
+}
+
+static void save_cheats(void) {
+  char *path = rg_emu_get_path(RG_PATH_SAVE_SRAM, app->romPath);
+  if (!path) return;
+
+  char *saves_str = strstr(path, "saves");
+  if (saves_str) memcpy(saves_str, "cheat", 5);
+
+  char *ext = strrchr(path, '.');
+  if (ext) strcpy(ext, ".cht");
+
+  rg_storage_mkdir(rg_dirname(path));
+
+  size_t buffer_size = 8192;
+  char *buffer = malloc(buffer_size);
+  if (!buffer) {
+    free(path);
+    return;
+  }
+  
+  size_t offset = 0;
+  for (int i = 0; i < 64; i++) {
+    char *full_name = NULL;
+    uint32_t addr;
+    uint8_t val;
+    bool status;
+    if (!snes_cheat_get(i, &full_name, &addr, &val, &status)) break;
+
+    char name[64];
+    strncpy(name, full_name, 63);
+    name[63] = 0;
+    char *sep = strchr(name, '|');
+    if (sep) *sep = 0;
+
+    char code[16];
+    if (sep) strncpy(code, sep + 1, 15);
+    else snprintf(code, 15, "%06X%02X", (unsigned int)addr, (unsigned int)val);
+    code[15] = 0;
+
+    int len = snprintf(buffer + offset, buffer_size - offset, "%s,%s,%d\n", 
+                       name, code, status ? 1 : 0);
+    if (len > 0 && offset + len < buffer_size) offset += len;
+    else break;
+  }
+
+  if (offset > 0) rg_storage_write_file(path, buffer, offset, 0);
+  else rg_storage_delete(path);
+
+  free(buffer);
+  free(path);
+}
+
+static void handle_add_cheat_menu(void) {
+  char *code = rg_gui_input_str(_("Add Code"), _("Enter Code (PAR)"), "");
+  if (code) {
+    char *name = rg_gui_input_str(_("Add Code"), _("Enter Description"), "");
+    if (name) {
+      apply_cheat_code(code, name, true);
+      save_cheats();
+      rg_gui_alert(_("Pro Action Replay"), _("Code added successfully."));
+      free(name);
+    }
+    free(code);
+  }
+}
+
+static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  int index = (int)opt->arg;
+  char *name; uint32_t addr; uint8_t val; bool status;
+  
+  if (event == RG_DIALOG_INIT || event == RG_DIALOG_UPDATE) {
+    if (opt->value && snes_cheat_get(index, &name, &addr, &val, &status)) {
+      strcpy(opt->value, status ? _("On") : _("Off"));
+    }
+    return RG_DIALOG_VOID;
+  }
+
+  if (event == RG_DIALOG_ENTER || event == RG_DIALOG_SELECT) {
+    if (snes_cheat_get(index, &name, &addr, &val, &status)) {
+      snes_cheat_set(index, !status);
+      save_cheats();
+      return RG_DIALOG_UPDATE;
+    }
+  }
+  return RG_DIALOG_VOID;
+}
+
+static void handle_cheat_list(void) {
+  static rg_gui_option_t choices[66];
+  static char choices_names[64][64];
+  static char choices_values[64][16];
+
+  while (true) {
+    int count = 0;
+    for (int i = 0; i < 64; i++) {
+      char *full_name = NULL;
+      uint32_t addr;
+      uint8_t val;
+      bool status;
+      if (!snes_cheat_get(i, &full_name, &addr, &val, &status)) break;
+
+      char *sep = strchr(full_name, '|');
+      if (sep) {
+        size_t len = sep - full_name;
+        if (len > 60) len = 60;
+        strncpy(choices_names[i], full_name, len);
+        choices_names[i][len] = 0;
+      } else {
+        strncpy(choices_names[i], full_name, 63);
+        choices_names[i][63] = 0;
+      }
+
+      choices[count].flags = RG_DIALOG_FLAG_NORMAL;
+      choices[count].label = choices_names[i];
+      choices[count].value = choices_values[i];
+      choices[count].arg = (intptr_t)i;
+      choices[count].update_cb = &cheat_toggle_cb;
+      count++;
+    }
+
+    if (count == 0) {
+      rg_gui_alert(_("Active Codes"), _("No codes added."));
+      break;
+    }
+
+    choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
+
+    intptr_t sel_arg = rg_gui_dialog(_("Active Codes"), choices, 0);
+    if (sel_arg == RG_DIALOG_CANCELLED) break;
+  }
+}
+
+static void handle_delete_cheat_menu(void) {
+  static rg_gui_option_t choices[66];
+  static char choices_names[64][64];
+
+  while (true) {
+    int count = 0;
+    for (int i = 0; i < 64; i++) {
+      char *full_name = NULL;
+      uint32_t addr;
+      uint8_t val;
+      bool status;
+      if (!snes_cheat_get(i, &full_name, &addr, &val, &status)) break;
+
+      char *sep = strchr(full_name, '|');
+      if (sep) {
+        size_t len = sep - full_name;
+        if (len > 60) len = 60;
+        strncpy(choices_names[i], full_name, len);
+        choices_names[i][len] = 0;
+      } else {
+        strncpy(choices_names[i], full_name, 63);
+        choices_names[i][63] = 0;
+      }
+
+      choices[count].flags = RG_DIALOG_FLAG_NORMAL;
+      choices[count].label = choices_names[i];
+      choices[count].value = NULL;
+      choices[count].arg = (intptr_t)i;
+      count++;
+    }
+
+    if (count == 0) {
+      rg_gui_alert(_("Delete Code"), _("No codes to delete."));
+      break;
+    }
+
+    choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
+
+    intptr_t sel_arg = rg_gui_dialog(_("Delete Code"), choices, 0);
+
+    if (sel_arg == RG_DIALOG_CANCELLED) break;
+
+    if (sel_arg >= 0 && sel_arg < 64) {
+      snes_cheat_del((uint32_t)sel_arg);
+      save_cheats();
+    }
+  }
+}
+
+static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    snes_cheat_reset();
+    load_cheats();
+    rg_gui_alert(_("Pro Action Replay"), _("Codes loaded from SD Card."));
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    save_cheats();
+    rg_gui_alert(_("Pro Action Replay"), _("Codes saved to SD Card."));
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_cheat_list_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    handle_cheat_list();
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_add_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    handle_add_cheat_menu();
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_delete_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    handle_delete_cheat_menu();
+    return RG_DIALOG_VOID;
+  }
+  return RG_DIALOG_VOID;
+}
+
+static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER) {
+    const rg_gui_option_t choices[] = {
+        {0, _("Active Codes"), ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_list_cb},
+        {0, _("Add New Code"), "-", RG_DIALOG_FLAG_NORMAL, &handle_add_cheat_menu_cb},
+        {0, _("Delete Code"), "-", RG_DIALOG_FLAG_NORMAL, &handle_delete_cheat_menu_cb},
+        {0, _("Load from SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
+        {0, _("Save to SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
+        RG_DIALOG_END};
+    rg_gui_dialog(_("Pro Action Replay"), choices, 0);
+    return RG_DIALOG_REDRAW;
+  }
+  return RG_DIALOG_VOID;
+}
+
 static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t){0, _("Audio enable"), "-", RG_DIALOG_FLAG_NORMAL,
                               &apu_toggle_cb};
@@ -600,6 +890,8 @@ static void options_handler(rg_gui_option_t *dest) {
                                &transparency_cb};
   *dest++ = (rg_gui_option_t){0, _("Controls"), "...", RG_DIALOG_FLAG_NORMAL,
                                &menu_keymap_cb};
+  *dest++ = (rg_gui_option_t){0, _("Pro Action Replay"), "...", RG_DIALOG_FLAG_NORMAL,
+                               &handle_cheat_menu_cb};
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
@@ -674,6 +966,8 @@ void app_main(void) {
   Settings.CyclesPercentage = 100; // Default to 100%
 
   load_config();
+  snes_cheat_init();
+  load_cheats();
 
   if (Settings.CyclesPercentage < 100 || Settings.CyclesPercentage > 200) {
     Settings.CyclesPercentage = 100;
@@ -794,6 +1088,7 @@ void app_main(void) {
 
     IPPU.RenderThisFrame = drawFrame;
 
+    snes_cheat_apply();
     S9xMainLoop();
 
     if (drawFrame) {
