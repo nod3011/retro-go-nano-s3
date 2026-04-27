@@ -707,6 +707,7 @@ static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event
   if (event == RG_DIALOG_PREV || event == RG_DIALOG_NEXT) {
     current_frameskip = modes[current_idx];
     rg_settings_set_number(NS_APP, "frameskip", current_frameskip);
+    save_config();
     return RG_DIALOG_REDRAW;
   }
 
@@ -756,7 +757,6 @@ void fceumm_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
-  rg_system_set_overclock(1);
   current_frameskip = -1;
   
   load_config();

@@ -98,16 +98,21 @@ static rg_gui_event_t palette_update_cb(rg_gui_option_t *opt, rg_gui_event_t eve
 static void apply_cheat_code(const char *code, const char *name, bool status) {
   uint32_t addr;
   uint8_t val;
+  int comp = -1;
 
-  if (!sms_cheat_decode_par(code, &addr, &val)) {
-    RG_LOGE("Invalid PAR code: %s\n", code);
+  if (sms_cheat_decode_par(code, &addr, &val)) {
+    comp = -1;
+  } else if (sms_cheat_decode_gg(code, &addr, &val, &comp)) {
+    // comp already set
+  } else {
+    RG_LOGE("Invalid cheat code: %s\n", code);
     return;
   }
 
   // Use description format: "NAME|CODE"
   char full_desc[128];
   snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
-  sms_cheat_add(full_desc, addr, val, status);
+  sms_cheat_add(full_desc, addr, val, comp, status);
 }
 
 static void load_cheats(void) {
@@ -177,9 +182,10 @@ static void save_cheats(void) {
   for (int i = 0; i < 64; i++) {
     uint32_t a;
     uint8_t v;
+    int c;
     bool s;
     char *full_name = NULL;
-    if (!sms_cheat_get(i, &full_name, &a, &v, &s)) break;
+    if (!sms_cheat_get(i, &full_name, &a, &v, &c, &s)) break;
 
     if (full_name) {
       int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s\n", 
@@ -203,11 +209,12 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event
   int index = (int)opt->arg;
   uint32_t a;
   uint8_t v;
+  int c;
   bool s;
   char *name = NULL;
 
   if (event == RG_DIALOG_INIT || event == RG_DIALOG_UPDATE) {
-    if (opt->value && sms_cheat_get(index, &name, &a, &v, &s)) {
+    if (opt->value && sms_cheat_get(index, &name, &a, &v, &c, &s)) {
       strcpy(opt->value, s ? _("On") : _("Off"));
     }
     return RG_DIALOG_VOID;
@@ -215,7 +222,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event
 
   if (event != RG_DIALOG_ENTER && event != RG_DIALOG_SELECT) return RG_DIALOG_VOID;
 
-  if (sms_cheat_get(index, &name, &a, &v, &s)) {
+  if (sms_cheat_get(index, &name, &a, &v, &c, &s)) {
     sms_cheat_set(index, !s);
     save_cheats();
     return RG_DIALOG_UPDATE;
@@ -226,15 +233,17 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event
 static void handle_cheat_menu(void) {
   static rg_gui_option_t choices[32];
   static char choices_names[32][64];
+  static char choices_values[32][16];
 
   while (true) {
     int count = 0;
     for (int i = 0; i < 30; i++) {
       uint32_t a;
       uint8_t v;
+      int c;
       bool s;
       char *full_name = NULL;
-      if (!sms_cheat_get(i, &full_name, &a, &v, &s)) break;
+      if (!sms_cheat_get(i, &full_name, &a, &v, &c, &s)) break;
       if (!full_name) continue;
 
       char *sep = strchr(full_name, '|');
@@ -249,25 +258,25 @@ static void handle_cheat_menu(void) {
 
       choices[count].flags = RG_DIALOG_FLAG_NORMAL;
       choices[count].label = choices_names[count];
-      choices[count].value = (char *)(s ? _("On") : _("Off"));
+      choices[count].value = choices_values[count];
       choices[count].update_cb = cheat_toggle_cb;
       choices[count].arg = (intptr_t)i;
       count++;
     }
 
     if (count == 0) {
-      rg_gui_alert(_("Pro Action Replay"), _("No codes active. Use 'Load' or 'Add Code'."));
+      rg_gui_alert(_("Cheat Codes (GG/AR)"), _("No codes active. Use 'Load' or 'Add Code'."));
       break;
     }
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog(_("Pro Action Replay"), choices, last_cheat_sel);
+    intptr_t sel_arg = rg_gui_dialog(_("Cheat Codes (GG/AR)"), choices, last_cheat_sel);
     if (sel_arg == RG_DIALOG_CANCELLED) break;
   }
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str(_("Add Code"), _("Enter Code (XXXXYY)"), "");
+  char *code = rg_gui_input_str(_("Add Code"), _("Enter Code (GG/AR)"), "");
   if (code) {
     char *name = rg_gui_input_str(_("Add Code"), _("Enter Description"), "");
     if (name) {
@@ -289,9 +298,10 @@ static void handle_delete_cheat_menu(void) {
     for (int i = 0; i < 30; i++) {
       uint32_t a;
       uint8_t v;
+      int c;
       bool s;
       char *full_name = NULL;
-      if (!sms_cheat_get(i, &full_name, &a, &v, &s)) break;
+      if (!sms_cheat_get(i, &full_name, &a, &v, &c, &s)) break;
       if (!full_name) continue;
 
       char *sep = strchr(full_name, '|');
@@ -329,7 +339,7 @@ static void handle_delete_cheat_menu(void) {
 static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     load_cheats();
-    rg_gui_alert(_("Pro Action Replay"), _("Codes loaded from SD Card."));
+    rg_gui_alert(_("Cheat Codes (GG/AR)"), _("Codes loaded from SD Card."));
   }
   return RG_DIALOG_VOID;
 }
@@ -337,7 +347,7 @@ static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt, rg_gui_event_t
 static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     save_cheats();
-    rg_gui_alert(_("Pro Action Replay"), _("Codes saved to SD Card."));
+    rg_gui_alert(_("Cheat Codes (GG/AR)"), _("Codes saved to SD Card."));
   }
   return RG_DIALOG_VOID;
 }
@@ -366,7 +376,7 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t 
         {0, _("Load from SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
         {0, _("Save to SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
         RG_DIALOG_END};
-    rg_gui_dialog(_("Pro Action Replay"), choices, 0);
+    rg_gui_dialog(_("Cheat Codes (GG/AR)"), choices, 0);
     save_cheats();
   }
   return RG_DIALOG_VOID;
@@ -374,7 +384,7 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t 
 
 static void options_handler(rg_gui_option_t *dest)
 {
-    *dest++ = (rg_gui_option_t){0, _("Pro Action Replay"), ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_menu_cb};
+    *dest++ = (rg_gui_option_t){0, _("Cheat Codes (GG/AR)"), ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_menu_cb};
     *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL, &palette_update_cb};
     *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
