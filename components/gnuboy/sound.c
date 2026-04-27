@@ -23,7 +23,7 @@
 #define s3_freq()                                                              \
   {                                                                            \
     int d = 2048 - (((R_NR34 & 7) << 8) + R_NR33);                             \
-    S3.freq = (snd.rate > (d << (3 + 8))) ? 0 : ((uint64_t)snd.rate << 21) / d; \
+    S3.freq = (snd.rate > (d << (3 + 8))) ? 0 : ((uint64_t)snd.rate << 13) / d; \
   }
 #define s4_freq()                                                              \
   {                                                                            \
