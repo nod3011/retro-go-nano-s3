@@ -229,6 +229,8 @@ void gb_hw_reset(bool hard) {
   gb_hw_updatemap();
 }
 
+#include "cheat.h"
+
 /*
  * gb_hw_vblank is called once per frame at vblank and should take care
  * of things like rtc/sound/serial advance, emulation throttling, etc.
@@ -236,6 +238,7 @@ void gb_hw_reset(bool hard) {
 void gb_hw_vblank(void) {
   hw.frames++;
   rtc_tick();
+  gb_cheat_apply();
   gb_sound_emulate();
 }
 
