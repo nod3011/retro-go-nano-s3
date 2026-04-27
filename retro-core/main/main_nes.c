@@ -305,11 +305,8 @@ static void apply_cheat_code(const char *code, const char *name, int status) {
   int comp;
 
   if (!FCEUI_DecodeGG(code, &a_16, &v, &comp)) {
-    int type = 0;
-    if (!FCEUI_DecodePAR(code, &a_16, &v, &comp, &type)) {
-      RG_LOGE("Invalid cheat code: %s\n", code);
-      return;
-    }
+    RG_LOGE("Invalid Game Genie code: %s\n", code);
+    return;
   }
 
   uint32 a = a_16;
@@ -467,6 +464,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
 static void handle_cheat_menu(void) {
   static rg_gui_option_t choices[32];
   static char choices_names[32][64];
+  static char choices_values[32][8];
 
   while (true) {
     int count = 0;
@@ -492,11 +490,13 @@ static void handle_cheat_menu(void) {
         strncpy(choices_names[count], full_name, 63);
         choices_names[count][63] = 0;
       }
-      char *display_name = choices_names[count];
+
+      strncpy(choices_values[count], s ? "ON" : "OFF", 7);
+      choices_values[count][7] = 0;
 
       choices[count].flags = RG_DIALOG_FLAG_NORMAL;
-      choices[count].label = display_name;
-      choices[count].value = s ? "ON" : "OFF";
+      choices[count].label = choices_names[count];
+      choices[count].value = choices_values[count];
       choices[count].update_cb = cheat_toggle_cb;
       choices[count].arg = (intptr_t)i;
       count++;
@@ -519,7 +519,7 @@ static void handle_cheat_menu(void) {
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str("Add Code", "Enter Code (GG/PAR)", "");
+  char *code = rg_gui_input_str("Add Code", "Enter Game Genie Code", "");
   if (code) {
     char *name = rg_gui_input_str("Add Code", "Enter Description", "");
     if (name) {

@@ -305,21 +305,13 @@ static void video_callback(void *buffer) {
 static void apply_cheat_code(const char *code, const char *name, bool status) {
   uint16_t addr;
   uint8_t val;
-  int comp_val = -1;
 
-  if (gb_cheat_decode_gs(code, &addr, &val)) {
-    comp_val = -1;
-  } else if (gb_cheat_decode_gg(code, &addr, &val, &comp_val)) {
-    // comp_val already set by gb_cheat_decode_gg
-  } else {
-    RG_LOGE("Invalid cheat code: %s\n", code);
+  if (!gb_cheat_decode_gs(code, &addr, &val)) {
+    RG_LOGE("Invalid GameShark code: %s\n", code);
     return;
   }
 
-  // Use description format: "NAME|CODE"
-  char full_desc[128];
-  snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
-  gb_cheat_add(full_desc, addr, val, comp_val, status);
+  gb_cheat_add(name ? name : "Cheat", addr, val, -1, status);
 }
 
 static void load_cheats(void) {
@@ -345,23 +337,22 @@ static void load_cheats(void) {
 
   gb_cheat_reset();
 
+  // Format: Name|Code|ON/OFF
   char *line = strtok((char *)buffer, "\r\n");
   while (line) {
     char *sep1 = strchr(line, '|');
     if (sep1) {
       *sep1 = 0;
       char *name = line;
-      char *code_part = sep1 + 1;
-      int status = 1; // Default to ON
-
-      char *sep2 = strchr(code_part, '|');
+      char *rest = sep1 + 1;
+      char *sep2 = strchr(rest, '|');
       if (sep2) {
         *sep2 = 0;
+        char *code = rest;
         char *status_str = sep2 + 1;
-        if (strcmp(status_str, "OFF") == 0)
-          status = 0;
+        bool status = (strcmp(status_str, "ON") == 0);
+        apply_cheat_code(code, name, status);
       }
-      apply_cheat_code(code_part, name, status);
     }
     line = strtok(NULL, "\r\n");
   }
@@ -399,18 +390,21 @@ static void save_cheats(void) {
     uint16_t a;
     uint8_t v;
     bool s;
-    char *full_name = NULL;
-    if (!gb_cheat_get(i, &full_name, &a, &v, &s))
+    char *name = NULL;
+    if (!gb_cheat_get(i, &name, &a, &v, &s))
       break;
 
-    if (full_name) {
-      int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s\n", 
-                         full_name, s ? "ON" : "OFF");
+    if (name) {
+      // Re-encode as GameShark: 01VVLLHH
+      char code[9];
+      snprintf(code, sizeof(code), "01%02X%02X%02X", v, (uint8_t)(a & 0xFF), (uint8_t)((a >> 8) & 0xFF));
+      int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s|%s\n",
+                         name, code, s ? "ON" : "OFF");
       if (len > 0 && offset + len < buffer_size) {
-          offset += len;
+        offset += len;
       } else {
-          RG_LOGW("Cheat buffer full, some cheats might not be saved!\n");
-          break;
+        RG_LOGW("Cheat buffer full, some cheats might not be saved!\n");
+        break;
       }
     }
   }
@@ -458,6 +452,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
 static void handle_cheat_menu(void) {
   static rg_gui_option_t choices[32];
   static char choices_names[32][64];
+  static char choices_values[32][8];
 
   while (true) {
     int count = 0;
@@ -472,37 +467,27 @@ static void handle_cheat_menu(void) {
       if (!full_name)
         continue;
 
-      char *sep = strchr(full_name, '|');
-      if (sep) {
-        size_t len = sep - full_name;
-        if (len > 60)
-          len = 60;
-        strncpy(choices_names[count], full_name, len);
-        choices_names[count][len] = 0;
-      } else {
-        strncpy(choices_names[count], full_name, 63);
-        choices_names[count][63] = 0;
-      }
-      char *display_name = choices_names[count];
+      strncpy(choices_names[count], full_name, 63);
+      choices_names[count][63] = 0;
+      strncpy(choices_values[count], s ? _("On") : _("Off"), 7);
+      choices_values[count][7] = 0;
 
       choices[count].flags = RG_DIALOG_FLAG_NORMAL;
-      choices[count].label = display_name;
-      choices[count].value = (char *)(s ? _("On") : _("Off"));
+      choices[count].label = choices_names[count];
+      choices[count].value = choices_values[count];
       choices[count].update_cb = cheat_toggle_cb;
       choices[count].arg = (intptr_t)i;
       count++;
     }
 
     if (count == 0) {
-      rg_gui_alert(_("Cheat"),
-                   _("No codes active. Use 'Load' or 'Add Code'."));
+      rg_gui_alert(_("GameShark"), _("No codes active. Use 'Load' or 'Add Code'."));
       break;
     }
 
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog(_("Cheat Codes (GG/AR)"), choices, last_cheat_sel);
-
+    intptr_t sel_arg = rg_gui_dialog(_("GameShark"), choices, last_cheat_sel);
 
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
@@ -510,13 +495,13 @@ static void handle_cheat_menu(void) {
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str(_("Add Code"), _("Enter Code (GG/AR)"), "");
+  char *code = rg_gui_input_str(_("Add Code"), _("Enter GameShark Code"), "");
   if (code) {
     char *name = rg_gui_input_str(_("Add Code"), _("Enter Description"), "");
     if (name) {
       apply_cheat_code(code, name, true);
       save_cheats();
-      rg_gui_alert(_("Cheat Codes (GG/AR)"), _("Code added successfully."));
+      rg_gui_alert(_("GameShark"), _("Code added successfully."));
       free(name);
     }
     free(code);
@@ -585,7 +570,7 @@ static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     load_cheats();
-    rg_gui_alert(_("Cheat Codes (GG/AR)"), _("Codes loaded from SD Card."));
+    rg_gui_alert(_("GameShark"), _("Codes loaded from SD Card."));
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
@@ -595,7 +580,7 @@ static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     save_cheats();
-    rg_gui_alert(_("Cheat Codes (GG/AR)"), _("Codes saved to SD Card."));
+    rg_gui_alert(_("GameShark"), _("Codes saved to SD Card."));
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
