@@ -149,6 +149,7 @@
 #include "gnuboy.h"
 #include "lcd.h"
 #include "sound.h"
+#include "cheat.h"
 
 enum {
   MBC_NONE = 0,
@@ -257,6 +258,7 @@ typedef struct {
     // This hack simply constrains the window top position
     int window_offset;
   } compat;
+  uint16_t cheat_mask;
 } gb_t;
 
 extern gb_cart_t cart;
@@ -275,7 +277,11 @@ void gb_hw_vblank(void);
 
 static inline byte readb(unsigned a) {
   const byte *p = GB.rmap[a >> 12];
-  return p ? p[a] : gb_hw_read(a);
+  byte b = p ? p[a] : gb_hw_read(a);
+  if (GB.cheat_mask & (1 << (a >> 12))) {
+    return gb_cheat_check(a, b);
+  }
+  return b;
 }
 
 static inline void writeb(unsigned a, byte b) {
@@ -287,6 +293,9 @@ static inline void writeb(unsigned a, byte b) {
 }
 
 static inline uint16_t readw(unsigned a) {
+  if (GB.cheat_mask & (3 << (a >> 12))) {
+    return readb(a) | (readb(a + 1) << 8);
+  }
   const byte *p = GB.rmap[a >> 12];
   if ((a & 0xFFF) == 0xFFF || !p) // Page crossed or not mapped
   {

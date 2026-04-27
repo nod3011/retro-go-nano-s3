@@ -305,16 +305,21 @@ static void video_callback(void *buffer) {
 static void apply_cheat_code(const char *code, const char *name, bool status) {
   uint16_t addr;
   uint8_t val;
+  int comp_val = -1;
 
-  if (!gb_cheat_decode_gs(code, &addr, &val)) {
-    RG_LOGE("Invalid GameShark code: %s\n", code);
+  if (gb_cheat_decode_gs(code, &addr, &val)) {
+    comp_val = -1;
+  } else if (gb_cheat_decode_gg(code, &addr, &val, &comp_val)) {
+    // comp_val already set by gb_cheat_decode_gg
+  } else {
+    RG_LOGE("Invalid cheat code: %s\n", code);
     return;
   }
 
   // Use description format: "NAME|CODE"
   char full_desc[128];
   snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
-  gb_cheat_add(full_desc, addr, val, status);
+  gb_cheat_add(full_desc, addr, val, comp_val, status);
 }
 
 static void load_cheats(void) {
@@ -489,14 +494,14 @@ static void handle_cheat_menu(void) {
     }
 
     if (count == 0) {
-      rg_gui_alert(_("GameShark"),
+      rg_gui_alert(_("Cheat"),
                    _("No codes active. Use 'Load' or 'Add Code'."));
       break;
     }
 
     choices[count++] = (rg_gui_option_t)RG_DIALOG_END;
 
-    intptr_t sel_arg = rg_gui_dialog(_("GameShark"), choices, last_cheat_sel);
+    intptr_t sel_arg = rg_gui_dialog(_("Cheat"), choices, last_cheat_sel);
 
 
     if (sel_arg == RG_DIALOG_CANCELLED)
@@ -505,13 +510,13 @@ static void handle_cheat_menu(void) {
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str(_("Add Code"), _("Enter Code (GameShark)"), "");
+  char *code = rg_gui_input_str(_("Add Code"), _("Enter Code (GS/GG)"), "");
   if (code) {
     char *name = rg_gui_input_str(_("Add Code"), _("Enter Description"), "");
     if (name) {
       apply_cheat_code(code, name, true);
       save_cheats();
-      rg_gui_alert(_("GameShark"), _("Code added successfully."));
+      rg_gui_alert(_("Cheat Code"), _("Code added successfully."));
       free(name);
     }
     free(code);
@@ -580,7 +585,7 @@ static rg_gui_event_t handle_load_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     load_cheats();
-    rg_gui_alert(_("GameShark"), _("Codes loaded from SD Card."));
+    rg_gui_alert(_("Cheat Code"), _("Codes loaded from SD Card."));
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
@@ -590,7 +595,7 @@ static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt,
                                             rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
     save_cheats();
-    rg_gui_alert(_("GameShark"), _("Codes saved to SD Card."));
+    rg_gui_alert(_("Cheat Code"), _("Codes saved to SD Card."));
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
@@ -636,7 +641,7 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
         {0, _("Load from SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
         {0, _("Save to SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
         RG_DIALOG_END};
-    rg_gui_dialog(_("GameShark"), choices, 0);
+    rg_gui_dialog(_("Cheat"), choices, 0);
     return RG_DIALOG_VOID;
   }
   return RG_DIALOG_VOID;
@@ -658,7 +663,7 @@ static void options_handler(rg_gui_option_t *dest) {
   bool is_netplay_menu = (title && strcmp(title, _("Netplay")) == 0);
 
   if (!is_netplay_menu) {
-    *dest++ = (rg_gui_option_t){.label = _("GameShark"),
+    *dest++ = (rg_gui_option_t){.label = _("Cheat"),
                               .flags = RG_DIALOG_FLAG_NORMAL,
                               .update_cb = handle_cheat_menu_cb};
     *dest++ = (rg_gui_option_t){0, _("Palette"), "-", RG_DIALOG_FLAG_NORMAL, &palette_update_cb};
