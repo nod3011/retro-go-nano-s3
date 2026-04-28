@@ -67,6 +67,7 @@ unsigned char *M68K_RAM=(void *)(uint32_t)(0); // 68K RAM
 
 unsigned char *ROM_DATA; // 68K Main Program (uncompressed)
 unsigned char *M68K_RAM; // 68K RAM
+size_t ROM_SIZE = 0;
 #endif
 
 
@@ -123,8 +124,10 @@ void load_cartridge(unsigned char *buffer, size_t size)
     // Copy file contents to CPU ROM memory
     #ifdef RETRO_GO
     ROM_DATA = buffer;
+    ROM_SIZE = size;
     #else
     ROM_DATA = realloc(ROM_DATA, (size & ~0xFFFF) + 0x10000); // 64KB align just in case
+    ROM_SIZE = size;
     memcpy(ROM_DATA, buffer, size);
     #endif
 
@@ -165,6 +168,7 @@ void gwenesis_bus_free() {
   if (ZRAM) { free(ZRAM); ZRAM = NULL; }
   // ROM_DATA is just a pointer to the buffer passed in load_cartridge
   ROM_DATA = NULL; 
+  ROM_SIZE = 0;
 }
 
 #endif

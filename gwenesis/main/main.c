@@ -389,18 +389,17 @@ static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event
 static void apply_cheat_code(const char *code, const char *name, bool status) {
   uint32_t addr;
   uint16_t val;
+  uint8_t size;
 
-  if (!md_cheat_decode_par(code, &addr, &val)) {
+  if (!md_cheat_decode_par(code, &addr, &val, &size)) {
     RG_LOGE("Invalid PAR code: %s\n", code);
     return;
   }
 
-
-
   // Use description format: "NAME|CODE"
   char full_desc[128];
   snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
-  md_cheat_add(full_desc, addr, val, status);
+  md_cheat_add(full_desc, addr, val, size, status);
 }
 
 static void load_cheats(void) {
@@ -470,9 +469,10 @@ static void save_cheats(void) {
   for (int i = 0; i < 64; i++) {
     uint32_t a;
     uint16_t v;
+    uint8_t sz;
     bool s;
     char *full_name = NULL;
-    if (!md_cheat_get(i, &full_name, &a, &v, &s)) break;
+    if (!md_cheat_get(i, &full_name, &a, &v, &sz, &s)) break;
 
     if (full_name) {
       int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s\n", 
@@ -496,11 +496,12 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event
   int index = (int)opt->arg;
   uint32_t a;
   uint16_t v;
+  uint8_t sz;
   bool s;
   char *name = NULL;
 
   if (event == RG_DIALOG_INIT || event == RG_DIALOG_UPDATE) {
-    if (opt->value && md_cheat_get(index, &name, &a, &v, &s)) {
+    if (opt->value && md_cheat_get(index, &name, &a, &v, &sz, &s)) {
       strcpy(opt->value, s ? _("On") : _("Off"));
     }
     return RG_DIALOG_VOID;
@@ -508,7 +509,7 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt, rg_gui_event_t event
 
   if (event != RG_DIALOG_ENTER && event != RG_DIALOG_SELECT) return RG_DIALOG_VOID;
 
-  if (md_cheat_get(index, &name, &a, &v, &s)) {
+  if (md_cheat_get(index, &name, &a, &v, &sz, &s)) {
     md_cheat_set(index, !s);
     save_cheats();
     return RG_DIALOG_UPDATE;
@@ -525,9 +526,10 @@ static void handle_cheat_menu(void) {
     for (int i = 0; i < 30; i++) {
       uint32_t a;
       uint16_t v;
+      uint8_t sz;
       bool s;
       char *full_name = NULL;
-      if (!md_cheat_get(i, &full_name, &a, &v, &s)) break;
+      if (!md_cheat_get(i, &full_name, &a, &v, &sz, &s)) break;
       if (!full_name) continue;
 
       char *sep = strchr(full_name, '|');
@@ -585,9 +587,10 @@ static void handle_delete_cheat_menu(void) {
     for (int i = 0; i < 30; i++) {
       uint32_t a;
       uint16_t v;
+      uint8_t sz;
       bool s;
       char *full_name = NULL;
-      if (!md_cheat_get(i, &full_name, &a, &v, &s)) break;
+      if (!md_cheat_get(i, &full_name, &a, &v, &sz, &s)) break;
       if (!full_name) continue;
 
       char *sep = strchr(full_name, '|');
