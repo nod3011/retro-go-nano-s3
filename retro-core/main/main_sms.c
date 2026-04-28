@@ -101,9 +101,9 @@ static void apply_cheat_code(const char *code, const char *name, bool status) {
   int comp = -1;
 
   if (sms_cheat_decode_par(code, &addr, &val)) {
-    comp = -1;
+    comp = -1; // PAR: no compare value
   } else if (sms_cheat_decode_gg(code, &addr, &val, &comp)) {
-    // comp already set
+    // comp already set by decode_gg
   } else {
     RG_LOGE("Invalid cheat code: %s\n", code);
     return;
@@ -377,7 +377,7 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t 
         {0, _("Save to SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
         RG_DIALOG_END};
     rg_gui_dialog(_("Cheat Codes (GG/AR)"), choices, 0);
-    save_cheats();
+    // Each child callback already calls save_cheats() when needed
   }
   return RG_DIALOG_VOID;
 }

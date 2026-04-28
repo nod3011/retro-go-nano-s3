@@ -4,12 +4,13 @@
 #include "rom_manager.h"
 #include "shared.h"
 #include <fceumm.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <streams/memory_stream.h>
 #include <string.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
+
 
 static const char *SETTING_PALETTE = "palette";
 
@@ -27,8 +28,8 @@ static int8_t current_frameskip = -1; // Default to Auto
 #define AUDIO_BUFFER_SIZE 1024
 
 typedef struct {
-    rg_audio_frame_t frames[AUDIO_BUFFER_SIZE];
-    size_t count;
+  rg_audio_frame_t frames[AUDIO_BUFFER_SIZE];
+  size_t count;
 } audio_msg_t;
 
 // Audio buffers MUST be in internal DRAM (not PSRAM) for stable I2S DMA on S3
@@ -38,27 +39,27 @@ static QueueHandle_t audio_queue_empty;
 
 static void sync_audio_to_system() {
   double freq = rg_system_get_cpu_speed();
-  if (freq < 100) freq = 240.0;
-  
+  if (freq < 100)
+    freq = 240.0;
+
   // The "Universal S3 Sync Formula":
   // Adjust hardware rate to compensate for S3 APB/I2S clock drift during OC.
   // The +0.4 offset accounts for fractional divider rounding.
   double target_rate = (double)AUDIO_SAMPLE_RATE * (240.0 / (freq + 0.4));
-  
+
   rg_audio_set_sample_rate((int)target_rate);
 }
 
 static void audio_task(void *arg) {
-    audio_msg_t *msg;
-    while (!rg_system_exit_called()) {
-        if (xQueueReceive(audio_queue_full, &msg, pdMS_TO_TICKS(100))) {
-            rg_audio_submit(msg->frames, msg->count);
-            xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
-        }
+  audio_msg_t *msg;
+  while (!rg_system_exit_called()) {
+    if (xQueueReceive(audio_queue_full, &msg, pdMS_TO_TICKS(100))) {
+      rg_audio_submit(msg->frames, msg->count);
+      xQueueSend(audio_queue_empty, &msg, portMAX_DELAY);
     }
-    vTaskDelete(NULL);
+  }
+  vTaskDelete(NULL);
 }
-
 
 #ifndef RG_ATTR_EXT_RAM
 #define RG_ATTR_EXT_RAM __attribute__((section(".ext_ram.bss")))
@@ -80,7 +81,6 @@ void GetKeyboard(void) {}
 // Forward declarations for memstream (from libretro-common)
 extern void memstream_set_buffer(uint8_t *buffer, uint64_t size);
 extern uint64_t memstream_get_last_size(void);
-
 
 // Implementation of FCEUSS_Save_Fs and FCEUSS_Load_Fs using memstream
 bool FCEUSS_Save_Fs(const char *path) {
@@ -234,8 +234,10 @@ static void update_audio(int32_t *samples, size_t count) {
 
   for (size_t i = 0; i < count; i++) {
     int32_t s = samples[i];
-    if (s > 32767) s = 32767;
-    else if (s < -32768) s = -32768;
+    if (s > 32767)
+      s = 32767;
+    else if (s < -32768)
+      s = -32768;
     msg->frames[i].left = (int16_t)s;
     msg->frames[i].right = (int16_t)s;
   }
@@ -305,8 +307,11 @@ static void apply_cheat_code(const char *code, const char *name, int status) {
   int comp;
 
   if (!FCEUI_DecodeGG(code, &a_16, &v, &comp)) {
-    RG_LOGE("Invalid Game Genie code: %s\n", code);
-    return;
+    int type = 0;
+    if (!FCEUI_DecodePAR(code, &a_16, &v, &comp, &type)) {
+      RG_LOGE("Invalid cheat code: %s\n", code);
+      return;
+    }
   }
 
   uint32 a = a_16;
@@ -410,13 +415,13 @@ static void save_cheats(void) {
       break;
 
     if (full_name) {
-      int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s\n", 
+      int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s\n",
                          full_name, s ? "ON" : "OFF");
       if (len > 0 && offset + len < buffer_size) {
-          offset += len;
+        offset += len;
       } else {
-          RG_LOGW("Cheat buffer full, some cheats might not be saved!\n");
-          break;
+        RG_LOGW("Cheat buffer full, some cheats might not be saved!\n");
+        break;
       }
     }
   }
@@ -464,7 +469,6 @@ static rg_gui_event_t cheat_toggle_cb(rg_gui_option_t *opt,
 static void handle_cheat_menu(void) {
   static rg_gui_option_t choices[32];
   static char choices_names[32][64];
-  static char choices_values[32][8];
 
   while (true) {
     int count = 0;
@@ -490,21 +494,18 @@ static void handle_cheat_menu(void) {
         strncpy(choices_names[count], full_name, 63);
         choices_names[count][63] = 0;
       }
-
-      strncpy(choices_values[count], s ? "ON" : "OFF", 7);
-      choices_values[count][7] = 0;
+      char *display_name = choices_names[count];
 
       choices[count].flags = RG_DIALOG_FLAG_NORMAL;
-      choices[count].label = choices_names[count];
-      choices[count].value = choices_values[count];
+      choices[count].label = display_name;
+      choices[count].value = s ? "ON" : "OFF";
       choices[count].update_cb = cheat_toggle_cb;
       choices[count].arg = (intptr_t)i;
       count++;
     }
 
     if (count == 0) {
-      rg_gui_alert("Game Genie",
-                   "No codes active. Use 'Load' or 'Add Code'.");
+      rg_gui_alert("Game Genie", "No codes active. Use 'Load' or 'Add Code'.");
       break;
     }
 
@@ -512,14 +513,13 @@ static void handle_cheat_menu(void) {
 
     intptr_t sel_arg = rg_gui_dialog("Game Genie", choices, last_cheat_sel);
 
-
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
   }
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str("Add Code", "Enter Game Genie Code", "");
+  char *code = rg_gui_input_str("Add Code", "Enter Code (GG/PAR)", "");
   if (code) {
     char *name = rg_gui_input_str("Add Code", "Enter Description", "");
     if (name) {
@@ -531,7 +531,6 @@ static void handle_add_cheat_menu(void) {
     free(code);
   }
 }
-
 
 static void handle_delete_cheat_menu(void) {
   static rg_gui_option_t choices[32];
@@ -579,13 +578,13 @@ static void handle_delete_cheat_menu(void) {
 
     intptr_t sel_arg = rg_gui_dialog("Delete Code", choices, 0);
 
-
     if (sel_arg == RG_DIALOG_CANCELLED)
       break;
 
     if (sel_arg >= 0 && sel_arg < 30) {
       FCEUI_DelCheat((uint32)sel_arg);
       save_cheats();
+      // Stay in the menu to delete more or show updated list
     }
   }
 }
@@ -610,7 +609,6 @@ static rg_gui_event_t handle_save_cheats_cb(rg_gui_option_t *opt,
   return RG_DIALOG_VOID;
 }
 
-
 static rg_gui_event_t handle_cheat_list_cb(rg_gui_option_t *opt,
                                            rg_gui_event_t event) {
   if (event == RG_DIALOG_ENTER) {
@@ -620,13 +618,17 @@ static rg_gui_event_t handle_cheat_list_cb(rg_gui_option_t *opt,
   return RG_DIALOG_VOID;
 }
 
-static rg_gui_event_t handle_add_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
-  if (event == RG_DIALOG_ENTER) handle_add_cheat_menu();
+static rg_gui_event_t handle_add_cheat_menu_cb(rg_gui_option_t *opt,
+                                               rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER)
+    handle_add_cheat_menu();
   return RG_DIALOG_VOID;
 }
 
-static rg_gui_event_t handle_delete_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t event) {
-  if (event == RG_DIALOG_ENTER) handle_delete_cheat_menu();
+static rg_gui_event_t handle_delete_cheat_menu_cb(rg_gui_option_t *opt,
+                                                  rg_gui_event_t event) {
+  if (event == RG_DIALOG_ENTER)
+    handle_delete_cheat_menu();
   return RG_DIALOG_VOID;
 }
 
@@ -635,8 +637,10 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
   if (event == RG_DIALOG_ENTER) {
     const rg_gui_option_t choices[] = {
         {0, "Active Codes", ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_list_cb},
-        {0, "Add New Code", "-", RG_DIALOG_FLAG_NORMAL, &handle_add_cheat_menu_cb},
-        {0, "Delete Code", "-", RG_DIALOG_FLAG_NORMAL, &handle_delete_cheat_menu_cb},
+        {0, "Add New Code", "-", RG_DIALOG_FLAG_NORMAL,
+         &handle_add_cheat_menu_cb},
+        {0, "Delete Code", "-", RG_DIALOG_FLAG_NORMAL,
+         &handle_delete_cheat_menu_cb},
         {0, "Load from SD", "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
         {0, "Save to SD", "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},
         RG_DIALOG_END};
@@ -646,7 +650,6 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
   }
   return RG_DIALOG_VOID;
 }
-
 
 static void update_palette(nespal_t type) {
   if (type < 0 || type >= NES_PALETTE_COUNT)
@@ -687,8 +690,9 @@ static rg_gui_event_t palette_selection_cb(rg_gui_option_t *option,
 
   return RG_DIALOG_VOID;
 }
-  
-static rg_gui_event_t frameskip_cb(rg_gui_option_t *option, rg_gui_event_t event) {
+
+static rg_gui_event_t frameskip_cb(rg_gui_option_t *option,
+                                   rg_gui_event_t event) {
   const int8_t modes[] = {0, -1, 1, 2, 3}; // Off, Auto, 1, 2, 3
   int current_idx = 0;
 
@@ -737,7 +741,6 @@ static void options_handler(rg_gui_option_t *dest) {
   *dest++ = (rg_gui_option_t)RG_DIALOG_END;
 }
 
-
 // FDS Functions from fds.h
 extern bool FCEU_FDSIsDiskInserted();
 extern void FCEU_FDSInsert(int oride);
@@ -757,8 +760,9 @@ void fceumm_main(void) {
   };
 
   app = rg_system_reinit(AUDIO_SAMPLE_RATE, &handlers, NULL);
+  rg_system_set_overclock(1);
   current_frameskip = -1;
-  
+
   load_config();
   sync_audio_to_system(); // Initial sync for OC level
 
@@ -776,7 +780,8 @@ void fceumm_main(void) {
   if (st.size > 0) {
     rom_size = st.size;
     // Load small ROMs into Internal RAM for faster access
-    rom_data = rg_alloc(rom_size, (rom_size < 128 * 1024) ? MEM_FAST : MEM_SLOW);
+    rom_data =
+        rg_alloc(rom_size, (rom_size < 128 * 1024) ? MEM_FAST : MEM_SLOW);
     if (rom_data) {
       if (!rg_storage_read_file(app->romPath, &rom_data, &rom_size,
                                 RG_FILE_USER_BUFFER)) {
@@ -830,17 +835,18 @@ void fceumm_main(void) {
   // Initialize Async Audio Pool with Queue size 1 (Strict 100% Speed Lock)
   audio_queue_full = xQueueCreate(1, sizeof(audio_msg_t *));
   audio_queue_empty = xQueueCreate(AUDIO_BUFFER_COUNT, sizeof(audio_msg_t *));
-  
+
   for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
-      audio_msg_t *msg = &audio_pool[i];
-      xQueueSend(audio_queue_empty, &msg, 0);
+    audio_msg_t *msg = &audio_pool[i];
+    xQueueSend(audio_queue_empty, &msg, 0);
   }
 
   rg_task_create("nes_audio", &audio_task, NULL, 3072, RG_TASK_PRIORITY_7, 0);
 
   // Initialize external options
   extern void FCEUI_DisableSpriteLimitation(int a);
-  FCEUI_DisableSpriteLimitation(0); // Restore 8-sprite limit for 240MHz performance
+  FCEUI_DisableSpriteLimitation(
+      0); // Restore 8-sprite limit for 240MHz performance
 
   FSettings.soundq = 0; // Restore LQ mode for FPS stability
   FSettings.SoundVolume = 100;
@@ -955,12 +961,13 @@ void fceumm_main(void) {
 
     // Save config if OC changed from system menu
     static int last_oc = -1;
-    if (last_oc == -1) last_oc = rg_system_get_overclock();
+    if (last_oc == -1)
+      last_oc = rg_system_get_overclock();
     int cur_oc = rg_system_get_overclock();
     if (cur_oc != last_oc) {
-        last_oc = cur_oc;
-        sync_audio_to_system(); // Immediate update for the new clock speed
-        save_config();
+      last_oc = cur_oc;
+      sync_audio_to_system(); // Immediate update for the new clock speed
+      save_config();
     }
 
     int64_t startTime = rg_system_timer();
@@ -1011,15 +1018,18 @@ void fceumm_main(void) {
     // Dynamic frame skipping logic based on actual emulation cost
     // Dynamic frame skipping logic
     if (current_frameskip == 0) {
-       skipFrames = 0;
+      skipFrames = 0;
     } else if (current_frameskip > 0) {
-       if (skipFrames == 0) skipFrames = current_frameskip;
-       else skipFrames--;
+      if (skipFrames == 0)
+        skipFrames = current_frameskip;
+      else
+        skipFrames--;
     } else { // Auto (Prioritize 60 FPS)
       if (skipFrames == 0) {
-        // Only skip if emulation is clearly falling behind ( > 105% of frame time)
+        // Only skip if emulation is clearly falling behind ( > 105% of frame
+        // time)
         if (emulationTime > (app->frameTime * 105 / 100)) {
-           skipFrames = 1;
+          skipFrames = 1;
         }
       } else {
         skipFrames--;
@@ -1032,11 +1042,15 @@ void fceumm_main(void) {
   save_sram();
   FCEUI_CloseGame();
 
-  if (updates[0]) rg_surface_free(updates[0]);
-  if (updates[1]) rg_surface_free(updates[1]);
-  if (updates[2]) rg_surface_free(updates[2]);
-  if (rom_data) free(rom_data);
-  
+  if (updates[0])
+    rg_surface_free(updates[0]);
+  if (updates[1])
+    rg_surface_free(updates[1]);
+  if (updates[2])
+    rg_surface_free(updates[2]);
+  if (rom_data)
+    free(rom_data);
+
   updates[0] = updates[1] = updates[2] = NULL;
   rom_data = NULL;
 }
