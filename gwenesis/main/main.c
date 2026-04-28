@@ -561,9 +561,9 @@ static void handle_cheat_menu(void) {
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str(_("Add Cheat"), _("Enter Code (PAR/GameShark)"), "");
+  char *code = rg_gui_input_str(_("Add Pro Action Replay Code"), _("Enter Code (XXXXXX:YYYY)"), "");
   if (code) {
-    char *name = rg_gui_input_str(_("Add Cheat"), _("Enter Description"), "");
+    char *name = rg_gui_input_str(_("Add Pro Action Replay Code"), _("Enter Description"), "");
 
 
     if (name) {
@@ -657,7 +657,7 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt, rg_gui_event_t 
   if (event == RG_DIALOG_ENTER) {
     const rg_gui_option_t choices[] = {
         {0, _("Active Codes"), ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_list_cb},
-        {0, _("Add New Code"), "-", RG_DIALOG_FLAG_NORMAL, &handle_add_cheat_menu_cb},
+        {0, _("Add Pro Action Replay Code"), "-", RG_DIALOG_FLAG_NORMAL, &handle_add_cheat_menu_cb},
         {0, _("Delete Code"), "-", RG_DIALOG_FLAG_NORMAL, &handle_delete_cheat_menu_cb},
         {0, _("Load from SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_load_cheats_cb},
         {0, _("Save to SD"), "-", RG_DIALOG_FLAG_NORMAL, &handle_save_cheats_cb},

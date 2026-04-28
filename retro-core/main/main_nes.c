@@ -307,11 +307,8 @@ static void apply_cheat_code(const char *code, const char *name, int status) {
   int comp;
 
   if (!FCEUI_DecodeGG(code, &a_16, &v, &comp)) {
-    int type = 0;
-    if (!FCEUI_DecodePAR(code, &a_16, &v, &comp, &type)) {
-      RG_LOGE("Invalid cheat code: %s\n", code);
-      return;
-    }
+    RG_LOGE("Invalid Game Genie code: %s\n", code);
+    return;
   }
 
   uint32 a = a_16;
@@ -320,7 +317,7 @@ static void apply_cheat_code(const char *code, const char *name, int status) {
   char full_desc[128];
   snprintf(full_desc, sizeof(full_desc), "%s|%s", name ? name : "Cheat", code);
   FCEUI_AddCheat(full_desc, a, v, comp,
-                 1); // Always use type 1 (Sub) for GG/PAR
+                 1); // Always use type 1 (Sub) for Game Genie
 
   // Set initial status
   // We identify the cheat by its index, which is the last one added.
@@ -519,9 +516,9 @@ static void handle_cheat_menu(void) {
 }
 
 static void handle_add_cheat_menu(void) {
-  char *code = rg_gui_input_str("Add Code", "Enter Code (GG/PAR)", "");
+  char *code = rg_gui_input_str("Add Game Genie Code", "Enter Code (ABC-DEF)", "");
   if (code) {
-    char *name = rg_gui_input_str("Add Code", "Enter Description", "");
+    char *name = rg_gui_input_str("Add Game Genie Code", "Enter Description", "");
     if (name) {
       apply_cheat_code(code, name, 1);
       save_cheats();
@@ -637,7 +634,7 @@ static rg_gui_event_t handle_cheat_menu_cb(rg_gui_option_t *opt,
   if (event == RG_DIALOG_ENTER) {
     const rg_gui_option_t choices[] = {
         {0, "Active Codes", ">", RG_DIALOG_FLAG_NORMAL, &handle_cheat_list_cb},
-        {0, "Add New Code", "-", RG_DIALOG_FLAG_NORMAL,
+        {0, "Add Game Genie Code", "-", RG_DIALOG_FLAG_NORMAL,
          &handle_add_cheat_menu_cb},
         {0, "Delete Code", "-", RG_DIALOG_FLAG_NORMAL,
          &handle_delete_cheat_menu_cb},
