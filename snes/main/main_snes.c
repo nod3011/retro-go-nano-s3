@@ -622,15 +622,23 @@ static void load_cheats(void) {
     char *ctx;
     char *line = strtok_r((char *)buffer, "\n", &ctx);
     while (line) {
-      char *name = line;
-      char *code = strchr(line, ',');
-      if (code) {
-        *code++ = 0;
-        char *status = strchr(code, ',');
-        if (status) {
-          *status++ = 0;
-          apply_cheat_code(code, name, atoi(status));
+      char *sep1 = strchr(line, '|');
+      if (sep1) {
+        *sep1 = 0;
+        char *name = line;
+        char *code_part = sep1 + 1;
+        int status = 1; // Default to ON
+
+        char *sep2 = strchr(code_part, '|');
+        if (sep2) {
+          *sep2 = 0;
+          char *status_str = sep2 + 1;
+          // Standard check: "OFF" or "0" is false, everything else is true
+          if (strcmp(status_str, "OFF") == 0 || strcmp(status_str, "0") == 0) {
+            status = 0;
+          }
         }
+        apply_cheat_code(code_part, name, status);
       }
       line = strtok_r(NULL, "\n", &ctx);
     }
@@ -666,21 +674,12 @@ static void save_cheats(void) {
     bool status;
     if (!snes_cheat_get(i, &full_name, &addr, &val, &status)) break;
 
-    char name[64];
-    strncpy(name, full_name, 63);
-    name[63] = 0;
-    char *sep = strchr(name, '|');
-    if (sep) *sep = 0;
-
-    char code[16];
-    if (sep) strncpy(code, sep + 1, 15);
-    else snprintf(code, 15, "%06X%02X", (unsigned int)addr, (unsigned int)val);
-    code[15] = 0;
-
-    int len = snprintf(buffer + offset, buffer_size - offset, "%s,%s,%d\n", 
-                       name, code, status ? 1 : 0);
-    if (len > 0 && offset + len < buffer_size) offset += len;
-    else break;
+    if (full_name) {
+      int len = snprintf(buffer + offset, buffer_size - offset, "%s|%s\n", 
+                         full_name, status ? "ON" : "OFF");
+      if (len > 0 && offset + len < buffer_size) offset += len;
+      else break;
+    }
   }
 
   if (offset > 0) rg_storage_write_file(path, buffer, offset, 0);
